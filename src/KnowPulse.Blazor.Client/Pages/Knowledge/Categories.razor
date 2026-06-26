@@ -1,0 +1,270 @@
+@page "/knowledge/categories"
+@attribute [Authorize(KnowPulsePermissions.KnowledgeBase.Categories)]
+@inherits KnowPulseComponentBase
+@inject IKnowledgeCategoryAppService CategoryAppService
+
+<PageTitle>知识分类</PageTitle>
+
+<div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+    <div>
+        <h1 class="h4 mb-1">知识分类</h1>
+        <div class="text-muted small">KnowledgeBase / Categories</div>
+    </div>
+    <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="LoadAsync" disabled="@IsBusy">刷新</button>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(ErrorMessage))
+{
+    <div class="alert alert-danger d-flex flex-wrap align-items-center justify-content-between gap-2" role="alert">
+        <span>@ErrorMessage</span>
+        <button class="btn btn-sm btn-outline-danger" type="button" @onclick="LoadAsync" disabled="@IsBusy">重试</button>
+    </div>
+}
+
+<div class="row g-3">
+    <div class="col-lg-4">
+        <div class="card">
+            <div class="card-body">
+                <h2 class="h6 mb-3">@FormTitle</h2>
+                <EditForm Model="@FormModel" OnValidSubmit="@SaveAsync">
+                    <DataAnnotationsValidator />
+
+                    <div class="mb-3">
+                        <label class="form-label" for="category-code">编码</label>
+                        <input id="category-code" class="form-control" @bind="FormModel.Code" @bind:event="oninput" />
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label" for="category-name">名称</label>
+                        <input id="category-name" class="form-control" @bind="FormModel.Name" @bind:event="oninput" />
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label" for="category-parent">上级分类</label>
+                        <select id="category-parent" class="form-select" @bind="FormModel.ParentIdText">
+                            <option value="">无</option>
+                            @foreach (var category in CategoryOptionList.Where(x => EditingId == null || x.Id != EditingId.Value))
+                            {
+                                <option value="@category.Id">@category.Name</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="form-check form-switch mb-3">
+                        <InputCheckbox id="category-active" class="form-check-input" @bind-Value="FormModel.IsActive" />
+                        <label class="form-check-label" for="category-active">启用</label>
+                    </div>
+
+                    <div class="d-flex gap-2">
+                        <button class="btn btn-primary" type="submit" disabled="@IsBusy">保存</button>
+                        <button class="btn btn-outline-secondary" type="button" @onclick="ResetForm" disabled="@IsBusy">取消</button>
+                    </div>
+                </EditForm>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-8">
+        <div class="card">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th>编码</th>
+                            <th>名称</th>
+                            <th>上级分类</th>
+                            <th>状态</th>
+                            <th class="text-end">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (IsLoading)
+                        {
+                            <tr>
+                                <td colspan="5" class="text-center py-4 text-muted">加载中</td>
+                            </tr>
+                        }
+                        else if (CategoryList.Count == 0)
+                        {
+                            <tr>
+                                <td colspan="5" class="text-center py-4 text-muted">暂无数据</td>
+                            </tr>
+                        }
+                        else
+                        {
+                            @foreach (var category in CategoryList)
+                            {
+                                <tr>
+                                    <td class="fw-semibold">@category.Code</td>
+                                    <td>@category.Name</td>
+                                    <td>@GetCategoryName(category.ParentId)</td>
+                                    <td>
+                                        <span class="badge @(category.IsActive ? "bg-success" : "bg-secondary")">
+                                            @(category.IsActive ? "启用" : "停用")
+                                        </span>
+                                    </td>
+                                    <td class="text-end">
+                                        <button class="btn btn-link btn-sm" type="button" @onclick="() => Edit(category)">编辑</button>
+                                        <button class="btn btn-link btn-sm text-danger" type="button" @onclick="() => DeleteAsync(category.Id)">删除</button>
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+            <MvpPager SkipCount="SkipCount" PageSize="PageSize" TotalCount="TotalCount" IsBusy="IsBusy" OnSkipCountChanged="ChangePageAsync" />
+        </div>
+    </div>
+</div>
+
+@code {
+    private const int PageSize = 20;
+    private readonly List<KnowledgeCategoryDto> CategoryList = new();
+    private readonly List<KnowledgeCategoryDto> CategoryOptionList = new();
+    private CategoryFormModel FormModel { get; set; } = new();
+    private Guid? EditingId { get; set; }
+    private int SkipCount { get; set; }
+    private long TotalCount { get; set; }
+    private bool IsLoading { get; set; }
+    private bool IsBusy { get; set; }
+    private string? ErrorMessage { get; set; }
+    private string FormTitle => EditingId.HasValue ? "编辑分类" : "新增分类";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        await RunBusyAsync(async () =>
+        {
+            IsLoading = true;
+            var categoryOptions = await CategoryAppService.GetListAsync(new PagedAndSortedResultRequestDto { MaxResultCount = 100 });
+            var result = await CategoryAppService.GetListAsync(new PagedAndSortedResultRequestDto
+            {
+                SkipCount = SkipCount,
+                MaxResultCount = PageSize
+            });
+            CategoryOptionList.Clear();
+            CategoryOptionList.AddRange(categoryOptions.Items.OrderBy(x => x.Code));
+            CategoryList.Clear();
+            CategoryList.AddRange(result.Items.OrderBy(x => x.Code));
+            TotalCount = result.TotalCount;
+            IsLoading = false;
+        });
+    }
+
+    private async Task ChangePageAsync(int skipCount)
+    {
+        SkipCount = skipCount;
+        await LoadAsync();
+    }
+
+    private async Task SaveAsync()
+    {
+        await RunBusyAsync(async () =>
+        {
+            var input = new CreateUpdateKnowledgeCategoryDto
+            {
+                ParentId = ParseNullableGuid(FormModel.ParentIdText),
+                Code = FormModel.Code.Trim(),
+                Name = FormModel.Name.Trim(),
+                IsActive = FormModel.IsActive
+            };
+
+            if (EditingId.HasValue)
+            {
+                await CategoryAppService.UpdateAsync(EditingId.Value, input);
+            }
+            else
+            {
+                await CategoryAppService.CreateAsync(input);
+            }
+
+            ResetForm();
+            await LoadAsync();
+        });
+    }
+
+    private void Edit(KnowledgeCategoryDto category)
+    {
+        EditingId = category.Id;
+        FormModel = new CategoryFormModel
+        {
+            ParentIdText = category.ParentId?.ToString() ?? string.Empty,
+            Code = category.Code,
+            Name = category.Name,
+            IsActive = category.IsActive
+        };
+    }
+
+    private async Task DeleteAsync(Guid id)
+    {
+        await RunBusyAsync(async () =>
+        {
+            await CategoryAppService.DeleteAsync(id);
+            if (EditingId == id)
+            {
+                ResetForm();
+            }
+            await LoadAsync();
+        });
+    }
+
+    private void ResetForm()
+    {
+        EditingId = null;
+        FormModel = new CategoryFormModel();
+    }
+
+    private string GetCategoryName(Guid? id)
+    {
+        if (id == null)
+        {
+            return "-";
+        }
+
+        return CategoryOptionList.FirstOrDefault(x => x.Id == id.Value)?.Name ?? id.Value.ToString("N");
+    }
+
+    private static Guid? ParseNullableGuid(string? value)
+    {
+        return Guid.TryParse(value, out var id) ? id : null;
+    }
+
+    private async Task RunBusyAsync(Func<Task> action)
+    {
+        try
+        {
+            ErrorMessage = null;
+            IsBusy = true;
+            await action();
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = GetUserFriendlyErrorMessage(ex);
+        }
+        finally
+        {
+            IsBusy = false;
+            IsLoading = false;
+        }
+    }
+
+    private class CategoryFormModel
+    {
+        public string? ParentIdText { get; set; }
+
+        [Required]
+        [StringLength(64)]
+        public string Code { get; set; } = string.Empty;
+
+        [Required]
+        [StringLength(128)]
+        public string Name { get; set; } = string.Empty;
+
+        public bool IsActive { get; set; } = true;
+    }
+}

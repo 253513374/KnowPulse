@@ -1,0 +1,31 @@
+{
+  "culture": "zh-Hans",
+  "texts": {
+    "AppName": "KnowPulse",
+    "Menu:Home": "首页",
+    "Menu:Organization": "组织管理",
+    "Menu:Departments": "部门",
+    "Menu:Positions": "岗位",
+    "Menu:JobLevels": "职级",
+    "Menu:UserAssignments": "用户组织关系",
+    "Menu:KnowledgeBase": "知识库",
+    "Menu:KnowledgeItems": "知识文档",
+    "Menu:KnowledgeCategories": "知识分类",
+    "Menu:KnowledgeTags": "标签",
+    "Menu:KnowledgePermissionScopes": "权限范围",
+    "Permission:Organization": "组织管理",
+    "Permission:Organization.Departments": "管理部门",
+    "Permission:Organization.Positions": "管理岗位",
+    "Permission:Organization.JobLevels": "管理职级",
+    "Permission:Organization.UserAssignments": "管理用户组织关系",
+    "Permission:KnowledgeBase": "知识库",
+    "Permission:KnowledgeBase.Categories": "管理知识分类",
+    "Permission:KnowledgeBase.Tags": "管理标签",
+    "Permission:KnowledgeBase.Items": "管理知识文档",
+    "Permission:KnowledgeBase.Versions": "管理知识版本",
+    "Permission:KnowledgeBase.Attachments": "管理知识附件",
+    "Permission:KnowledgeBase.PermissionScopes": "管理知识权限范围",
+    "Welcome": "欢迎",
+    "LongWelcomeMessage": "欢迎使用本应用程序。这是一个基于 ABP 框架的启动项目。更多信息，请访问 abp.io。"
+  }
+}

@@ -1,0 +1,282 @@
+@page "/organization/departments"
+@attribute [Authorize(KnowPulsePermissions.Organization.Departments)]
+@inherits KnowPulseComponentBase
+@inject IDepartmentAppService DepartmentAppService
+
+<PageTitle>部门</PageTitle>
+
+<div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+    <div>
+        <h1 class="h4 mb-1">部门</h1>
+        <div class="text-muted small">Organization / Departments</div>
+    </div>
+    <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="LoadAsync" disabled="@IsBusy">刷新</button>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(ErrorMessage))
+{
+    <div class="alert alert-danger d-flex flex-wrap align-items-center justify-content-between gap-2" role="alert">
+        <span>@ErrorMessage</span>
+        <button class="btn btn-sm btn-outline-danger" type="button" @onclick="LoadAsync" disabled="@IsBusy">重试</button>
+    </div>
+}
+
+<div class="row g-3">
+    <div class="col-lg-4">
+        <div class="card">
+            <div class="card-body">
+                <h2 class="h6 mb-3">@FormTitle</h2>
+                <EditForm Model="@FormModel" OnValidSubmit="@SaveAsync">
+                    <DataAnnotationsValidator />
+
+                    <div class="mb-3">
+                        <label class="form-label" for="department-code">编码</label>
+                        <input id="department-code" class="form-control" @bind="FormModel.Code" @bind:event="oninput" />
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label" for="department-name">名称</label>
+                        <input id="department-name" class="form-control" @bind="FormModel.Name" @bind:event="oninput" />
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label" for="department-parent">上级部门</label>
+                        <select id="department-parent" class="form-select" @bind="FormModel.ParentIdText">
+                            <option value="">无</option>
+                            @foreach (var department in DepartmentOptionList.Where(x => EditingId == null || x.Id != EditingId.Value))
+                            {
+                                <option value="@department.Id">@department.Name</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label" for="department-security">安全等级</label>
+                        <InputNumber id="department-security" class="form-control" @bind-Value="FormModel.SecurityLevel" />
+                    </div>
+
+                    <div class="form-check form-switch mb-3">
+                        <InputCheckbox id="department-active" class="form-check-input" @bind-Value="FormModel.IsActive" />
+                        <label class="form-check-label" for="department-active">启用</label>
+                    </div>
+
+                    <div class="d-flex gap-2">
+                        <button class="btn btn-primary" type="submit" disabled="@IsBusy">保存</button>
+                        <button class="btn btn-outline-secondary" type="button" @onclick="ResetForm" disabled="@IsBusy">取消</button>
+                    </div>
+                </EditForm>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-8">
+        <div class="card">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th>编码</th>
+                            <th>名称</th>
+                            <th>上级部门</th>
+                            <th>安全等级</th>
+                            <th>状态</th>
+                            <th class="text-end">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (IsLoading)
+                        {
+                            <tr>
+                                <td colspan="6" class="text-center py-4 text-muted">加载中</td>
+                            </tr>
+                        }
+                        else if (DepartmentList.Count == 0)
+                        {
+                            <tr>
+                                <td colspan="6" class="text-center py-4 text-muted">暂无数据</td>
+                            </tr>
+                        }
+                        else
+                        {
+                            @foreach (var department in DepartmentList)
+                            {
+                                <tr>
+                                    <td class="fw-semibold">@department.Code</td>
+                                    <td>@department.Name</td>
+                                    <td>@GetDepartmentName(department.ParentId)</td>
+                                    <td>@department.SecurityLevel</td>
+                                    <td>
+                                        <span class="badge @(department.IsActive ? "bg-success" : "bg-secondary")">
+                                            @(department.IsActive ? "启用" : "停用")
+                                        </span>
+                                    </td>
+                                    <td class="text-end">
+                                        <button class="btn btn-link btn-sm" type="button" @onclick="() => Edit(department)">编辑</button>
+                                        <button class="btn btn-link btn-sm text-danger" type="button" @onclick="() => DeleteAsync(department.Id)">删除</button>
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+            <MvpPager SkipCount="SkipCount" PageSize="PageSize" TotalCount="TotalCount" IsBusy="IsBusy" OnSkipCountChanged="ChangePageAsync" />
+        </div>
+    </div>
+</div>
+
+@code {
+    private const int PageSize = 20;
+    private readonly List<DepartmentDto> DepartmentList = new();
+    private readonly List<DepartmentDto> DepartmentOptionList = new();
+    private DepartmentFormModel FormModel { get; set; } = new();
+    private Guid? EditingId { get; set; }
+    private int SkipCount { get; set; }
+    private long TotalCount { get; set; }
+    private bool IsLoading { get; set; }
+    private bool IsBusy { get; set; }
+    private string? ErrorMessage { get; set; }
+    private string FormTitle => EditingId.HasValue ? "编辑部门" : "新增部门";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        await RunBusyAsync(async () =>
+        {
+            IsLoading = true;
+            var departmentOptions = await DepartmentAppService.GetListAsync(new PagedAndSortedResultRequestDto { MaxResultCount = 100 });
+            var result = await DepartmentAppService.GetListAsync(new PagedAndSortedResultRequestDto
+            {
+                SkipCount = SkipCount,
+                MaxResultCount = PageSize
+            });
+            DepartmentOptionList.Clear();
+            DepartmentOptionList.AddRange(departmentOptions.Items.OrderBy(x => x.Code));
+            DepartmentList.Clear();
+            DepartmentList.AddRange(result.Items.OrderBy(x => x.Code));
+            TotalCount = result.TotalCount;
+            IsLoading = false;
+        });
+    }
+
+    private async Task ChangePageAsync(int skipCount)
+    {
+        SkipCount = skipCount;
+        await LoadAsync();
+    }
+
+    private async Task SaveAsync()
+    {
+        await RunBusyAsync(async () =>
+        {
+            var input = new CreateUpdateDepartmentDto
+            {
+                ParentId = ParseNullableGuid(FormModel.ParentIdText),
+                Code = FormModel.Code.Trim(),
+                Name = FormModel.Name.Trim(),
+                SecurityLevel = FormModel.SecurityLevel,
+                IsActive = FormModel.IsActive
+            };
+
+            if (EditingId.HasValue)
+            {
+                await DepartmentAppService.UpdateAsync(EditingId.Value, input);
+            }
+            else
+            {
+                await DepartmentAppService.CreateAsync(input);
+            }
+
+            ResetForm();
+            await LoadAsync();
+        });
+    }
+
+    private void Edit(DepartmentDto department)
+    {
+        EditingId = department.Id;
+        FormModel = new DepartmentFormModel
+        {
+            ParentIdText = department.ParentId?.ToString() ?? string.Empty,
+            Code = department.Code,
+            Name = department.Name,
+            SecurityLevel = department.SecurityLevel,
+            IsActive = department.IsActive
+        };
+    }
+
+    private async Task DeleteAsync(Guid id)
+    {
+        await RunBusyAsync(async () =>
+        {
+            await DepartmentAppService.DeleteAsync(id);
+            if (EditingId == id)
+            {
+                ResetForm();
+            }
+            await LoadAsync();
+        });
+    }
+
+    private void ResetForm()
+    {
+        EditingId = null;
+        FormModel = new DepartmentFormModel();
+    }
+
+    private string GetDepartmentName(Guid? id)
+    {
+        if (id == null)
+        {
+            return "-";
+        }
+
+        return DepartmentOptionList.FirstOrDefault(x => x.Id == id.Value)?.Name ?? id.Value.ToString("N");
+    }
+
+    private static Guid? ParseNullableGuid(string? value)
+    {
+        return Guid.TryParse(value, out var id) ? id : null;
+    }
+
+    private async Task RunBusyAsync(Func<Task> action)
+    {
+        try
+        {
+            ErrorMessage = null;
+            IsBusy = true;
+            await action();
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = GetUserFriendlyErrorMessage(ex);
+        }
+        finally
+        {
+            IsBusy = false;
+            IsLoading = false;
+        }
+    }
+
+    private class DepartmentFormModel
+    {
+        public string? ParentIdText { get; set; }
+
+        [Required]
+        [StringLength(64)]
+        public string Code { get; set; } = string.Empty;
+
+        [Required]
+        [StringLength(128)]
+        public string Name { get; set; } = string.Empty;
+
+        [Range(0, int.MaxValue)]
+        public int SecurityLevel { get; set; }
+
+        public bool IsActive { get; set; } = true;
+    }
+}

@@ -1,0 +1,62 @@
+name: knowpulse
+
+services:
+  postgres:
+    image: ${POSTGRES_IMAGE:-postgres:18-alpine}
+    container_name: knowpulse-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-root}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-myPassword}
+      POSTGRES_DB: ${POSTGRES_DB:-KnowPulse}
+    ports:
+      - "${KNOWPULSE_POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - knowpulse-postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  minio:
+    image: ${MINIO_IMAGE:-minio/minio:RELEASE.2025-09-07T16-13-09Z}
+    container_name: knowpulse-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-knowpulse}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-knowpulse-local-password}
+    ports:
+      - "${KNOWPULSE_MINIO_API_PORT:-9000}:9000"
+      - "${KNOWPULSE_MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - knowpulse-minio-data:/data
+
+  qdrant:
+    image: ${QDRANT_IMAGE:-qdrant/qdrant:v1.15.1}
+    container_name: knowpulse-qdrant
+    restart: unless-stopped
+    ports:
+      - "${KNOWPULSE_QDRANT_HTTP_PORT:-6333}:6333"
+      - "${KNOWPULSE_QDRANT_GRPC_PORT:-6334}:6334"
+    volumes:
+      - knowpulse-qdrant-data:/qdrant/storage
+
+  litellm:
+    image: ${LITELLM_IMAGE:-ghcr.io/berriai/litellm:main-stable}
+    container_name: knowpulse-litellm
+    restart: unless-stopped
+    command: ["--config", "/app/config.yaml", "--host", "0.0.0.0", "--port", "4000"]
+    environment:
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-local-dev-only}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    ports:
+      - "${KNOWPULSE_LITELLM_PORT:-4000}:4000"
+    volumes:
+      - ./deploy/litellm/config.example.yaml:/app/config.yaml:ro
+
+volumes:
+  knowpulse-postgres-data:
+  knowpulse-minio-data:
+  knowpulse-qdrant-data:

@@ -1,0 +1,475 @@
+[CmdletBinding()]
+param(
+    [string]$ApiBaseUrl = "https://localhost:44305",
+    [string]$BlazorBaseUrl = "https://localhost:44307",
+    [string]$AdminUserName = "admin",
+    [string]$AdminPassword = "1q2w3E*",
+    [string]$AttachmentPath = "",
+    [switch]$EnsureDemoSeed,
+    [switch]$RequireEndpoints,
+    [switch]$RequireBrowserAutomation
+)
+
+$ErrorActionPreference = "Stop"
+
+$repoRoot = Split-Path -Parent $PSScriptRoot
+$checks = New-Object System.Collections.Generic.List[object]
+
+function Add-Check {
+    param(
+        [string]$Name,
+        [string]$Status,
+        [string]$Detail
+    )
+
+    $checks.Add([pscustomobject]@{
+        Name = $Name
+        Status = $Status
+        Detail = $Detail
+    }) | Out-Null
+}
+
+function Read-TextFileOrEmpty {
+    param([string]$Path)
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return ""
+    }
+
+    $value = Get-Content -LiteralPath $Path -Raw -ErrorAction SilentlyContinue
+    if ($null -eq $value) {
+        return ""
+    }
+
+    return ([string]$value).Trim()
+}
+
+function Get-HttpStatusWithWebRequest {
+    param([string]$Url)
+
+    $previousCertificateCallback = [System.Net.ServicePointManager]::ServerCertificateValidationCallback
+    [System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
+    $response = $null
+
+    try {
+        $request = [System.Net.WebRequest]::Create($Url)
+        $request.AllowAutoRedirect = $false
+        $request.Timeout = 10000
+
+        try {
+            $response = $request.GetResponse()
+        }
+        catch [System.Net.WebException] {
+            if ($_.Exception.Response -eq $null) {
+                throw
+            }
+
+            $response = $_.Exception.Response
+        }
+
+        return [int]$response.StatusCode
+    }
+    finally {
+        if ($response -ne $null) {
+            $response.Dispose()
+        }
+
+        [System.Net.ServicePointManager]::ServerCertificateValidationCallback = $previousCertificateCallback
+    }
+}
+
+function Test-HttpStatus {
+    param(
+        [string]$Name,
+        [string]$Url,
+        [int[]]$ExpectedStatusCodes
+    )
+
+    $tempOutput = [System.IO.Path]::GetTempFileName()
+    $statusOutput = [System.IO.Path]::GetTempFileName()
+    $errorOutput = [System.IO.Path]::GetTempFileName()
+    $unavailableStatus = if ($RequireEndpoints) { "Fail" } else { "Warn" }
+    try {
+        $curl = Get-Command curl.exe -ErrorAction SilentlyContinue
+        if ($curl -eq $null) {
+            Add-Check -Name $Name -Status $unavailableStatus -Detail "curl.exe is required."
+            return
+        }
+
+        $process = Start-Process `
+            -FilePath $curl.Source `
+            -ArgumentList @("-k", "-s", "-o", $tempOutput, "-w", "%{http_code}", "--max-time", "10", $Url) `
+            -NoNewWindow `
+            -Wait `
+            -PassThru `
+            -RedirectStandardOutput $statusOutput `
+            -RedirectStandardError $errorOutput
+        $curlExitCode = $process.ExitCode
+        $statusText = Read-TextFileOrEmpty -Path $statusOutput
+        if ($curlExitCode -ne 0) {
+            try {
+                $statusCode = Get-HttpStatusWithWebRequest -Url $Url
+                if ($ExpectedStatusCodes -contains $statusCode) {
+                    Add-Check -Name $Name -Status "Pass" -Detail "$Url -> HTTP $statusCode via WebRequest after curl.exe code $curlExitCode."
+                    return
+                }
+
+                Add-Check -Name $Name -Status $unavailableStatus -Detail "$Url returned HTTP $statusCode via WebRequest after curl.exe code $curlExitCode; expected $($ExpectedStatusCodes -join ', ')."
+                return
+            }
+            catch {
+                $curlError = Read-TextFileOrEmpty -Path $errorOutput
+                Add-Check -Name $Name -Status $unavailableStatus -Detail "curl.exe exited with code $curlExitCode for $Url. stderr=$curlError WebRequest fallback failed: $($_.Exception.Message)"
+            }
+
+            return
+        }
+
+        $statusCode = [int]$statusText
+        if ($ExpectedStatusCodes -contains $statusCode) {
+            Add-Check -Name $Name -Status "Pass" -Detail "$Url -> HTTP $statusCode (curlExit=$curlExitCode, statusText=$statusText)"
+            return
+        }
+
+        Add-Check -Name $Name -Status $unavailableStatus -Detail "$Url returned HTTP $statusCode (curlExit=$curlExitCode, statusText=$statusText); expected $($ExpectedStatusCodes -join ', ')."
+    }
+    finally {
+        Remove-Item -LiteralPath $tempOutput -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $statusOutput -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $errorOutput -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Ensure-DemoAttachmentFile {
+    param([string]$Path)
+
+    $directory = Split-Path -Parent $Path
+    New-Item -ItemType Directory -Path $directory -Force | Out-Null
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        @(
+            "KnowPulse demo attachment",
+            "Generated by ops/check-page-attachment-prereqs.ps1.",
+            "This file contains synthetic demo content only."
+        ) | Set-Content -LiteralPath $Path -Encoding UTF8
+    }
+}
+
+function Find-ChromePluginRoot {
+    $cacheRoot = Join-Path $env:USERPROFILE ".codex\plugins\cache\openai-bundled\chrome"
+    if (-not (Test-Path -LiteralPath $cacheRoot)) {
+        return $null
+    }
+
+    $versionedDirectories = Get-ChildItem -LiteralPath $cacheRoot -Directory -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -match '^\d+(\.\d+)+$' } |
+        Sort-Object -Property @{ Expression = { [version]$_.Name }; Descending = $true }
+
+    $fallbackDirectories = Get-ChildItem -LiteralPath $cacheRoot -Directory -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -notmatch '^\d+(\.\d+)+$' } |
+        Sort-Object -Property Name -Descending
+
+    $versions = @($versionedDirectories) + @($fallbackDirectories)
+
+    foreach ($version in $versions) {
+        $clientPath = Join-Path $version.FullName "scripts\browser-client.mjs"
+        if (Test-Path -LiteralPath $clientPath) {
+            return $version.FullName
+        }
+    }
+
+    return $null
+}
+
+function Invoke-ChromePluginScript {
+    param([string]$ScriptName)
+
+    $pluginRoot = Find-ChromePluginRoot
+    if ([string]::IsNullOrWhiteSpace($pluginRoot)) {
+        return [pscustomobject]@{
+            Available = $false
+            ExitCode = $null
+            Json = $null
+            Text = "Chrome plugin scripts were not found."
+            ScriptPath = $null
+        }
+    }
+
+    if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
+        return [pscustomobject]@{
+            Available = $false
+            ExitCode = $null
+            Json = $null
+            Text = "node is required to run Chrome plugin scripts."
+            ScriptPath = $null
+        }
+    }
+
+    $scriptPath = Join-Path $pluginRoot ("scripts\" + $ScriptName)
+    if (-not (Test-Path -LiteralPath $scriptPath)) {
+        return [pscustomobject]@{
+            Available = $false
+            ExitCode = $null
+            Json = $null
+            Text = "$scriptPath was not found."
+            ScriptPath = $scriptPath
+        }
+    }
+
+    $stdoutPath = [System.IO.Path]::GetTempFileName()
+    $stderrPath = [System.IO.Path]::GetTempFileName()
+    $nodePath = (Get-Command node -ErrorAction Stop).Source
+
+    try {
+        $process = Start-Process `
+            -FilePath $nodePath `
+            -ArgumentList @($scriptPath, "--json") `
+            -NoNewWindow `
+            -Wait `
+            -PassThru `
+            -RedirectStandardOutput $stdoutPath `
+            -RedirectStandardError $stderrPath
+        $exitCode = $process.ExitCode
+        $outputText = Read-TextFileOrEmpty -Path $stdoutPath
+        $errorText = Read-TextFileOrEmpty -Path $stderrPath
+        if ([string]::IsNullOrWhiteSpace($outputText)) {
+            $outputText = $errorText
+        }
+    }
+    finally {
+        Remove-Item -LiteralPath $stdoutPath -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $stderrPath -Force -ErrorAction SilentlyContinue
+    }
+
+    $json = $null
+    try {
+        if (-not [string]::IsNullOrWhiteSpace($outputText)) {
+            $json = $outputText | ConvertFrom-Json
+        }
+    }
+    catch {
+        $json = $null
+    }
+
+    return [pscustomobject]@{
+        Available = $true
+        ExitCode = $exitCode
+        Json = $json
+        Text = $outputText
+        ScriptPath = $scriptPath
+    }
+}
+
+function Test-ChromeExtension {
+    $extensionCheck = Invoke-ChromePluginScript -ScriptName "check-extension-installed.js"
+    if (-not $extensionCheck.Available) {
+        return [pscustomobject]@{
+            Status = "Warn"
+            Detail = $extensionCheck.Text
+        }
+    }
+
+    if ($extensionCheck.ExitCode -eq 0 -and $extensionCheck.Json -ne $null -and $extensionCheck.Json.installed -eq $true -and $extensionCheck.Json.enabled -eq $true) {
+        return [pscustomobject]@{
+            Status = "Pass"
+            Detail = "Installed and enabled in selected profile: $($extensionCheck.Json.selectedProfileDirectory); script: $($extensionCheck.ScriptPath)"
+        }
+    }
+
+    $status = if ($RequireBrowserAutomation) { "Fail" } else { "Warn" }
+    return [pscustomobject]@{
+        Status = $status
+        Detail = "Codex Chrome Extension is not ready in selected profile. ExitCode=$($extensionCheck.ExitCode). $($extensionCheck.Text)"
+    }
+}
+
+function Test-NativeHostRegistry {
+    $registryPath = "HKCU:\Software\Google\Chrome\NativeMessagingHosts\com.openai.codexextension"
+    $key = Get-Item -Path $registryPath -ErrorAction SilentlyContinue
+    if ($null -eq $key) {
+        $status = if ($RequireBrowserAutomation) { "Fail" } else { "Warn" }
+        return [pscustomobject]@{
+            Status = $status
+            Detail = "$registryPath is missing."
+        }
+    }
+
+    $manifestPath = $key.GetValue("")
+    if ([string]::IsNullOrWhiteSpace($manifestPath)) {
+        $status = if ($RequireBrowserAutomation) { "Fail" } else { "Warn" }
+        return [pscustomobject]@{
+            Status = $status
+            Detail = "$registryPath exists but default manifest path is empty."
+        }
+    }
+
+    if (-not (Test-Path -LiteralPath $manifestPath)) {
+        $status = if ($RequireBrowserAutomation) { "Fail" } else { "Warn" }
+        return [pscustomobject]@{
+            Status = $status
+            Detail = "$registryPath points to missing manifest: $manifestPath"
+        }
+    }
+
+    try {
+        $manifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    }
+    catch {
+        $status = if ($RequireBrowserAutomation) { "Fail" } else { "Warn" }
+        return [pscustomobject]@{
+            Status = $status
+            Detail = "Manifest JSON cannot be parsed: $manifestPath. $($_.Exception.Message)"
+        }
+    }
+
+    $expectedOrigin = "chrome-extension://hehggadaopoacecdllhhajmbjkdcmajg/"
+    $allowedOrigins = @($manifest.allowed_origins)
+    if ($manifest.name -ne "com.openai.codexextension" -or $allowedOrigins -notcontains $expectedOrigin) {
+        $status = if ($RequireBrowserAutomation) { "Fail" } else { "Warn" }
+        return [pscustomobject]@{
+            Status = $status
+            Detail = "Manifest does not match expected native host name/origin: $manifestPath"
+        }
+    }
+
+    if ([string]::IsNullOrWhiteSpace($manifest.path) -or -not (Test-Path -LiteralPath $manifest.path)) {
+        $status = if ($RequireBrowserAutomation) { "Fail" } else { "Warn" }
+        return [pscustomobject]@{
+            Status = $status
+            Detail = "Manifest host executable is missing: $($manifest.path)"
+        }
+    }
+
+    return [pscustomobject]@{
+        Status = "Pass"
+        Detail = "$registryPath -> $manifestPath -> $($manifest.path)"
+    }
+}
+
+function Test-NativeHostOfficial {
+    $manifestCheck = Invoke-ChromePluginScript -ScriptName "check-native-host-manifest.js"
+    if ($manifestCheck.Available) {
+        if ($manifestCheck.ExitCode -eq 0 -and $manifestCheck.Json -ne $null -and $manifestCheck.Json.correct -eq $true) {
+            return [pscustomobject]@{
+                Status = "Pass"
+                Detail = "Chrome plugin check passed: $($manifestCheck.Json.manifestPath); script: $($manifestCheck.ScriptPath)"
+            }
+        }
+
+        $status = if ($RequireBrowserAutomation) { "Fail" } else { "Warn" }
+        return [pscustomobject]@{
+            Status = $status
+            Detail = "Chrome plugin check failed. $($manifestCheck.Json.problem); script: $($manifestCheck.ScriptPath); exitCode=$($manifestCheck.ExitCode)"
+        }
+    }
+
+    $registryPaths = @(
+        "HKCU:\Software\Google\Chrome\NativeMessagingHosts\com.openai.codexextension",
+        "HKLM:\Software\Google\Chrome\NativeMessagingHosts\com.openai.codexextension",
+        "HKLM:\Software\WOW6432Node\Google\Chrome\NativeMessagingHosts\com.openai.codexextension"
+    )
+
+    foreach ($registryPath in $registryPaths) {
+        $key = Get-Item -Path $registryPath -ErrorAction SilentlyContinue
+        if ($null -eq $key) {
+            continue
+        }
+
+        $manifestPath = $key.GetValue("")
+        if ([string]::IsNullOrWhiteSpace($manifestPath)) {
+            return [pscustomobject]@{
+                Status = "Fail"
+                Detail = "$registryPath exists but has no default manifest path."
+            }
+        }
+
+        if (Test-Path -LiteralPath $manifestPath) {
+            return [pscustomobject]@{
+                Status = "Pass"
+                Detail = "$registryPath -> $manifestPath"
+            }
+        }
+
+        return [pscustomobject]@{
+            Status = "Fail"
+            Detail = "$registryPath points to missing manifest: $manifestPath"
+        }
+    }
+
+    return [pscustomobject]@{
+        Status = $(if ($RequireBrowserAutomation) { "Fail" } else { "Warn" })
+        Detail = "Chrome native messaging host registry key is missing. Reinstall or repair the Codex Chrome plugin before browser automation."
+    }
+}
+
+Push-Location $repoRoot
+try {
+    if ([string]::IsNullOrWhiteSpace($AttachmentPath)) {
+        $AttachmentPath = Join-Path $repoRoot "artifacts\demo-seed\knowpulse-demo-attachment.txt"
+    }
+
+    Ensure-DemoAttachmentFile -Path $AttachmentPath
+    $attachmentItem = Get-Item -LiteralPath $AttachmentPath
+    if ($attachmentItem.Length -gt 0) {
+        Add-Check -Name "Generated attachment fixture" -Status "Pass" -Detail $attachmentItem.FullName
+    }
+    else {
+        Add-Check -Name "Generated attachment fixture" -Status "Fail" -Detail "$AttachmentPath is empty."
+    }
+
+    Test-HttpStatus -Name "Blazor shell" -Url "$BlazorBaseUrl/" -ExpectedStatusCodes @(200)
+    Test-HttpStatus -Name "Knowledge items page route" -Url "$BlazorBaseUrl/knowledge/items" -ExpectedStatusCodes @(200)
+    Test-HttpStatus -Name "API login page" -Url "$ApiBaseUrl/Account/Login" -ExpectedStatusCodes @(200)
+
+    if ($EnsureDemoSeed) {
+        try {
+            & .\ops\seed-demo-data.ps1 `
+                -ApiBaseUrl $ApiBaseUrl `
+                -AdminUserName $AdminUserName `
+                -AdminPassword $AdminPassword `
+                -AttachmentPath $AttachmentPath
+
+            if ($LASTEXITCODE -ne 0) {
+                Add-Check -Name "Demo seed data" -Status "Fail" -Detail "ops/seed-demo-data.ps1 exited with code $LASTEXITCODE."
+            }
+            else {
+                Add-Check -Name "Demo seed data" -Status "Pass" -Detail "DEMO-* data and attachment are present through the real API."
+            }
+        }
+        catch {
+            Add-Check -Name "Demo seed data" -Status "Fail" -Detail $_.Exception.Message
+        }
+    }
+    else {
+        Add-Check -Name "Demo seed data" -Status "Warn" -Detail "Not checked. Run this script with -EnsureDemoSeed or run .\ops\seed-demo-data.ps1."
+    }
+
+    $chromeExtension = Test-ChromeExtension
+    Add-Check -Name "Codex Chrome extension" -Status $chromeExtension.Status -Detail $chromeExtension.Detail
+    $nativeHostRegistry = Test-NativeHostRegistry
+    Add-Check -Name "Codex Chrome native host registry" -Status $nativeHostRegistry.Status -Detail $nativeHostRegistry.Detail
+    $nativeHostOfficial = Test-NativeHostOfficial
+    Add-Check -Name "Codex Chrome native host official check" -Status $nativeHostOfficial.Status -Detail $nativeHostOfficial.Detail
+    Add-Check -Name "Chrome extension local file access" -Status "Warn" -Detail "Manual browser setting. Enable local file access in the Codex Chrome extension details page before automation upload."
+}
+finally {
+    Pop-Location
+}
+
+Write-Host ""
+Write-Host "KnowPulse page attachment preflight"
+$checks | Format-Table -AutoSize
+
+Write-Host ""
+Write-Host "Manual page validation path"
+Write-Host "1. Open $BlazorBaseUrl/knowledge/items and sign in as $AdminUserName."
+Write-Host "2. Select item: DEMO KnowPulse MVP-0 Guide."
+Write-Host "3. Select version: DEMO Initial Published Version."
+Write-Host "4. Use file input #attachment-file with: $AttachmentPath"
+Write-Host "5. Click Upload, verify the file appears in the attachment table, download it, then delete it and confirm."
+Write-Host "6. Run .\ops\seed-demo-data.ps1 again if you want to restore the demo attachment after delete."
+
+$failed = @($checks | Where-Object { $_.Status -eq "Fail" })
+if ($failed.Count -gt 0) {
+    exit 1
+}

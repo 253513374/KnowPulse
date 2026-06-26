@@ -1,0 +1,437 @@
+@page "/knowledge/permission-scopes"
+@attribute [Authorize(KnowPulsePermissions.KnowledgeBase.PermissionScopes)]
+@inherits KnowPulseComponentBase
+@inject IKnowledgeItemAppService KnowledgeItemAppService
+@inject IDepartmentAppService DepartmentAppService
+@inject IPositionAppService PositionAppService
+@inject IIdentityRoleAppService IdentityRoleAppService
+@inject IIdentityUserAppService IdentityUserAppService
+
+@* 知识权限范围管理页：配置某个知识文档对全员、部门、岗位、角色或指定用户的可见规则。 *@
+<PageTitle>权限范围</PageTitle>
+
+<div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+    <div>
+        <h1 class="h4 mb-1">权限范围</h1>
+        <div class="text-muted small">KnowledgeBase / Permission Scopes</div>
+    </div>
+    <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="LoadAsync" disabled="@IsBusy">刷新</button>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(ErrorMessage))
+{
+    <div class="alert alert-danger d-flex flex-wrap align-items-center justify-content-between gap-2" role="alert">
+        <span>@ErrorMessage</span>
+        <button class="btn btn-sm btn-outline-danger" type="button" @onclick="LoadAsync" disabled="@IsBusy">重试</button>
+    </div>
+}
+
+<div class="row g-3">
+    @* 左侧先选择知识文档，再根据范围类型显示对应目标下拉。 *@
+    <div class="col-lg-4">
+        <div class="card">
+            <div class="card-body">
+                <div class="mb-3">
+                    <label class="form-label" for="scope-item">知识文档</label>
+                    <select id="scope-item" class="form-select" value="@SelectedItemIdText" @onchange="OnSelectedItemChangedAsync">
+                        <option value="">选择知识文档</option>
+                        @foreach (var item in KnowledgeItemList)
+                        {
+                            <option value="@item.Id">@item.Title</option>
+                        }
+                    </select>
+                </div>
+
+                <h2 class="h6 mb-3">新增范围</h2>
+                <EditForm Model="@FormModel" OnValidSubmit="@SaveAsync">
+                    <DataAnnotationsValidator />
+
+                    <div class="mb-3">
+                        <label class="form-label" for="scope-type">范围类型</label>
+                        <select id="scope-type" class="form-select" value="@FormModel.ScopeTypeText" @onchange="OnScopeTypeChanged">
+                            <option value="@KnowledgePermissionScopeType.All">全员</option>
+                            <option value="@KnowledgePermissionScopeType.Department">部门</option>
+                            <option value="@KnowledgePermissionScopeType.Position">岗位</option>
+                            <option value="@KnowledgePermissionScopeType.Role">角色</option>
+                            <option value="@KnowledgePermissionScopeType.User">指定用户</option>
+                        </select>
+                    </div>
+
+                    @if (CurrentScopeType == KnowledgePermissionScopeType.Department)
+                    {
+                        <div class="mb-3">
+                            <label class="form-label" for="scope-department">部门</label>
+                            <select id="scope-department" class="form-select" @bind="FormModel.TargetIdText">
+                                <option value="">选择部门</option>
+                                @foreach (var department in DepartmentList)
+                                {
+                                    <option value="@department.Id">@department.Name</option>
+                                }
+                            </select>
+                        </div>
+                    }
+                    else if (CurrentScopeType == KnowledgePermissionScopeType.Position)
+                    {
+                        <div class="mb-3">
+                            <label class="form-label" for="scope-position">岗位</label>
+                            <select id="scope-position" class="form-select" @bind="FormModel.TargetIdText">
+                                <option value="">选择岗位</option>
+                                @foreach (var position in PositionList)
+                                {
+                                    <option value="@position.Id">@position.Name</option>
+                                }
+                            </select>
+                        </div>
+                    }
+                    else if (CurrentScopeType is KnowledgePermissionScopeType.Role or KnowledgePermissionScopeType.User)
+                    {
+                        @if (CurrentScopeType == KnowledgePermissionScopeType.Role)
+                        {
+                            <div class="mb-3">
+                                <label class="form-label" for="scope-role">角色</label>
+                                <select id="scope-role" class="form-select" @bind="FormModel.TargetIdText">
+                                    <option value="">选择角色</option>
+                                    @foreach (var role in RoleList)
+                                    {
+                                        <option value="@role.Id">@role.Name</option>
+                                    }
+                                </select>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="mb-2">
+                                <label class="form-label" for="scope-user-filter">用户搜索</label>
+                                <div class="input-group">
+                                    <input id="scope-user-filter" class="form-control" @bind="UserFilterText" @bind:event="oninput" />
+                                    <button class="btn btn-outline-secondary" type="button" @onclick="LoadUsersAsync" disabled="@IsBusy">搜索</button>
+                                </div>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label" for="scope-user">用户</label>
+                                <select id="scope-user" class="form-select" @bind="FormModel.TargetIdText">
+                                    <option value="">选择用户</option>
+                                    @foreach (var user in UserList)
+                                    {
+                                        <option value="@user.Id">@GetUserDisplayName(user)</option>
+                                    }
+                                </select>
+                            </div>
+                        }
+                    }
+
+                    <div class="mb-3">
+                        <label class="form-label" for="scope-security">最低安全等级</label>
+                        <InputNumber id="scope-security" class="form-control" @bind-Value="FormModel.MinimumSecurityLevel" />
+                    </div>
+
+                    <div class="d-flex gap-2">
+                        <button class="btn btn-primary" type="submit" disabled="@(IsBusy || SelectedItemId == null)">保存</button>
+                        <button class="btn btn-outline-secondary" type="button" @onclick="ResetForm" disabled="@IsBusy">取消</button>
+                    </div>
+                </EditForm>
+            </div>
+        </div>
+    </div>
+
+    @* 右侧展示当前知识文档已配置的权限范围；没有范围时按后端规则默认全员可见。 *@
+    <div class="col-lg-8">
+        <div class="card">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th>范围类型</th>
+                            <th>目标</th>
+                            <th>最低安全等级</th>
+                            <th>状态</th>
+                            <th class="text-end">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (SelectedItemId == null)
+                        {
+                            <tr>
+                                <td colspan="5" class="text-center py-4 text-muted">未选择知识文档</td>
+                            </tr>
+                        }
+                        else if (IsLoading)
+                        {
+                            <tr>
+                                <td colspan="5" class="text-center py-4 text-muted">加载中</td>
+                            </tr>
+                        }
+                        else if (ScopeList.Count == 0)
+                        {
+                            <tr>
+                                <td colspan="5" class="text-center py-4 text-muted">暂无权限范围，默认全员可见</td>
+                            </tr>
+                        }
+                        else
+                        {
+                            @foreach (var scope in ScopeList)
+                            {
+                                <tr>
+                                    <td>@GetScopeTypeText(scope.ScopeType)</td>
+                                    <td>@GetScopeTargetText(scope)</td>
+                                    <td>@(scope.MinimumSecurityLevel?.ToString() ?? "-")</td>
+                                    <td>
+                                        <span class="badge @(scope.IsEnabled ? "bg-success" : "bg-secondary")">
+                                            @(scope.IsEnabled ? "启用" : "停用")
+                                        </span>
+                                    </td>
+                                    <td class="text-end">
+                                        <button class="btn btn-link btn-sm text-danger" type="button" @onclick="() => DeleteAsync(scope.Id)" disabled="@IsBusy">删除</button>
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    // 当前页面需要一次性加载多类目标数据，用于把权限范围 TargetId 翻译成可读名称。
+    private readonly List<KnowledgeItemDto> KnowledgeItemList = new();
+    private readonly List<KnowledgePermissionScopeDto> ScopeList = new();
+    private readonly List<DepartmentDto> DepartmentList = new();
+    private readonly List<PositionDto> PositionList = new();
+    private readonly List<IdentityRoleDto> RoleList = new();
+    private readonly List<IdentityUserDto> UserList = new();
+    private PermissionScopeFormModel FormModel { get; set; } = new();
+    private Guid? SelectedItemId { get; set; }
+    private string? SelectedItemIdText { get; set; }
+    private string? UserFilterText { get; set; }
+    private bool IsLoading { get; set; }
+    private bool IsBusy { get; set; }
+    private string? ErrorMessage { get; set; }
+    private KnowledgePermissionScopeType CurrentScopeType => ParseScopeType(FormModel.ScopeTypeText);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+    }
+
+    // 刷新页面基础数据：知识文档、部门、岗位、角色和用户候选项。
+    private async Task LoadAsync()
+    {
+        await RunBusyAsync(async () =>
+        {
+            IsLoading = true;
+            var items = await KnowledgeItemAppService.GetListAsync(new PagedAndSortedResultRequestDto { MaxResultCount = 100 });
+            var departments = await DepartmentAppService.GetListAsync(new PagedAndSortedResultRequestDto { MaxResultCount = 100 });
+            var positions = await PositionAppService.GetListAsync(new PagedAndSortedResultRequestDto { MaxResultCount = 100 });
+            var roles = await IdentityRoleAppService.GetListAsync(new GetIdentityRolesInput { MaxResultCount = 100 });
+
+            KnowledgeItemList.Clear();
+            KnowledgeItemList.AddRange(items.Items.OrderBy(x => x.Title));
+            DepartmentList.Clear();
+            DepartmentList.AddRange(departments.Items.OrderBy(x => x.Code));
+            PositionList.Clear();
+            PositionList.AddRange(positions.Items.OrderBy(x => x.Code));
+            RoleList.Clear();
+            RoleList.AddRange(roles.Items.OrderBy(x => x.Name));
+            await LoadUsersCoreAsync();
+
+            if (SelectedItemId.HasValue)
+            {
+                await LoadScopesAsync();
+            }
+
+            IsLoading = false;
+        });
+    }
+
+    // 用户列表支持独立搜索，避免每次改用户筛选都刷新其他基础数据。
+    private async Task LoadUsersAsync()
+    {
+        await RunBusyAsync(LoadUsersCoreAsync);
+    }
+
+    // 通过 ABP Identity 用户服务读取候选用户，用于指定用户权限范围。
+    private async Task LoadUsersCoreAsync()
+    {
+        var users = await IdentityUserAppService.GetListAsync(new GetIdentityUsersInput
+        {
+            MaxResultCount = 100,
+            Filter = UserFilterText
+        });
+
+        UserList.Clear();
+        UserList.AddRange(users.Items.OrderBy(x => x.UserName));
+    }
+
+    // 切换知识文档后重新读取该文档的权限范围。
+    private async Task OnSelectedItemChangedAsync(ChangeEventArgs args)
+    {
+        SelectedItemIdText = args.Value?.ToString();
+        SelectedItemId = ParseNullableGuid(SelectedItemIdText);
+        await RunBusyAsync(LoadScopesAsync);
+    }
+
+    // 切换范围类型时清空目标编号，避免把部门编号误提交成岗位或用户编号。
+    private void OnScopeTypeChanged(ChangeEventArgs args)
+    {
+        FormModel.ScopeTypeText = args.Value?.ToString() ?? KnowledgePermissionScopeType.All.ToString();
+        FormModel.TargetIdText = null;
+    }
+
+    // 保存权限范围。All 类型不需要目标编号，其他类型必须选择目标。
+    private async Task SaveAsync()
+    {
+        if (SelectedItemId == null)
+        {
+            return;
+        }
+
+        await RunBusyAsync(async () =>
+        {
+            var scopeType = CurrentScopeType;
+            var targetId = scopeType == KnowledgePermissionScopeType.All ? null : ParseNullableGuid(FormModel.TargetIdText);
+            if (scopeType != KnowledgePermissionScopeType.All && targetId == null)
+            {
+                ErrorMessage = "目标 ID 无效。";
+                return;
+            }
+
+            await KnowledgeItemAppService.CreatePermissionScopeAsync(SelectedItemId.Value, new CreateKnowledgePermissionScopeDto
+            {
+                ScopeType = scopeType,
+                TargetId = targetId,
+                MinimumSecurityLevel = FormModel.MinimumSecurityLevel
+            });
+
+            ResetForm();
+            await LoadScopesAsync();
+        });
+    }
+
+    // 删除当前知识文档上的某条权限范围。
+    private async Task DeleteAsync(Guid scopeId)
+    {
+        if (SelectedItemId == null)
+        {
+            return;
+        }
+
+        await RunBusyAsync(async () =>
+        {
+            await KnowledgeItemAppService.DeletePermissionScopeAsync(SelectedItemId.Value, scopeId);
+            await LoadScopesAsync();
+        });
+    }
+
+    // 只加载当前选中文档的权限范围，避免把其他文档配置混入页面。
+    private async Task LoadScopesAsync()
+    {
+        ScopeList.Clear();
+        if (SelectedItemId == null)
+        {
+            return;
+        }
+
+        var scopes = await KnowledgeItemAppService.GetPermissionScopesAsync(SelectedItemId.Value);
+        ScopeList.AddRange(scopes.Items.OrderBy(x => x.ScopeType).ThenBy(x => x.TargetId));
+    }
+
+    // 保存后重置表单，但保留当前选中的知识文档。
+    private void ResetForm()
+    {
+        FormModel = new PermissionScopeFormModel();
+    }
+
+    // 将权限范围目标编号翻译成业务名称，找不到时显示编号便于排查数据漂移。
+    private string GetScopeTargetText(KnowledgePermissionScopeDto scope)
+    {
+        if (scope.ScopeType == KnowledgePermissionScopeType.All)
+        {
+            return "全员";
+        }
+
+        if (scope.TargetId == null)
+        {
+            return "-";
+        }
+
+        return scope.ScopeType switch
+        {
+            KnowledgePermissionScopeType.Department => DepartmentList.FirstOrDefault(x => x.Id == scope.TargetId.Value)?.Name ?? scope.TargetId.Value.ToString("N"),
+            KnowledgePermissionScopeType.Position => PositionList.FirstOrDefault(x => x.Id == scope.TargetId.Value)?.Name ?? scope.TargetId.Value.ToString("N"),
+            KnowledgePermissionScopeType.Role => RoleList.FirstOrDefault(x => x.Id == scope.TargetId.Value)?.Name ?? $"角色 {scope.TargetId.Value:N}",
+            KnowledgePermissionScopeType.User => UserList.FirstOrDefault(x => x.Id == scope.TargetId.Value) is { } user
+                ? GetUserDisplayName(user)
+                : $"用户 {scope.TargetId.Value:N}",
+            _ => scope.TargetId.Value.ToString("N")
+        };
+    }
+
+    // 组合用户显示名，优先展示姓名，同时保留用户名和邮箱帮助管理员辨认。
+    private static string GetUserDisplayName(IdentityUserDto user)
+    {
+        var displayName = string.Join(" ", new[] { user.Name, user.Surname }.Where(x => !string.IsNullOrWhiteSpace(x)));
+        return string.IsNullOrWhiteSpace(displayName)
+            ? $"{user.UserName} ({user.Email})"
+            : $"{displayName} / {user.UserName} ({user.Email})";
+    }
+
+    // 把枚举值转换为页面中文标签。
+    private static string GetScopeTypeText(KnowledgePermissionScopeType scopeType)
+    {
+        return scopeType switch
+        {
+            KnowledgePermissionScopeType.All => "全员",
+            KnowledgePermissionScopeType.Department => "部门",
+            KnowledgePermissionScopeType.Position => "岗位",
+            KnowledgePermissionScopeType.Role => "角色",
+            KnowledgePermissionScopeType.User => "指定用户",
+            _ => scopeType.ToString()
+        };
+    }
+
+    // 表单中的范围类型以字符串保存，解析失败时回退为 All，避免空表单导致异常。
+    private static KnowledgePermissionScopeType ParseScopeType(string? value)
+    {
+        return Enum.TryParse<KnowledgePermissionScopeType>(value, out var scopeType)
+            ? scopeType
+            : KnowledgePermissionScopeType.All;
+    }
+
+    // 表单下拉值以字符串传递，提交前再转换为可空 Guid。
+    private static Guid? ParseNullableGuid(string? value)
+    {
+        return Guid.TryParse(value, out var id) ? id : null;
+    }
+
+    // 统一忙碌态和错误处理，保证失败后页面可恢复操作。
+    private async Task RunBusyAsync(Func<Task> action)
+    {
+        try
+        {
+            ErrorMessage = null;
+            IsBusy = true;
+            await action();
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = GetUserFriendlyErrorMessage(ex);
+        }
+        finally
+        {
+            IsBusy = false;
+            IsLoading = false;
+        }
+    }
+
+    // 权限范围表单模型。All 类型允许 TargetIdText 为空，其他类型由保存逻辑校验。
+    private class PermissionScopeFormModel
+    {
+        public string ScopeTypeText { get; set; } = KnowledgePermissionScopeType.All.ToString();
+        public string? TargetIdText { get; set; }
+
+        [Range(0, int.MaxValue)]
+        public int? MinimumSecurityLevel { get; set; }
+    }
+}

@@ -1,0 +1,31 @@
+{
+  "culture": "en",
+  "texts": {
+    "AppName": "KnowPulse",
+    "Menu:Home": "Home",
+    "Menu:Organization": "Organization",
+    "Menu:Departments": "Departments",
+    "Menu:Positions": "Positions",
+    "Menu:JobLevels": "Job Levels",
+    "Menu:UserAssignments": "User Assignments",
+    "Menu:KnowledgeBase": "Knowledge Base",
+    "Menu:KnowledgeItems": "Knowledge",
+    "Menu:KnowledgeCategories": "Categories",
+    "Menu:KnowledgeTags": "Tags",
+    "Menu:KnowledgePermissionScopes": "Permission Scopes",
+    "Permission:Organization": "Organization",
+    "Permission:Organization.Departments": "Manage departments",
+    "Permission:Organization.Positions": "Manage positions",
+    "Permission:Organization.JobLevels": "Manage job levels",
+    "Permission:Organization.UserAssignments": "Manage user assignments",
+    "Permission:KnowledgeBase": "Knowledge base",
+    "Permission:KnowledgeBase.Categories": "Manage categories",
+    "Permission:KnowledgeBase.Tags": "Manage tags",
+    "Permission:KnowledgeBase.Items": "Manage knowledge items",
+    "Permission:KnowledgeBase.Versions": "Manage knowledge versions",
+    "Permission:KnowledgeBase.Attachments": "Manage knowledge attachments",
+    "Permission:KnowledgeBase.PermissionScopes": "Manage knowledge permission scopes",
+    "Welcome": "Welcome",
+    "LongWelcomeMessage": "Welcome to the application. This is a startup project based on the ABP framework. For more information, visit abp.io."
+  }
+}

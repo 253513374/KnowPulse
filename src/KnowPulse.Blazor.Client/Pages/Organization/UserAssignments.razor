@@ -1,0 +1,463 @@
+@page "/organization/user-assignments"
+@attribute [Authorize(KnowPulsePermissions.Organization.UserAssignments)]
+@inherits KnowPulseComponentBase
+@inject IUserOrganizationAssignmentAppService UserOrganizationAssignmentAppService
+@inject IDepartmentAppService DepartmentAppService
+@inject IPositionAppService PositionAppService
+@inject IJobLevelAppService JobLevelAppService
+
+@* 用户组织关系页：维护用户与部门、岗位、职级、安全等级和主关系之间的绑定。 *@
+<PageTitle>用户组织关系</PageTitle>
+
+<div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+    <div>
+        <h1 class="h4 mb-1">用户组织关系</h1>
+        <div class="text-muted small">Organization / User Assignments</div>
+    </div>
+    <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="LoadAsync" disabled="@IsBusy">刷新</button>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(ErrorMessage))
+{
+    <div class="alert alert-danger d-flex flex-wrap align-items-center justify-content-between gap-2" role="alert">
+        <span>@ErrorMessage</span>
+        <button class="btn btn-sm btn-outline-danger" type="button" @onclick="LoadAsync" disabled="@IsBusy">重试</button>
+    </div>
+}
+
+<div class="row g-3">
+    @* 左侧是新增/编辑表单，用户 ID 当前直接录入，部门岗位职级从主数据列表选择。 *@
+    <div class="col-xl-4">
+        <div class="card">
+            <div class="card-body">
+                <h2 class="h6 mb-3">@FormTitle</h2>
+                <EditForm Model="@FormModel" OnValidSubmit="@SaveAsync">
+                    <DataAnnotationsValidator />
+
+                    <div class="mb-3">
+                        <label class="form-label" for="assignment-user">用户 ID</label>
+                        <input id="assignment-user" class="form-control" @bind="FormModel.UserIdText" @bind:event="oninput" />
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label" for="assignment-department">部门</label>
+                        <select id="assignment-department" class="form-select" @bind="FormModel.DepartmentIdText">
+                            <option value="">选择部门</option>
+                            @foreach (var department in DepartmentList)
+                            {
+                                <option value="@department.Id">@department.Name</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label" for="assignment-position">岗位</label>
+                        <select id="assignment-position" class="form-select" @bind="FormModel.PositionIdText">
+                            <option value="">未指定</option>
+                            @foreach (var position in PositionList)
+                            {
+                                <option value="@position.Id">@position.Name</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label" for="assignment-job-level">职级</label>
+                        <select id="assignment-job-level" class="form-select" @bind="FormModel.JobLevelIdText">
+                            <option value="">未指定</option>
+                            @foreach (var jobLevel in JobLevelList)
+                            {
+                                <option value="@jobLevel.Id">@jobLevel.Name</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label" for="assignment-security">安全等级</label>
+                        <InputNumber id="assignment-security" class="form-control" @bind-Value="FormModel.SecurityLevel" />
+                    </div>
+
+                    <div class="form-check form-switch mb-2">
+                        <InputCheckbox id="assignment-primary" class="form-check-input" @bind-Value="FormModel.IsPrimary" />
+                        <label class="form-check-label" for="assignment-primary">主组织关系</label>
+                    </div>
+
+                    <div class="form-check form-switch mb-3">
+                        <InputCheckbox id="assignment-active" class="form-check-input" @bind-Value="FormModel.IsActive" />
+                        <label class="form-check-label" for="assignment-active">启用</label>
+                    </div>
+
+                    <div class="d-flex gap-2">
+                        <button class="btn btn-primary" type="submit" disabled="@IsBusy">保存</button>
+                        <button class="btn btn-outline-secondary" type="button" @onclick="ResetForm" disabled="@IsBusy">取消</button>
+                    </div>
+                </EditForm>
+            </div>
+        </div>
+    </div>
+
+    @* 右侧是可分页的组织关系列表，并提供用户、部门和启用状态过滤。 *@
+    <div class="col-xl-8">
+        <div class="card mb-3">
+            <div class="card-body">
+                <div class="row g-2 align-items-end">
+                    <div class="col-md-5">
+                        <label class="form-label" for="assignment-filter-user">用户 ID</label>
+                        <input id="assignment-filter-user" class="form-control" @bind="FilterModel.UserIdText" @bind:event="oninput" />
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label" for="assignment-filter-department">部门</label>
+                        <select id="assignment-filter-department" class="form-select" @bind="FilterModel.DepartmentIdText">
+                            <option value="">全部部门</option>
+                            @foreach (var department in DepartmentList)
+                            {
+                                <option value="@department.Id">@department.Name</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label" for="assignment-filter-active">状态</label>
+                        <select id="assignment-filter-active" class="form-select" @bind="FilterModel.IsActiveText">
+                            <option value="">全部</option>
+                            <option value="true">启用</option>
+                            <option value="false">停用</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="d-flex gap-2 mt-3">
+                    <button class="btn btn-primary btn-sm" type="button" @onclick="LoadAssignmentsAsync" disabled="@IsBusy">查询</button>
+                    <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="ResetFilterAsync" disabled="@IsBusy">重置</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th>用户 ID</th>
+                            <th>部门</th>
+                            <th>岗位</th>
+                            <th>职级</th>
+                            <th>安全等级</th>
+                            <th>状态</th>
+                            <th class="text-end">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (IsLoading)
+                        {
+                            <tr>
+                                <td colspan="7" class="text-center py-4 text-muted">加载中</td>
+                            </tr>
+                        }
+                        else if (AssignmentList.Count == 0)
+                        {
+                            <tr>
+                                <td colspan="7" class="text-center py-4 text-muted">暂无数据</td>
+                            </tr>
+                        }
+                        else
+                        {
+                            @foreach (var assignment in AssignmentList)
+                            {
+                                <tr>
+                                    <td class="font-monospace small">@assignment.UserId</td>
+                                    <td>@GetDepartmentName(assignment.DepartmentId)</td>
+                                    <td>@GetPositionName(assignment.PositionId)</td>
+                                    <td>@GetJobLevelName(assignment.JobLevelId)</td>
+                                    <td>@assignment.SecurityLevel</td>
+                                    <td>
+                                        <span class="badge @(assignment.IsActive ? "bg-success" : "bg-secondary")">
+                                            @(assignment.IsActive ? "启用" : "停用")
+                                        </span>
+                                        @if (assignment.IsPrimary)
+                                        {
+                                            <span class="badge bg-primary ms-1">主</span>
+                                        }
+                                    </td>
+                                    <td class="text-end">
+                                        <button class="btn btn-link btn-sm" type="button" @onclick="() => Edit(assignment)">编辑</button>
+                                        <button class="btn btn-link btn-sm text-danger" type="button" @onclick="() => DeleteAsync(assignment.Id)">删除</button>
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+            <MvpPager SkipCount="SkipCount" PageSize="PageSize" TotalCount="TotalCount" IsBusy="IsBusy" OnSkipCountChanged="ChangePageAsync" />
+        </div>
+    </div>
+</div>
+
+@code {
+    // MVP-0 管理页面统一使用固定页大小。
+    private const int PageSize = 20;
+
+    // 页面缓存组织主数据，用于表单下拉和列表名称回显。
+    private readonly List<UserOrganizationAssignmentDto> AssignmentList = new();
+    private readonly List<DepartmentDto> DepartmentList = new();
+    private readonly List<PositionDto> PositionList = new();
+    private readonly List<JobLevelDto> JobLevelList = new();
+    private UserAssignmentFormModel FormModel { get; set; } = new();
+    private UserAssignmentFilterModel FilterModel { get; set; } = new();
+    private Guid? EditingId { get; set; }
+    private int SkipCount { get; set; }
+    private long TotalCount { get; set; }
+    private bool IsLoading { get; set; }
+    private bool IsBusy { get; set; }
+    private string? ErrorMessage { get; set; }
+    private string FormTitle => EditingId.HasValue ? "编辑用户组织关系" : "新增用户组织关系";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+    }
+
+    // 首次加载时先读取部门、岗位、职级主数据，再读取组织关系列表。
+    private async Task LoadAsync()
+    {
+        await RunBusyAsync(async () =>
+        {
+            IsLoading = true;
+            var departments = await DepartmentAppService.GetListAsync(new PagedAndSortedResultRequestDto { MaxResultCount = 100 });
+            var positions = await PositionAppService.GetListAsync(new PagedAndSortedResultRequestDto { MaxResultCount = 100 });
+            var jobLevels = await JobLevelAppService.GetListAsync(new PagedAndSortedResultRequestDto { MaxResultCount = 100 });
+
+            DepartmentList.Clear();
+            DepartmentList.AddRange(departments.Items.OrderBy(x => x.Code));
+            PositionList.Clear();
+            PositionList.AddRange(positions.Items.OrderBy(x => x.Code));
+            JobLevelList.Clear();
+            JobLevelList.AddRange(jobLevels.Items.OrderBy(x => x.SortOrder).ThenBy(x => x.Code));
+
+            await LoadAssignmentsCoreAsync();
+            IsLoading = false;
+        });
+    }
+
+    // 主动查询会回到第一页，避免筛选后仍停留在旧分页位置。
+    private async Task LoadAssignmentsAsync()
+    {
+        SkipCount = 0;
+        await LoadAssignmentsPageAsync();
+    }
+
+    // 分页只刷新组织关系列表，不重新加载部门岗位职级主数据。
+    private async Task ChangePageAsync(int skipCount)
+    {
+        SkipCount = skipCount;
+        await LoadAssignmentsPageAsync();
+    }
+
+    // 带忙碌态地刷新当前页组织关系。
+    private async Task LoadAssignmentsPageAsync()
+    {
+        await RunBusyAsync(async () =>
+        {
+            IsLoading = true;
+            await LoadAssignmentsCoreAsync();
+            IsLoading = false;
+        });
+    }
+
+    // 根据筛选条件构造应用服务输入，并在页面端按用户和部门名称做稳定排序。
+    private async Task LoadAssignmentsCoreAsync()
+    {
+        var result = await UserOrganizationAssignmentAppService.GetListAsync(new GetUserOrganizationAssignmentListInput
+        {
+            SkipCount = SkipCount,
+            MaxResultCount = PageSize,
+            UserId = ParseNullableGuid(FilterModel.UserIdText),
+            DepartmentId = ParseNullableGuid(FilterModel.DepartmentIdText),
+            IsActive = ParseNullableBool(FilterModel.IsActiveText)
+        });
+
+        AssignmentList.Clear();
+        AssignmentList.AddRange(result.Items.OrderBy(x => x.UserId).ThenBy(x => GetDepartmentName(x.DepartmentId)));
+        TotalCount = result.TotalCount;
+    }
+
+    // 保存新增或编辑的用户组织关系。应用服务会校验引用对象，并维护主关系唯一性。
+    private async Task SaveAsync()
+    {
+        await RunBusyAsync(async () =>
+        {
+            var input = new CreateUpdateUserOrganizationAssignmentDto
+            {
+                UserId = ParseRequiredGuid(FormModel.UserIdText, "请输入有效的用户 ID。"),
+                DepartmentId = ParseRequiredGuid(FormModel.DepartmentIdText, "请选择部门。"),
+                PositionId = ParseNullableGuid(FormModel.PositionIdText),
+                JobLevelId = ParseNullableGuid(FormModel.JobLevelIdText),
+                SecurityLevel = FormModel.SecurityLevel,
+                IsPrimary = FormModel.IsPrimary,
+                IsActive = FormModel.IsActive
+            };
+
+            if (EditingId.HasValue)
+            {
+                await UserOrganizationAssignmentAppService.UpdateAsync(EditingId.Value, input);
+            }
+            else
+            {
+                await UserOrganizationAssignmentAppService.CreateAsync(input);
+            }
+
+            ResetForm();
+            await LoadAssignmentsCoreAsync();
+        });
+    }
+
+    // 将列表行回填到表单，进入编辑模式。
+    private void Edit(UserOrganizationAssignmentDto assignment)
+    {
+        EditingId = assignment.Id;
+        FormModel = new UserAssignmentFormModel
+        {
+            UserIdText = assignment.UserId.ToString(),
+            DepartmentIdText = assignment.DepartmentId.ToString(),
+            PositionIdText = assignment.PositionId?.ToString() ?? string.Empty,
+            JobLevelIdText = assignment.JobLevelId?.ToString() ?? string.Empty,
+            SecurityLevel = assignment.SecurityLevel,
+            IsPrimary = assignment.IsPrimary,
+            IsActive = assignment.IsActive
+        };
+    }
+
+    // 删除组织关系后，如果正在编辑该记录，同步退出编辑模式。
+    private async Task DeleteAsync(Guid id)
+    {
+        await RunBusyAsync(async () =>
+        {
+            await UserOrganizationAssignmentAppService.DeleteAsync(id);
+            if (EditingId == id)
+            {
+                ResetForm();
+            }
+            await LoadAssignmentsCoreAsync();
+        });
+    }
+
+    // 清空筛选条件并重新查询第一页。
+    private async Task ResetFilterAsync()
+    {
+        FilterModel = new UserAssignmentFilterModel();
+        await LoadAssignmentsAsync();
+    }
+
+    // 重置表单并退出编辑模式。
+    private void ResetForm()
+    {
+        EditingId = null;
+        FormModel = new UserAssignmentFormModel();
+    }
+
+    // 将部门编号翻译成名称，找不到时显示编号便于排查历史数据。
+    private string GetDepartmentName(Guid? id)
+    {
+        if (id == null)
+        {
+            return "-";
+        }
+
+        return DepartmentList.FirstOrDefault(x => x.Id == id.Value)?.Name ?? id.Value.ToString("N");
+    }
+
+    // 将岗位编号翻译成名称。
+    private string GetPositionName(Guid? id)
+    {
+        if (id == null)
+        {
+            return "-";
+        }
+
+        return PositionList.FirstOrDefault(x => x.Id == id.Value)?.Name ?? id.Value.ToString("N");
+    }
+
+    // 将职级编号翻译成名称。
+    private string GetJobLevelName(Guid? id)
+    {
+        if (id == null)
+        {
+            return "-";
+        }
+
+        return JobLevelList.FirstOrDefault(x => x.Id == id.Value)?.Name ?? id.Value.ToString("N");
+    }
+
+    // 必填 Guid 解析失败时抛出带用户可读信息的异常，由 RunBusyAsync 统一展示。
+    private static Guid ParseRequiredGuid(string? value, string errorMessage)
+    {
+        if (Guid.TryParse(value, out var id))
+        {
+            return id;
+        }
+
+        throw new InvalidOperationException(errorMessage);
+    }
+
+    // 可选 Guid 表单值解析。
+    private static Guid? ParseNullableGuid(string? value)
+    {
+        return Guid.TryParse(value, out var id) ? id : null;
+    }
+
+    // 可选布尔筛选值解析。
+    private static bool? ParseNullableBool(string? value)
+    {
+        return bool.TryParse(value, out var result) ? result : null;
+    }
+
+    // 统一忙碌态和错误处理，避免每个按钮重复写 try/catch。
+    private async Task RunBusyAsync(Func<Task> action)
+    {
+        try
+        {
+            ErrorMessage = null;
+            IsBusy = true;
+            await action();
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = GetUserFriendlyErrorMessage(ex);
+        }
+        finally
+        {
+            IsBusy = false;
+            IsLoading = false;
+        }
+    }
+
+    // 用户组织关系编辑表单模型。用户 ID 暂用文本输入，提交前转换为 Guid。
+    private class UserAssignmentFormModel
+    {
+        [Required]
+        public string UserIdText { get; set; } = string.Empty;
+
+        [Required]
+        public string DepartmentIdText { get; set; } = string.Empty;
+
+        public string? PositionIdText { get; set; }
+
+        public string? JobLevelIdText { get; set; }
+
+        [Range(0, int.MaxValue)]
+        public int SecurityLevel { get; set; }
+
+        public bool IsPrimary { get; set; }
+
+        public bool IsActive { get; set; } = true;
+    }
+
+    // 用户组织关系筛选模型。
+    private class UserAssignmentFilterModel
+    {
+        public string? UserIdText { get; set; }
+
+        public string? DepartmentIdText { get; set; }
+
+        public string? IsActiveText { get; set; }
+    }
+}

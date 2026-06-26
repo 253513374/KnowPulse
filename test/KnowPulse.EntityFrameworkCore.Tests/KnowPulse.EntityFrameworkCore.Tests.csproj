@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <Import Project="..\..\common.props" />
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <RootNamespace>KnowPulse</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\KnowPulse.EntityFrameworkCore\KnowPulse.EntityFrameworkCore.csproj" />
+    <ProjectReference Include="..\KnowPulse.Application.Tests\KnowPulse.Application.Tests.csproj" />
+    <PackageReference Include="Volo.Abp.BlobStoring.FileSystem" Version="10.3.0" />
+    <PackageReference Include="Volo.Abp.EntityFrameworkCore.Sqlite" Version="10.3.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+  </ItemGroup>
+
+</Project>

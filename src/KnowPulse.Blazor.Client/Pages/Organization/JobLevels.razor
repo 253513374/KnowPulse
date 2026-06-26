@@ -1,0 +1,257 @@
+@page "/organization/job-levels"
+@attribute [Authorize(KnowPulsePermissions.Organization.JobLevels)]
+@inherits KnowPulseComponentBase
+@inject IJobLevelAppService JobLevelAppService
+
+<PageTitle>职级</PageTitle>
+
+<div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+    <div>
+        <h1 class="h4 mb-1">职级</h1>
+        <div class="text-muted small">Organization / Job Levels</div>
+    </div>
+    <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="LoadAsync" disabled="@IsBusy">刷新</button>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(ErrorMessage))
+{
+    <div class="alert alert-danger d-flex flex-wrap align-items-center justify-content-between gap-2" role="alert">
+        <span>@ErrorMessage</span>
+        <button class="btn btn-sm btn-outline-danger" type="button" @onclick="LoadAsync" disabled="@IsBusy">重试</button>
+    </div>
+}
+
+<div class="row g-3">
+    <div class="col-lg-4">
+        <div class="card">
+            <div class="card-body">
+                <h2 class="h6 mb-3">@FormTitle</h2>
+                <EditForm Model="@FormModel" OnValidSubmit="@SaveAsync">
+                    <DataAnnotationsValidator />
+
+                    <div class="mb-3">
+                        <label class="form-label" for="job-level-code">编码</label>
+                        <input id="job-level-code" class="form-control" @bind="FormModel.Code" @bind:event="oninput" />
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label" for="job-level-name">名称</label>
+                        <input id="job-level-name" class="form-control" @bind="FormModel.Name" @bind:event="oninput" />
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label" for="job-level-sort">排序</label>
+                        <InputNumber id="job-level-sort" class="form-control" @bind-Value="FormModel.SortOrder" />
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label" for="job-level-security">安全等级</label>
+                        <InputNumber id="job-level-security" class="form-control" @bind-Value="FormModel.SecurityLevel" />
+                    </div>
+
+                    <div class="form-check form-switch mb-3">
+                        <InputCheckbox id="job-level-active" class="form-check-input" @bind-Value="FormModel.IsActive" />
+                        <label class="form-check-label" for="job-level-active">启用</label>
+                    </div>
+
+                    <div class="d-flex gap-2">
+                        <button class="btn btn-primary" type="submit" disabled="@IsBusy">保存</button>
+                        <button class="btn btn-outline-secondary" type="button" @onclick="ResetForm" disabled="@IsBusy">取消</button>
+                    </div>
+                </EditForm>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-8">
+        <div class="card">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th>编码</th>
+                            <th>名称</th>
+                            <th>排序</th>
+                            <th>安全等级</th>
+                            <th>状态</th>
+                            <th class="text-end">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (IsLoading)
+                        {
+                            <tr>
+                                <td colspan="6" class="text-center py-4 text-muted">加载中</td>
+                            </tr>
+                        }
+                        else if (JobLevelList.Count == 0)
+                        {
+                            <tr>
+                                <td colspan="6" class="text-center py-4 text-muted">暂无数据</td>
+                            </tr>
+                        }
+                        else
+                        {
+                            @foreach (var jobLevel in JobLevelList)
+                            {
+                                <tr>
+                                    <td class="fw-semibold">@jobLevel.Code</td>
+                                    <td>@jobLevel.Name</td>
+                                    <td>@jobLevel.SortOrder</td>
+                                    <td>@jobLevel.SecurityLevel</td>
+                                    <td>
+                                        <span class="badge @(jobLevel.IsActive ? "bg-success" : "bg-secondary")">
+                                            @(jobLevel.IsActive ? "启用" : "停用")
+                                        </span>
+                                    </td>
+                                    <td class="text-end">
+                                        <button class="btn btn-link btn-sm" type="button" @onclick="() => Edit(jobLevel)">编辑</button>
+                                        <button class="btn btn-link btn-sm text-danger" type="button" @onclick="() => DeleteAsync(jobLevel.Id)">删除</button>
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+            <MvpPager SkipCount="SkipCount" PageSize="PageSize" TotalCount="TotalCount" IsBusy="IsBusy" OnSkipCountChanged="ChangePageAsync" />
+        </div>
+    </div>
+</div>
+
+@code {
+    private const int PageSize = 20;
+    private readonly List<JobLevelDto> JobLevelList = new();
+    private JobLevelFormModel FormModel { get; set; } = new();
+    private Guid? EditingId { get; set; }
+    private int SkipCount { get; set; }
+    private long TotalCount { get; set; }
+    private bool IsLoading { get; set; }
+    private bool IsBusy { get; set; }
+    private string? ErrorMessage { get; set; }
+    private string FormTitle => EditingId.HasValue ? "编辑职级" : "新增职级";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        await RunBusyAsync(async () =>
+        {
+            IsLoading = true;
+            var result = await JobLevelAppService.GetListAsync(new PagedAndSortedResultRequestDto
+            {
+                SkipCount = SkipCount,
+                MaxResultCount = PageSize
+            });
+            JobLevelList.Clear();
+            JobLevelList.AddRange(result.Items.OrderBy(x => x.SortOrder).ThenBy(x => x.Code));
+            TotalCount = result.TotalCount;
+            IsLoading = false;
+        });
+    }
+
+    private async Task ChangePageAsync(int skipCount)
+    {
+        SkipCount = skipCount;
+        await LoadAsync();
+    }
+
+    private async Task SaveAsync()
+    {
+        await RunBusyAsync(async () =>
+        {
+            var input = new CreateUpdateJobLevelDto
+            {
+                Code = FormModel.Code.Trim(),
+                Name = FormModel.Name.Trim(),
+                SortOrder = FormModel.SortOrder,
+                SecurityLevel = FormModel.SecurityLevel,
+                IsActive = FormModel.IsActive
+            };
+
+            if (EditingId.HasValue)
+            {
+                await JobLevelAppService.UpdateAsync(EditingId.Value, input);
+            }
+            else
+            {
+                await JobLevelAppService.CreateAsync(input);
+            }
+
+            ResetForm();
+            await LoadAsync();
+        });
+    }
+
+    private void Edit(JobLevelDto jobLevel)
+    {
+        EditingId = jobLevel.Id;
+        FormModel = new JobLevelFormModel
+        {
+            Code = jobLevel.Code,
+            Name = jobLevel.Name,
+            SortOrder = jobLevel.SortOrder,
+            SecurityLevel = jobLevel.SecurityLevel,
+            IsActive = jobLevel.IsActive
+        };
+    }
+
+    private async Task DeleteAsync(Guid id)
+    {
+        await RunBusyAsync(async () =>
+        {
+            await JobLevelAppService.DeleteAsync(id);
+            if (EditingId == id)
+            {
+                ResetForm();
+            }
+            await LoadAsync();
+        });
+    }
+
+    private void ResetForm()
+    {
+        EditingId = null;
+        FormModel = new JobLevelFormModel();
+    }
+
+    private async Task RunBusyAsync(Func<Task> action)
+    {
+        try
+        {
+            ErrorMessage = null;
+            IsBusy = true;
+            await action();
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = GetUserFriendlyErrorMessage(ex);
+        }
+        finally
+        {
+            IsBusy = false;
+            IsLoading = false;
+        }
+    }
+
+    private class JobLevelFormModel
+    {
+        [Required]
+        [StringLength(64)]
+        public string Code { get; set; } = string.Empty;
+
+        [Required]
+        [StringLength(128)]
+        public string Name { get; set; } = string.Empty;
+
+        public int SortOrder { get; set; }
+
+        [Range(0, int.MaxValue)]
+        public int SecurityLevel { get; set; }
+
+        public bool IsActive { get; set; } = true;
+    }
+}

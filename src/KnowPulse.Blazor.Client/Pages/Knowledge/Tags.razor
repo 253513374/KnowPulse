@@ -1,0 +1,221 @@
+@page "/knowledge/tags"
+@attribute [Authorize(KnowPulsePermissions.KnowledgeBase.Tags)]
+@inherits KnowPulseComponentBase
+@inject IKnowledgeTagAppService TagAppService
+
+<PageTitle>标签</PageTitle>
+
+<div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+    <div>
+        <h1 class="h4 mb-1">标签</h1>
+        <div class="text-muted small">KnowledgeBase / Tags</div>
+    </div>
+    <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="LoadAsync" disabled="@IsBusy">刷新</button>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(ErrorMessage))
+{
+    <div class="alert alert-danger d-flex flex-wrap align-items-center justify-content-between gap-2" role="alert">
+        <span>@ErrorMessage</span>
+        <button class="btn btn-sm btn-outline-danger" type="button" @onclick="LoadAsync" disabled="@IsBusy">重试</button>
+    </div>
+}
+
+<div class="row g-3">
+    <div class="col-lg-4">
+        <div class="card">
+            <div class="card-body">
+                <h2 class="h6 mb-3">@FormTitle</h2>
+                <EditForm Model="@FormModel" OnValidSubmit="@SaveAsync">
+                    <DataAnnotationsValidator />
+
+                    <div class="mb-3">
+                        <label class="form-label" for="tag-name">名称</label>
+                        <input id="tag-name" class="form-control" @bind="FormModel.Name" @bind:event="oninput" />
+                    </div>
+
+                    <div class="form-check form-switch mb-3">
+                        <InputCheckbox id="tag-active" class="form-check-input" @bind-Value="FormModel.IsActive" />
+                        <label class="form-check-label" for="tag-active">启用</label>
+                    </div>
+
+                    <div class="d-flex gap-2">
+                        <button class="btn btn-primary" type="submit" disabled="@IsBusy">保存</button>
+                        <button class="btn btn-outline-secondary" type="button" @onclick="ResetForm" disabled="@IsBusy">取消</button>
+                    </div>
+                </EditForm>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-8">
+        <div class="card">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th>名称</th>
+                            <th>状态</th>
+                            <th class="text-end">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (IsLoading)
+                        {
+                            <tr>
+                                <td colspan="3" class="text-center py-4 text-muted">加载中</td>
+                            </tr>
+                        }
+                        else if (TagList.Count == 0)
+                        {
+                            <tr>
+                                <td colspan="3" class="text-center py-4 text-muted">暂无数据</td>
+                            </tr>
+                        }
+                        else
+                        {
+                            @foreach (var tag in TagList)
+                            {
+                                <tr>
+                                    <td class="fw-semibold">@tag.Name</td>
+                                    <td>
+                                        <span class="badge @(tag.IsActive ? "bg-success" : "bg-secondary")">
+                                            @(tag.IsActive ? "启用" : "停用")
+                                        </span>
+                                    </td>
+                                    <td class="text-end">
+                                        <button class="btn btn-link btn-sm" type="button" @onclick="() => Edit(tag)">编辑</button>
+                                        <button class="btn btn-link btn-sm text-danger" type="button" @onclick="() => DeleteAsync(tag.Id)">删除</button>
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+            <MvpPager SkipCount="SkipCount" PageSize="PageSize" TotalCount="TotalCount" IsBusy="IsBusy" OnSkipCountChanged="ChangePageAsync" />
+        </div>
+    </div>
+</div>
+
+@code {
+    private const int PageSize = 20;
+    private readonly List<KnowledgeTagDto> TagList = new();
+    private TagFormModel FormModel { get; set; } = new();
+    private Guid? EditingId { get; set; }
+    private int SkipCount { get; set; }
+    private long TotalCount { get; set; }
+    private bool IsLoading { get; set; }
+    private bool IsBusy { get; set; }
+    private string? ErrorMessage { get; set; }
+    private string FormTitle => EditingId.HasValue ? "编辑标签" : "新增标签";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        await RunBusyAsync(async () =>
+        {
+            IsLoading = true;
+            var result = await TagAppService.GetListAsync(new PagedAndSortedResultRequestDto
+            {
+                SkipCount = SkipCount,
+                MaxResultCount = PageSize
+            });
+            TagList.Clear();
+            TagList.AddRange(result.Items.OrderBy(x => x.Name));
+            TotalCount = result.TotalCount;
+            IsLoading = false;
+        });
+    }
+
+    private async Task ChangePageAsync(int skipCount)
+    {
+        SkipCount = skipCount;
+        await LoadAsync();
+    }
+
+    private async Task SaveAsync()
+    {
+        await RunBusyAsync(async () =>
+        {
+            var input = new CreateUpdateKnowledgeTagDto
+            {
+                Name = FormModel.Name.Trim(),
+                IsActive = FormModel.IsActive
+            };
+
+            if (EditingId.HasValue)
+            {
+                await TagAppService.UpdateAsync(EditingId.Value, input);
+            }
+            else
+            {
+                await TagAppService.CreateAsync(input);
+            }
+
+            ResetForm();
+            await LoadAsync();
+        });
+    }
+
+    private void Edit(KnowledgeTagDto tag)
+    {
+        EditingId = tag.Id;
+        FormModel = new TagFormModel
+        {
+            Name = tag.Name,
+            IsActive = tag.IsActive
+        };
+    }
+
+    private async Task DeleteAsync(Guid id)
+    {
+        await RunBusyAsync(async () =>
+        {
+            await TagAppService.DeleteAsync(id);
+            if (EditingId == id)
+            {
+                ResetForm();
+            }
+            await LoadAsync();
+        });
+    }
+
+    private void ResetForm()
+    {
+        EditingId = null;
+        FormModel = new TagFormModel();
+    }
+
+    private async Task RunBusyAsync(Func<Task> action)
+    {
+        try
+        {
+            ErrorMessage = null;
+            IsBusy = true;
+            await action();
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = GetUserFriendlyErrorMessage(ex);
+        }
+        finally
+        {
+            IsBusy = false;
+            IsLoading = false;
+        }
+    }
+
+    private class TagFormModel
+    {
+        [Required]
+        [StringLength(64)]
+        public string Name { get; set; } = string.Empty;
+
+        public bool IsActive { get; set; } = true;
+    }
+}
