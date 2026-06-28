@@ -1,0 +1,710 @@
+@page "/question-bank/questions"
+@attribute [Authorize(KnowPulsePermissions.QuestionBank.Questions)]
+@inherits KnowPulseComponentBase
+@inject IQuestionAppService QuestionAppService
+@inject IPositionAppService PositionAppService
+@inject IJSRuntime JSRuntime
+
+<PageTitle>题目管理</PageTitle>
+
+<div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+    <div>
+        <h1 class="h4 mb-1">题目管理</h1>
+        <div class="text-muted small">QuestionBank / Questions</div>
+    </div>
+    <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="LoadAsync" disabled="@IsBusy">刷新</button>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(ErrorMessage))
+{
+    <div class="alert alert-danger d-flex flex-wrap align-items-center justify-content-between gap-2" role="alert">
+        <span>@ErrorMessage</span>
+        <button class="btn btn-sm btn-outline-danger" type="button" @onclick="LoadAsync" disabled="@IsBusy">重试</button>
+    </div>
+}
+
+<div class="card mb-3">
+    <div class="card-body">
+        <div class="row g-2 align-items-end">
+            <div class="col-md-3">
+                <label class="form-label" for="question-keyword">关键字</label>
+                <input id="question-keyword" class="form-control" @bind="KeywordFilter" @bind:event="oninput" />
+            </div>
+            <div class="col-md-2">
+                <label class="form-label" for="question-type-filter">题型</label>
+                <select id="question-type-filter" class="form-select" @bind="TypeFilterText">
+                    <option value="">全部</option>
+                    <option value="@QuestionType.SingleChoice">单选</option>
+                    <option value="@QuestionType.MultipleChoice">多选</option>
+                    <option value="@QuestionType.TrueFalse">判断</option>
+                    <option value="@QuestionType.FillBlank">填空</option>
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label" for="question-status-filter">状态</label>
+                <select id="question-status-filter" class="form-select" @bind="StatusFilterText">
+                    <option value="">全部</option>
+                    @foreach (var status in AllStatuses)
+                    {
+                        <option value="@status">@GetStatusText(status)</option>
+                    }
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label" for="question-difficulty-filter">难度</label>
+                <select id="question-difficulty-filter" class="form-select" @bind="DifficultyFilterText">
+                    <option value="">全部</option>
+                    <option value="@QuestionDifficulty.Easy">简单</option>
+                    <option value="@QuestionDifficulty.Normal">普通</option>
+                    <option value="@QuestionDifficulty.Hard">困难</option>
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label" for="question-position-filter">岗位</label>
+                <select id="question-position-filter" class="form-select" @bind="PositionFilterText">
+                    <option value="">全部</option>
+                    @foreach (var position in PositionList)
+                    {
+                        <option value="@position.Id">@position.Name</option>
+                    }
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label" for="question-point-filter">知识点</label>
+                <input id="question-point-filter" class="form-control" @bind="KnowledgePointFilter" @bind:event="oninput" />
+            </div>
+            <div class="col-md-2">
+                <div class="form-check pt-4">
+                    <input id="question-usable-filter" class="form-check-input" type="checkbox" @bind="OnlyUsableForExamFilter" />
+                    <label class="form-check-label" for="question-usable-filter">只看可组卷</label>
+                </div>
+            </div>
+            <div class="col-md-2">
+                <button class="btn btn-primary w-100" type="button" @onclick="ApplyFilterAsync" disabled="@IsBusy">查询</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-3">
+    <div class="col-xl-5">
+        <div class="card">
+            <div class="card-body">
+                <h2 class="h6 mb-3">@FormTitle</h2>
+                <EditForm Model="@FormModel" OnValidSubmit="@SaveAsync">
+                    <DataAnnotationsValidator />
+
+                    <div class="row g-2">
+                        <div class="col-md-6">
+                            <label class="form-label" for="question-type">题型</label>
+                            <select id="question-type" class="form-select" @bind="FormModel.Type">
+                                <option value="@QuestionType.SingleChoice">单选</option>
+                                <option value="@QuestionType.MultipleChoice">多选</option>
+                                <option value="@QuestionType.TrueFalse">判断</option>
+                                <option value="@QuestionType.FillBlank">填空</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label" for="question-difficulty">难度</label>
+                            <select id="question-difficulty" class="form-select" @bind="FormModel.Difficulty">
+                                <option value="@QuestionDifficulty.Easy">简单</option>
+                                <option value="@QuestionDifficulty.Normal">普通</option>
+                                <option value="@QuestionDifficulty.Hard">困难</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label" for="question-source">创建来源</label>
+                            <select id="question-source" class="form-select" @bind="FormModel.CreationSource">
+                                <option value="@QuestionCreationSource.Manual">人工</option>
+                                <option value="@QuestionCreationSource.AiGenerated">AI 候选</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label" for="question-position">适用岗位</label>
+                            <select id="question-position" class="form-select" @bind="FormModel.ApplicablePositionIdText">
+                                <option value="">不限</option>
+                                @foreach (var position in PositionList)
+                                {
+                                    <option value="@position.Id">@position.Name</option>
+                                }
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="mt-3">
+                        <label class="form-label" for="question-title">标题</label>
+                        <input id="question-title" class="form-control" @bind="FormModel.Title" @bind:event="oninput" />
+                    </div>
+
+                    <div class="mt-3">
+                        <label class="form-label" for="question-stem">题干</label>
+                        <textarea id="question-stem" class="form-control" rows="4" @bind="FormModel.Stem" @bind:event="oninput"></textarea>
+                    </div>
+
+                    <div class="row g-2 mt-1">
+                        <div class="col-md-6">
+                            <label class="form-label" for="question-security">安全等级</label>
+                            <InputNumber id="question-security" class="form-control" @bind-Value="FormModel.SecurityLevel" />
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label" for="question-tags">标签</label>
+                            <input id="question-tags" class="form-control" @bind="FormModel.Tags" @bind:event="oninput" />
+                        </div>
+                    </div>
+
+                    <div class="mt-3">
+                        <label class="form-label" for="question-options">选项</label>
+                        <textarea id="question-options" class="form-control" rows="4" @bind="FormModel.OptionLines" @bind:event="oninput"></textarea>
+                        <div class="form-text">选择题每行一个选项，例如：A|制度目的。</div>
+                    </div>
+
+                    <div class="mt-3">
+                        <label class="form-label" for="question-answers">标准答案</label>
+                        <textarea id="question-answers" class="form-control" rows="2" @bind="FormModel.AnswerLines" @bind:event="oninput"></textarea>
+                        <div class="form-text">选择题填写选项键；多选可用逗号或换行分隔；判断题填写 true/false 或 对/错。</div>
+                    </div>
+
+                    <div class="mt-3">
+                        <label class="form-label" for="question-analysis">解析</label>
+                        <textarea id="question-analysis" class="form-control" rows="3" @bind="FormModel.Analysis" @bind:event="oninput"></textarea>
+                    </div>
+
+                    <div class="mt-3">
+                        <label class="form-label" for="question-points">知识点</label>
+                        <input id="question-points" class="form-control" @bind="FormModel.KnowledgePointText" @bind:event="oninput" />
+                        <div class="form-text">多个知识点用逗号分隔。</div>
+                    </div>
+
+                    <div class="mt-3">
+                        <label class="form-label" for="question-source-title">来源标题</label>
+                        <input id="question-source-title" class="form-control" @bind="FormModel.SourceTitle" @bind:event="oninput" />
+                    </div>
+
+                    <div class="mt-3">
+                        <label class="form-label" for="question-manual-source">人工来源说明</label>
+                        <textarea id="question-manual-source" class="form-control" rows="2" @bind="FormModel.ManualSourceDescription" @bind:event="oninput"></textarea>
+                    </div>
+
+                    <div class="d-flex flex-wrap gap-2 mt-3">
+                        <button class="btn btn-primary" type="submit" disabled="@IsBusy">保存草稿</button>
+                        <button class="btn btn-outline-secondary" type="button" @onclick="ResetForm" disabled="@IsBusy">取消</button>
+                    </div>
+                </EditForm>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-xl-7">
+        <div class="card">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th>题目</th>
+                            <th>题型</th>
+                            <th>状态</th>
+                            <th>正式可用</th>
+                            <th>知识点</th>
+                            <th class="text-end">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (IsLoading)
+                        {
+                            <tr>
+                                <td colspan="6" class="text-center py-4 text-muted">加载中</td>
+                            </tr>
+                        }
+                        else if (QuestionList.Count == 0)
+                        {
+                            <tr>
+                                <td colspan="6" class="text-center py-4 text-muted">暂无题目</td>
+                            </tr>
+                        }
+                        else
+                        {
+                            @foreach (var question in QuestionList)
+                            {
+                                <tr>
+                                    <td>
+                                        <div class="fw-semibold">@question.Title</div>
+                                        <div class="small text-muted">@Trim(question.Stem, 80)</div>
+                                    </td>
+                                    <td>
+                                        <div>@GetTypeText(question.Type)</div>
+                                        <div class="small text-muted">@GetDifficultyText(question.Difficulty) / @GetSourceText(question.CreationSource)</div>
+                                    </td>
+                                    <td><span class="badge @GetStatusBadge(question.Status)">@GetStatusText(question.Status)</span></td>
+                                    <td>
+                                        <span class="badge @(question.IsUsableForExam ? "bg-success" : "bg-light text-dark")">
+                                            @(question.IsUsableForExam ? "是" : "否")
+                                        </span>
+                                    </td>
+                                    <td class="small">@GetKnowledgePointText(question)</td>
+                                    <td class="text-end">
+                                        <div class="btn-group btn-group-sm" role="group">
+                                            <button class="btn btn-outline-secondary" type="button" @onclick="() => Edit(question)" disabled="@IsBusy">编辑</button>
+                                            @if (CanSubmit(question))
+                                            {
+                                                <button class="btn btn-outline-primary" type="button" @onclick="() => SubmitReviewAsync(question)" disabled="@IsBusy">提交</button>
+                                            }
+                                            @if (question.Status == QuestionStatus.PendingReview)
+                                            {
+                                                <button class="btn btn-outline-success" type="button" @onclick="() => ApproveAsync(question)" disabled="@IsBusy">通过</button>
+                                                <button class="btn btn-outline-warning" type="button" @onclick="() => ReturnAsync(question)" disabled="@IsBusy">退回</button>
+                                                <button class="btn btn-outline-danger" type="button" @onclick="() => RejectAsync(question)" disabled="@IsBusy">驳回</button>
+                                            }
+                                            @if (question.Status != QuestionStatus.Disabled && question.Status != QuestionStatus.Archived)
+                                            {
+                                                <button class="btn btn-outline-secondary" type="button" @onclick="() => DisableAsync(question)" disabled="@IsBusy">停用</button>
+                                            }
+                                            @if (question.Status != QuestionStatus.Archived)
+                                            {
+                                                <button class="btn btn-outline-dark" type="button" @onclick="() => ArchiveAsync(question)" disabled="@IsBusy">归档</button>
+                                            }
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+            <MvpPager SkipCount="SkipCount" PageSize="PageSize" TotalCount="TotalCount" IsBusy="IsBusy" OnSkipCountChanged="ChangePageAsync" />
+        </div>
+    </div>
+</div>
+
+@code {
+    private const int PageSize = 20;
+    private static readonly QuestionStatus[] AllStatuses = Enum.GetValues<QuestionStatus>();
+
+    private readonly List<QuestionDto> QuestionList = new();
+    private readonly List<PositionDto> PositionList = new();
+    private QuestionFormModel FormModel { get; set; } = new();
+    private Guid? EditingId { get; set; }
+    private string? KeywordFilter { get; set; }
+    private string? TypeFilterText { get; set; }
+    private string? StatusFilterText { get; set; }
+    private string? DifficultyFilterText { get; set; }
+    private string? PositionFilterText { get; set; }
+    private string? KnowledgePointFilter { get; set; }
+    private bool OnlyUsableForExamFilter { get; set; }
+    private int SkipCount { get; set; }
+    private long TotalCount { get; set; }
+    private bool IsLoading { get; set; }
+    private bool IsBusy { get; set; }
+    private string? ErrorMessage { get; set; }
+    private string FormTitle => EditingId.HasValue ? "编辑题目草稿" : "新增题目草稿";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadPositionsAsync();
+        await LoadAsync();
+    }
+
+    private async Task LoadPositionsAsync()
+    {
+        var positions = await PositionAppService.GetListAsync(new PagedAndSortedResultRequestDto { MaxResultCount = 200 });
+        PositionList.Clear();
+        PositionList.AddRange(positions.Items.OrderBy(x => x.Name));
+    }
+
+    private async Task ApplyFilterAsync()
+    {
+        SkipCount = 0;
+        await LoadAsync();
+    }
+
+    private async Task ChangePageAsync(int skipCount)
+    {
+        SkipCount = skipCount;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        await RunBusyAsync(async () =>
+        {
+            IsLoading = true;
+            var result = await QuestionAppService.GetListAsync(new GetQuestionListInput
+            {
+                Keyword = KeywordFilter,
+                Type = ParseEnum<QuestionType>(TypeFilterText),
+                Status = ParseEnum<QuestionStatus>(StatusFilterText),
+                Difficulty = ParseEnum<QuestionDifficulty>(DifficultyFilterText),
+                ApplicablePositionId = ParseNullableGuid(PositionFilterText),
+                KnowledgePoint = KnowledgePointFilter,
+                OnlyUsableForExam = OnlyUsableForExamFilter,
+                SkipCount = SkipCount,
+                MaxResultCount = PageSize
+            });
+
+            QuestionList.Clear();
+            QuestionList.AddRange(result.Items);
+            TotalCount = result.TotalCount;
+            IsLoading = false;
+        });
+    }
+
+    private async Task SaveAsync()
+    {
+        await RunBusyAsync(async () =>
+        {
+            var input = BuildQuestionInput();
+            if (EditingId.HasValue)
+            {
+                await QuestionAppService.UpdateAsync(EditingId.Value, input);
+            }
+            else
+            {
+                await QuestionAppService.CreateAsync(input);
+            }
+
+            ResetForm();
+            await LoadAsync();
+        });
+    }
+
+    private void Edit(QuestionDto question)
+    {
+        EditingId = question.Id;
+        FormModel = new QuestionFormModel
+        {
+            Type = question.Type,
+            Difficulty = question.Difficulty,
+            CreationSource = question.CreationSource,
+            Title = question.Title,
+            Stem = question.Stem,
+            ApplicablePositionIdText = question.ApplicablePositionId?.ToString() ?? string.Empty,
+            SecurityLevel = question.SecurityLevel,
+            Tags = question.Tags,
+            OptionLines = string.Join(Environment.NewLine, question.Options.OrderBy(x => x.DisplayOrder).Select(x => $"{x.OptionKey}|{x.Content}")),
+            AnswerLines = string.Join(Environment.NewLine, question.Answers.OrderBy(x => x.DisplayOrder).Select(x => x.Value)),
+            Analysis = question.Analysis,
+            KnowledgePointText = string.Join(", ", question.KnowledgePoints.Select(x => x.Name)),
+            SourceTitle = question.Sources.FirstOrDefault()?.SourceTitle,
+            ManualSourceDescription = question.Sources.FirstOrDefault()?.ManualSourceDescription
+        };
+    }
+
+    private async Task SubmitReviewAsync(QuestionDto question)
+    {
+        if (!await ConfirmAsync("确定提交该题目进入审核吗？"))
+        {
+            return;
+        }
+
+        await RunBusyAsync(async () =>
+        {
+            await QuestionAppService.SubmitReviewAsync(question.Id);
+            await LoadAsync();
+        });
+    }
+
+    private async Task ApproveAsync(QuestionDto question)
+    {
+        if (!await ConfirmAsync("确定审核通过该题目吗？"))
+        {
+            return;
+        }
+
+        await ReviewAsync(question.Id, ReviewAction.Approve);
+    }
+
+    private async Task RejectAsync(QuestionDto question)
+    {
+        if (!await ConfirmAsync("确定驳回该题目吗？"))
+        {
+            return;
+        }
+
+        await ReviewAsync(question.Id, ReviewAction.Reject);
+    }
+
+    private async Task ReturnAsync(QuestionDto question)
+    {
+        if (!await ConfirmAsync("确定退回该题目修改吗？"))
+        {
+            return;
+        }
+
+        await ReviewAsync(question.Id, ReviewAction.Return);
+    }
+
+    private async Task ReviewAsync(Guid questionId, ReviewAction action)
+    {
+        await RunBusyAsync(async () =>
+        {
+            var input = new ReviewQuestionDto { Comment = "页面审核操作" };
+            if (action == ReviewAction.Approve)
+            {
+                await QuestionAppService.ApproveAsync(questionId, input);
+            }
+            else if (action == ReviewAction.Reject)
+            {
+                await QuestionAppService.RejectAsync(questionId, input);
+            }
+            else
+            {
+                await QuestionAppService.ReturnForRevisionAsync(questionId, input);
+            }
+
+            await LoadAsync();
+        });
+    }
+
+    private async Task DisableAsync(QuestionDto question)
+    {
+        if (!await ConfirmAsync("确定停用该题目吗？"))
+        {
+            return;
+        }
+
+        await RunBusyAsync(async () =>
+        {
+            await QuestionAppService.DisableAsync(question.Id);
+            await LoadAsync();
+        });
+    }
+
+    private async Task ArchiveAsync(QuestionDto question)
+    {
+        if (!await ConfirmAsync("确定归档该题目吗？"))
+        {
+            return;
+        }
+
+        await RunBusyAsync(async () =>
+        {
+            await QuestionAppService.ArchiveAsync(question.Id);
+            await LoadAsync();
+        });
+    }
+
+    private UpdateQuestionDto BuildQuestionInput()
+    {
+        return new UpdateQuestionDto
+        {
+            Type = FormModel.Type,
+            Difficulty = FormModel.Difficulty,
+            CreationSource = FormModel.CreationSource,
+            Title = FormModel.Title.Trim(),
+            Stem = FormModel.Stem.Trim(),
+            ApplicablePositionId = ParseNullableGuid(FormModel.ApplicablePositionIdText),
+            SecurityLevel = FormModel.SecurityLevel,
+            Tags = FormModel.Tags,
+            Analysis = FormModel.Analysis,
+            Options = ParseOptions(FormModel.OptionLines),
+            Answers = ParseAnswers(FormModel.AnswerLines),
+            KnowledgePointNames = SplitValues(FormModel.KnowledgePointText),
+            Sources = BuildSources()
+        };
+    }
+
+    private List<CreateUpdateQuestionSourceDto> BuildSources()
+    {
+        if (string.IsNullOrWhiteSpace(FormModel.SourceTitle) &&
+            string.IsNullOrWhiteSpace(FormModel.ManualSourceDescription))
+        {
+            return new List<CreateUpdateQuestionSourceDto>();
+        }
+
+        return new List<CreateUpdateQuestionSourceDto>
+        {
+            new()
+            {
+                SourceTitle = FormModel.SourceTitle,
+                ManualSourceDescription = FormModel.ManualSourceDescription
+            }
+        };
+    }
+
+    private static List<CreateUpdateQuestionOptionDto> ParseOptions(string? value)
+    {
+        var lines = SplitLines(value);
+        var result = new List<CreateUpdateQuestionOptionDto>();
+        for (var i = 0; i < lines.Count; i++)
+        {
+            var parts = lines[i].Split('|', 2, StringSplitOptions.TrimEntries);
+            var key = parts.Length == 2 ? parts[0] : ((char)('A' + i)).ToString();
+            var content = parts.Length == 2 ? parts[1] : parts[0];
+            result.Add(new CreateUpdateQuestionOptionDto
+            {
+                OptionKey = key,
+                Content = content,
+                DisplayOrder = i + 1
+            });
+        }
+
+        return result;
+    }
+
+    private static List<CreateUpdateQuestionAnswerDto> ParseAnswers(string? value)
+    {
+        return SplitValues(value).Select((answer, index) => new CreateUpdateQuestionAnswerDto
+        {
+            Value = answer,
+            DisplayOrder = index + 1
+        }).ToList();
+    }
+
+    private void ResetForm()
+    {
+        EditingId = null;
+        FormModel = new QuestionFormModel();
+    }
+
+    private async Task<bool> ConfirmAsync(string message)
+    {
+        return await JSRuntime.InvokeAsync<bool>("confirm", message);
+    }
+
+    private async Task RunBusyAsync(Func<Task> action)
+    {
+        try
+        {
+            ErrorMessage = null;
+            IsBusy = true;
+            await action();
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = GetUserFriendlyErrorMessage(ex);
+        }
+        finally
+        {
+            IsBusy = false;
+            IsLoading = false;
+        }
+    }
+
+    private static bool CanSubmit(QuestionDto question)
+    {
+        return question.Status is QuestionStatus.Draft or QuestionStatus.Rejected or QuestionStatus.ReturnedForRevision;
+    }
+
+    private static TEnum? ParseEnum<TEnum>(string? value)
+        where TEnum : struct
+    {
+        return Enum.TryParse<TEnum>(value, out var parsed) ? parsed : null;
+    }
+
+    private static Guid? ParseNullableGuid(string? value)
+    {
+        return Guid.TryParse(value, out var id) ? id : null;
+    }
+
+    private static List<string> SplitLines(string? value)
+    {
+        return (value ?? string.Empty)
+            .Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .ToList();
+    }
+
+    private static List<string> SplitValues(string? value)
+    {
+        return (value ?? string.Empty)
+            .Split(new[] { "\r\n", "\n", ",", "，", ";", "；" }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static string GetKnowledgePointText(QuestionDto question)
+    {
+        return question.KnowledgePoints.Count == 0
+            ? "-"
+            : string.Join(", ", question.KnowledgePoints.Select(x => x.Name));
+    }
+
+    private static string Trim(string value, int maxLength)
+    {
+        return value.Length <= maxLength ? value : value[..maxLength] + "...";
+    }
+
+    private static string GetTypeText(QuestionType type) => type switch
+    {
+        QuestionType.SingleChoice => "单选",
+        QuestionType.MultipleChoice => "多选",
+        QuestionType.TrueFalse => "判断",
+        QuestionType.FillBlank => "填空",
+        _ => type.ToString()
+    };
+
+    private static string GetDifficultyText(QuestionDifficulty difficulty) => difficulty switch
+    {
+        QuestionDifficulty.Easy => "简单",
+        QuestionDifficulty.Normal => "普通",
+        QuestionDifficulty.Hard => "困难",
+        _ => difficulty.ToString()
+    };
+
+    private static string GetSourceText(QuestionCreationSource source) => source switch
+    {
+        QuestionCreationSource.Manual => "人工",
+        QuestionCreationSource.AiGenerated => "AI 候选",
+        _ => source.ToString()
+    };
+
+    private static string GetStatusText(QuestionStatus status) => status switch
+    {
+        QuestionStatus.Draft => "草稿",
+        QuestionStatus.PendingReview => "待审核",
+        QuestionStatus.Approved => "审核通过",
+        QuestionStatus.Rejected => "驳回",
+        QuestionStatus.ReturnedForRevision => "退回修改",
+        QuestionStatus.Disabled => "停用",
+        QuestionStatus.Archived => "归档",
+        _ => status.ToString()
+    };
+
+    private static string GetStatusBadge(QuestionStatus status) => status switch
+    {
+        QuestionStatus.Draft => "bg-secondary",
+        QuestionStatus.PendingReview => "bg-info",
+        QuestionStatus.Approved => "bg-success",
+        QuestionStatus.Rejected => "bg-danger",
+        QuestionStatus.ReturnedForRevision => "bg-warning text-dark",
+        QuestionStatus.Disabled => "bg-dark",
+        QuestionStatus.Archived => "bg-light text-dark",
+        _ => "bg-secondary"
+    };
+
+    private enum ReviewAction
+    {
+        Approve,
+        Reject,
+        Return
+    }
+
+    private class QuestionFormModel
+    {
+        public QuestionType Type { get; set; } = QuestionType.SingleChoice;
+        public QuestionDifficulty Difficulty { get; set; } = QuestionDifficulty.Normal;
+        public QuestionCreationSource CreationSource { get; set; } = QuestionCreationSource.Manual;
+        public string? ApplicablePositionIdText { get; set; }
+
+        [Required]
+        [StringLength(256)]
+        public string Title { get; set; } = string.Empty;
+
+        [Required]
+        [StringLength(4000)]
+        public string Stem { get; set; } = string.Empty;
+
+        [Range(0, 10)]
+        public int SecurityLevel { get; set; }
+
+        [StringLength(512)]
+        public string? Tags { get; set; }
+
+        public string? OptionLines { get; set; }
+        public string? AnswerLines { get; set; }
+        public string? Analysis { get; set; }
+        public string? KnowledgePointText { get; set; }
+        public string? SourceTitle { get; set; }
+        public string? ManualSourceDescription { get; set; }
+    }
+}

@@ -1,0 +1,317 @@
+@page "/knowledge/index-jobs"
+@attribute [Authorize(KnowPulsePermissions.KnowledgeIndexing.IndexJobs)]
+@inherits KnowPulseComponentBase
+@inject IKnowledgeIndexJobAppService IndexJobAppService
+@inject IJSRuntime JSRuntime
+
+@* 索引任务页是 MVP-1 的运维入口：用于查看失败阶段、失败原因、重试次数和手动推进状态。 *@
+<PageTitle>索引任务</PageTitle>
+
+<div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+    <div>
+        <h1 class="h4 mb-1">索引任务</h1>
+        <div class="text-muted small">KnowledgeBase / Index Jobs</div>
+    </div>
+    <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="LoadAsync" disabled="@IsBusy">刷新</button>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(ErrorMessage))
+{
+    <div class="alert alert-danger d-flex flex-wrap align-items-center justify-content-between gap-2" role="alert">
+        <span>@ErrorMessage</span>
+        <button class="btn btn-sm btn-outline-danger" type="button" @onclick="LoadAsync" disabled="@IsBusy">重试</button>
+    </div>
+}
+
+<div class="card">
+    <div class="card-body border-bottom">
+        <div class="row g-2 align-items-end">
+            <div class="col-md-4">
+                <label class="form-label" for="index-status">状态</label>
+                <select id="index-status" class="form-select" @bind="StatusFilterText">
+                    <option value="">全部</option>
+                    <option value="@KnowledgeIndexJobStatus.Pending">待处理</option>
+                    <option value="@KnowledgeIndexJobStatus.Processing">处理中</option>
+                    <option value="@KnowledgeIndexJobStatus.Indexed">已索引</option>
+                    <option value="@KnowledgeIndexJobStatus.Failed">失败</option>
+                    <option value="@KnowledgeIndexJobStatus.Outdated">已过期</option>
+                    <option value="@KnowledgeIndexJobStatus.Deleted">已删除</option>
+                </select>
+            </div>
+            <div class="col-md-2">
+                <button class="btn btn-primary w-100" type="button" @onclick="ApplyFilterAsync" disabled="@IsBusy">查询</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0">
+            <thead>
+                <tr>
+                    <th>状态</th>
+                    <th>触发</th>
+                    <th>知识版本</th>
+                    <th>重试</th>
+                    <th>时间</th>
+                    <th>失败信息</th>
+                    <th class="text-end">操作</th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (IsLoading)
+                {
+                    <tr>
+                        <td colspan="7" class="text-center py-4 text-muted">加载中</td>
+                    </tr>
+                }
+                else if (JobList.Count == 0)
+                {
+                    <tr>
+                        <td colspan="7" class="text-center py-4 text-muted">暂无索引任务</td>
+                    </tr>
+                }
+                else
+                {
+                    @foreach (var job in JobList)
+                    {
+                        <tr>
+                            <td><span class="badge @GetIndexStatusBadge(job.Status)">@GetIndexStatusText(job.Status)</span></td>
+                            <td>@GetTriggerText(job.TriggerType)</td>
+                            <td>
+                                <div class="small">Item: @job.KnowledgeItemId.ToString("N")</div>
+                                <div class="small">Version: @job.KnowledgeVersionId.ToString("N")</div>
+                            </td>
+                            <td>@job.RetryCount / @job.MaxRetryCount</td>
+                            <td>
+                                <div class="small">创建：@job.CreationTime.ToString("yyyy-MM-dd HH:mm")</div>
+                                @if (job.StartedTime.HasValue)
+                                {
+                                    <div class="small">开始：@job.StartedTime.Value.ToString("yyyy-MM-dd HH:mm")</div>
+                                }
+                                @if (job.CompletedTime.HasValue)
+                                {
+                                    <div class="small">完成：@job.CompletedTime.Value.ToString("yyyy-MM-dd HH:mm")</div>
+                                }
+                            </td>
+                            <td>
+                                @if (string.IsNullOrWhiteSpace(job.FailureReason))
+                                {
+                                    <span class="text-muted small">-</span>
+                                }
+                                else
+                                {
+                                    <div class="text-danger small">@job.FailureStage</div>
+                                    <div class="small">@job.FailureReason</div>
+                                }
+                            </td>
+                            <td class="text-end">
+                                @if (job.Status == KnowledgeIndexJobStatus.Failed)
+                                {
+                                    <button class="btn btn-link btn-sm" type="button" @onclick="() => RetryAsync(job)" disabled="@IsBusy">重试</button>
+                                }
+                                @if (job.Status == KnowledgeIndexJobStatus.Pending)
+                                {
+                                    <button class="btn btn-link btn-sm" type="button" @onclick="() => StartAsync(job)" disabled="@IsBusy">开始</button>
+                                }
+                            </td>
+                        </tr>
+                    }
+                }
+            </tbody>
+        </table>
+    </div>
+
+    <MvpPager SkipCount="SkipCount" PageSize="PageSize" TotalCount="TotalCount" IsBusy="IsBusy" OnSkipCountChanged="ChangePageAsync" />
+</div>
+
+@code {
+    // 页面固定为小批量分页，避免运维页一次加载大量历史失败记录。
+    private const int PageSize = 20;
+
+    // Blazor 页面状态只保存查询和展示所需数据；状态流转规则全部留在应用服务/领域聚合。
+    private readonly List<KnowledgeIndexJobDto> JobList = new();
+    private string? StatusFilterText { get; set; }
+    private int SkipCount { get; set; }
+    private long TotalCount { get; set; }
+    private bool IsLoading { get; set; }
+    private bool IsBusy { get; set; }
+    private string? ErrorMessage { get; set; }
+
+    /// <summary>
+    /// 页面初始化时加载索引任务列表。
+    /// </summary>
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+    }
+
+    /// <summary>
+    /// 应用筛选条件并回到第一页。
+    /// </summary>
+    private async Task ApplyFilterAsync()
+    {
+        SkipCount = 0;
+        await LoadAsync();
+    }
+
+    /// <summary>
+    /// 切换分页位置并重新加载列表。
+    /// </summary>
+    private async Task ChangePageAsync(int skipCount)
+    {
+        SkipCount = skipCount;
+        await LoadAsync();
+    }
+
+    /// <summary>
+    /// 从应用服务加载索引任务列表。
+    /// </summary>
+    private async Task LoadAsync()
+    {
+        await RunBusyAsync(async () =>
+        {
+            IsLoading = true;
+            // 列表查询只做轻量筛选，不在前端推断任务状态。
+            // 状态流转规则由 KnowledgeIndexJob 聚合和应用服务保证。
+            var result = await IndexJobAppService.GetListAsync(new GetKnowledgeIndexJobListInput
+            {
+                Status = ParseStatus(StatusFilterText),
+                SkipCount = SkipCount,
+                MaxResultCount = PageSize
+            });
+
+            JobList.Clear();
+            JobList.AddRange(result.Items.OrderByDescending(x => x.CreationTime));
+            TotalCount = result.TotalCount;
+            IsLoading = false;
+        });
+    }
+
+    /// <summary>
+    /// 从失败任务创建新的重试任务。
+    /// </summary>
+    private async Task RetryAsync(KnowledgeIndexJobDto job)
+    {
+        // 重试失败任务会创建新任务而不是覆盖旧失败记录，便于保留排障历史。
+        if (!await ConfirmAsync("确定重试该索引任务吗？"))
+        {
+            return;
+        }
+
+        await RunBusyAsync(async () =>
+        {
+            await IndexJobAppService.RetryAsync(job.Id);
+            await LoadAsync();
+        });
+    }
+
+    /// <summary>
+    /// 将待处理任务手动标记为处理中。
+    /// </summary>
+    private async Task StartAsync(KnowledgeIndexJobDto job)
+    {
+        // MVP-1 暂未引入完整后台 worker 可视化，这个操作用于管理员手动标记任务进入处理中。
+        if (!await ConfirmAsync("确定将该索引任务标记为处理中吗？"))
+        {
+            return;
+        }
+
+        await RunBusyAsync(async () =>
+        {
+            await IndexJobAppService.StartAsync(job.Id);
+            await LoadAsync();
+        });
+    }
+
+    /// <summary>
+    /// 将筛选下拉框的字符串值解析为任务状态。
+    /// </summary>
+    private static KnowledgeIndexJobStatus? ParseStatus(string? value)
+    {
+        // select 绑定的是字符串，解析失败时回到“全部状态”，避免非法值导致页面异常。
+        return Enum.TryParse<KnowledgeIndexJobStatus>(value, out var status) ? status : null;
+    }
+
+    /// <summary>
+    /// 获取索引任务状态中文显示文本。
+    /// </summary>
+    private static string GetIndexStatusText(KnowledgeIndexJobStatus status)
+    {
+        // 前端文案在这里集中维护，避免表格和筛选项出现同一状态多种叫法。
+        return status switch
+        {
+            KnowledgeIndexJobStatus.Pending => "待处理",
+            KnowledgeIndexJobStatus.Processing => "处理中",
+            KnowledgeIndexJobStatus.Indexed => "已索引",
+            KnowledgeIndexJobStatus.Failed => "失败",
+            KnowledgeIndexJobStatus.Outdated => "已过期",
+            KnowledgeIndexJobStatus.Deleted => "已删除",
+            _ => status.ToString()
+        };
+    }
+
+    /// <summary>
+    /// 获取索引任务状态对应的 Bootstrap badge 样式。
+    /// </summary>
+    private static string GetIndexStatusBadge(KnowledgeIndexJobStatus status)
+    {
+        // badge 只表达视觉状态，不参与任何业务判断。
+        return status switch
+        {
+            KnowledgeIndexJobStatus.Pending => "bg-warning text-dark",
+            KnowledgeIndexJobStatus.Processing => "bg-info text-dark",
+            KnowledgeIndexJobStatus.Indexed => "bg-success",
+            KnowledgeIndexJobStatus.Failed => "bg-danger",
+            KnowledgeIndexJobStatus.Outdated => "bg-secondary",
+            KnowledgeIndexJobStatus.Deleted => "bg-dark",
+            _ => "bg-secondary"
+        };
+    }
+
+    /// <summary>
+    /// 获取索引任务触发类型中文显示文本。
+    /// </summary>
+    private static string GetTriggerText(KnowledgeIndexJobTriggerType triggerType)
+    {
+        return triggerType switch
+        {
+            KnowledgeIndexJobTriggerType.Publish => "发布",
+            KnowledgeIndexJobTriggerType.ManualRebuild => "手动重建",
+            KnowledgeIndexJobTriggerType.PermissionChanged => "权限变更",
+            KnowledgeIndexJobTriggerType.ModelChanged => "模型变更",
+            KnowledgeIndexJobTriggerType.Delete => "删除",
+            _ => triggerType.ToString()
+        };
+    }
+
+    /// <summary>
+    /// 弹出浏览器确认框。
+    /// </summary>
+    private async Task<bool> ConfirmAsync(string message)
+    {
+        return await JSRuntime.InvokeAsync<bool>("confirm", message);
+    }
+
+    /// <summary>
+    /// 执行带 busy 状态和错误展示的页面操作。
+    /// </summary>
+    private async Task RunBusyAsync(Func<Task> action)
+    {
+        // 统一 busy/error 处理，避免查询、翻页和状态操作各自维护重复异常分支。
+        try
+        {
+            ErrorMessage = null;
+            IsBusy = true;
+            await action();
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = GetUserFriendlyErrorMessage(ex);
+        }
+        finally
+        {
+            IsBusy = false;
+            IsLoading = false;
+        }
+    }
+}

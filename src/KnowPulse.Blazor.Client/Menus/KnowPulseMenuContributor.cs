@@ -22,6 +22,9 @@ public class KnowPulseMenuContributor : IMenuContributor
 {
     private readonly IConfiguration _configuration;
 
+    /// <summary>
+    /// 创建 Blazor 菜单贡献器。
+    /// </summary>
     public KnowPulseMenuContributor(IConfiguration configuration)
     {
         _configuration = configuration;
@@ -131,7 +134,95 @@ public class KnowPulseMenuContributor : IMenuContributor
             icon: "fas fa-shield-halved"
         ).RequirePermissions(KnowPulsePermissions.KnowledgeBase.PermissionScopes));
 
+        knowledgeBase.AddItem(new ApplicationMenuItem(
+            KnowPulseMenus.KnowledgeIndexJobs,
+            l["Menu:KnowledgeIndexJobs"],
+            "/knowledge/index-jobs",
+            icon: "fas fa-list-check"
+        ).RequirePermissions(KnowPulsePermissions.KnowledgeIndexing.IndexJobs));
+
+        knowledgeBase.AddItem(new ApplicationMenuItem(
+            KnowPulseMenus.KnowledgeFeedback,
+            l["Menu:KnowledgeFeedback"],
+            "/knowledge/feedback",
+            icon: "fas fa-comment-dots"
+        ).RequirePermissions(KnowPulsePermissions.KnowledgeBase.Feedback));
+
         context.Menu.AddItem(knowledgeBase);
+
+        var rag = new ApplicationMenuItem(
+            KnowPulseMenus.Rag,
+            l["Menu:Rag"],
+            icon: "fas fa-comments"
+        ).RequirePermissions(KnowPulsePermissions.Rag.Default);
+
+        rag.AddItem(new ApplicationMenuItem(
+            KnowPulseMenus.RagAnswer,
+            l["Menu:RagAnswer"],
+            "/rag/answer",
+            icon: "fas fa-message"
+        ).RequirePermissions(KnowPulsePermissions.Rag.Answer));
+
+        context.Menu.AddItem(rag);
+
+        var questionBank = new ApplicationMenuItem(
+            KnowPulseMenus.QuestionBank,
+            l["Menu:QuestionBank"],
+            icon: "fas fa-clipboard-question"
+        ).RequirePermissions(KnowPulsePermissions.QuestionBank.Default);
+
+        questionBank.AddItem(new ApplicationMenuItem(
+            KnowPulseMenus.Questions,
+            l["Menu:Questions"],
+            "/question-bank/questions",
+            icon: "fas fa-list-check"
+        ).RequirePermissions(KnowPulsePermissions.QuestionBank.Questions));
+
+        questionBank.AddItem(new ApplicationMenuItem(
+            KnowPulseMenus.AiQuestionCandidates,
+            l["Menu:AiQuestionCandidates"],
+            "/question-bank/ai-candidates",
+            icon: "fas fa-wand-magic-sparkles"
+        ).RequirePermissions(KnowPulsePermissions.QuestionBank.AiGeneration));
+
+        context.Menu.AddItem(questionBank);
+
+        var learning = new ApplicationMenuItem(
+            KnowPulseMenus.Learning,
+            l["Menu:Learning"],
+            icon: "fas fa-graduation-cap"
+        ).RequirePermissions(KnowPulsePermissions.Learning.View);
+
+        learning.AddItem(new ApplicationMenuItem(
+            KnowPulseMenus.MyLearning,
+            l["Menu:MyLearning"],
+            "/learning/my",
+            icon: "fas fa-book-reader"
+        ).RequirePermissions(KnowPulsePermissions.Learning.View));
+
+        context.Menu.AddItem(learning);
+
+        var exam = new ApplicationMenuItem(
+            KnowPulseMenus.Exam,
+            l["Menu:Exam"],
+            icon: "fas fa-file-signature"
+        ).RequirePermissions(KnowPulsePermissions.Exam.Default);
+
+        exam.AddItem(new ApplicationMenuItem(
+            KnowPulseMenus.ExamManagement,
+            l["Menu:ExamManagement"],
+            "/exam/management",
+            icon: "fas fa-clipboard-list"
+        ).RequirePermissions(KnowPulsePermissions.Exam.Manage));
+
+        exam.AddItem(new ApplicationMenuItem(
+            KnowPulseMenus.ExamTake,
+            l["Menu:ExamTake"],
+            "/exam/take",
+            icon: "fas fa-pen-to-square"
+        ).RequirePermissions(KnowPulsePermissions.Exam.Participate));
+
+        context.Menu.AddItem(exam);
 
         var administration = context.Menu.GetAdministration();
 

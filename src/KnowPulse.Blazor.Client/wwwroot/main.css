@@ -57,3 +57,98 @@
 #ApplicationContainer > div:first-child:not(:only-child) {
     display: none !important;
 }
+
+.rag-answer-text {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    font-family: inherit;
+    font-size: 0.95rem;
+}
+
+.knowledge-flow {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.75rem;
+}
+
+.knowledge-flow-step {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    min-height: 4.25rem;
+    padding: 0.85rem 1rem;
+    border: 1px solid #dee2e6;
+    border-radius: 0.5rem;
+    background: #fff;
+}
+
+.knowledge-flow-step.is-complete {
+    border-color: #9ec5fe;
+    background: #f5f9ff;
+}
+
+.knowledge-flow-index {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: 2rem;
+    height: 2rem;
+    border-radius: 50%;
+    background: #e9ecef;
+    color: #495057;
+    font-weight: 600;
+    font-size: 0.9rem;
+}
+
+.knowledge-flow-step.is-complete .knowledge-flow-index {
+    background: #0d6efd;
+    color: #fff;
+}
+
+.knowledge-flow-title {
+    font-weight: 600;
+    line-height: 1.2;
+}
+
+.knowledge-flow-meta {
+    margin-top: 0.15rem;
+    color: #6c757d;
+    font-size: 0.85rem;
+    overflow-wrap: anywhere;
+}
+
+.knowledge-empty-compact,
+.knowledge-empty-state {
+    border: 1px dashed #ced4da;
+    border-radius: 0.5rem;
+    background: #f8f9fa;
+    color: #6c757d;
+}
+
+.knowledge-empty-compact {
+    padding: 0.75rem;
+}
+
+.knowledge-empty-state {
+    display: inline-flex;
+    min-width: 12rem;
+    justify-content: center;
+    padding: 0.85rem 1rem;
+}
+
+.knowledge-version-preview {
+    max-height: 24rem;
+    overflow: auto;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    font-family: inherit;
+    font-size: 0.95rem;
+    line-height: 1.6;
+}
+
+@media (max-width: 991.98px) {
+    .knowledge-flow {
+        grid-template-columns: 1fr;
+    }
+}

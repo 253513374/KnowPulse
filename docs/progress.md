@@ -1,5 +1,210 @@
 # KnowPulse 开发进度
 
+## 2026-06-28
+
+### 本轮完成
+
+- 固化 MVP-3 学习与运营质量闭环交接验收：新增 `docs/mvp-3-acceptance-matrix.md`，统一覆盖学习路径、阅读进度、个人学习中心、知识反馈和 RAG 评测能力。
+- 新增 `ops/verify-mvp3.ps1`，串联 MVP-3 静态验收、学习/反馈测试、RAG 评测专项、Blazor Client 构建、审计敏感字段扫描和可选运行态页面烟测。
+- 完成 MVP-1 RAG 评测集和评测运行记录最小闭环：新增评测用例、运行记录和逐用例结果模型。
+- 新增 RAG 评测应用服务和 `/api/ai/rag/evaluations` API，支持创建/编辑/查询用例、执行评测、查询运行记录。
+- RAG 评测运行复用现有 `IRagAnswerService`，覆盖真实检索、PostgreSQL 二次权限校验、拒答和 citation 链路。
+- 评测指标落库：命中率、引用准确率、无答案拒答率、越权召回率；越权召回率大于 0 时运行硬失败。
+- 新增 `ops/verify-rag-evaluation.ps1` 和 `20260628133051_Mvp1RagEvaluation` 迁移。
+- 完成 MVP-3 学习路径最小闭环后端：学习路径、组织分配、必学知识、推荐知识和必考考试模型。
+- 完成 MVP-3 个人学习中心最小闭环：新增阅读记录、个人学习状态、Blazor “我的学习”页面和菜单。
+- 新增 `LearningKnowledgeReadRecord`，并生成/应用 `20260628085925_Mvp3LearningCenter` 迁移。
+- `/learning/my` 页面展示必学知识、推荐知识、必考考试、完成状态和最近阅读时间，支持跳转知识版本预览和考试入口。
+- `/knowledge/items` 支持 `itemId` / `versionId` 查询参数，供学习中心直达指定知识版本。
+- 新增 `LearningPath`、`LearningPathAssignment`、`LearningPathRequiredKnowledge`、`LearningPathRecommendedKnowledge`、`LearningPathRequiredExam`，并生成 `20260628083615_Mvp3LearningPath` 迁移。
+- 新增学习路径应用服务和 REST API，支持创建、编辑、管理端查询、个人查询和停用。
+- 新增 `KnowPulse.Learning.Manage` 和 `KnowPulse.Learning.View` 权限，个人查询只返回当前用户按部门、岗位或职级命中的启用路径。
+- 个人学习内容中的知识项继续叠加 `KnowledgePermissionScope` 权限过滤，避免通过学习中心绕过知识库可见性。
+- 新增 `docs/mvp-3-learning-path-acceptance.md`，记录本轮接口、模型、迁移、验证命令和剩余风险。
+- 完成 `KP-MVP2-BE-006` 考试领域模型与迁移。
+- 完成 `KP-MVP2-BE-007` 组卷策略和试卷快照。
+- 完成 `KP-MVP2-BE-008` 考试计划、分配和开始考试。
+- 完成 `KP-MVP2-BE-009` 答题自动保存、提交和幂等控制。
+- 完成 `KP-MVP2-BE-010` 客观题自动评分、成绩和错题记录。
+- 完成 `KP-MVP2-FE-003` 考试管理和组卷页面。
+- 完成 `KP-MVP2-FE-004` 在线答题页和自动保存体验。
+- 完成 `KP-MVP2-QA-003` 组卷、快照和考试状态测试。
+- 完成 `KP-MVP2-QA-004` 答题页浏览器验收清单。
+- 完成 `KP-MVP2-DEVOPS-001` MVP-2 演示考试种子脚本。
+- 完成 `KP-MVP2-SEC-001` 考试权限点和审计证据整理。
+- 新增 `docs/mvp-2-acceptance-matrix.md`，按 MVP-2 任务记录代码、测试、权限、审计、演示数据和答题页浏览器验收证据。
+- 新增 `ops/verify-mvp2.ps1`，默认串联 MVP-2 静态范围检查、过滤测试和审计敏感字段扫描，并支持显式种子数据和演示考试运行态只读检查。
+- 新增 `ops/seed-mvp2-demo-data.ps1`，通过本地 API 登录后创建两道已审核题、固定试卷和全员可见考试计划。
+- `/exam/management` 页面支持考试计划、分配范围、组卷规则、试卷预览和发布入口。
+- `/exam/take` 页面支持可见考试、开始考试、剩余时间、题目作答、自动保存、手动保存、失败重试和提交。
+- 修正 `/exam/take` 手动保存和提交按钮的 Razor `disabled` 布尔绑定，避免按钮在非忙碌、未提交状态下仍被 HTML 属性禁用。
+- 演示考试 `MVP2-DEMO 考试闭环 20260628141223` 已完成浏览器开始、作答、自动保存和提交触发；数据库确认 attempt 已评分，2 个答案，成绩 20/20，错题 0。
+- 完成 `KP-MVP2-AI-002` AI 出题任务模型和执行管道。
+- 完成 `KP-MVP2-AI-003` 候选题结构化校验和安全降级。
+- 完成 `KP-MVP2-BE-005` AI 出题应用服务和 API。
+- 完成 `KP-MVP2-FE-002` AI 候选题生成与审核页面。
+- 完成 `KP-MVP2-QA-002` AI 出题安全和引用测试。
+- 基于 MVP-1 `IKnowledgeRetriever` 的授权 RAG 检索结果生成候选题，模型上下文只来自二次校验后的 chunk。
+- 新增/确认 AI 出题任务、候选题、候选题 citation、prompt 模板和模型调用日志持久化链路。
+- 新增/确认任务创建、任务查询、候选题查看、候选题提交审核和失败重试 API，统一走 `KnowPulse.QuestionBank.AiGeneration` 权限入口。
+- `/question-bank/ai-candidates` 页面支持创建生成任务、查看任务/候选题列表、展开 citation 来源、展示结构化校验错误和相似题提示，并可将候选题提交审核后执行审核通过或驳回。
+- AI 候选题页面在审核通过前明确显示“未入正式题库”；提交审核后展示关联题库草稿状态，并按题目审核权限控制通过/驳回按钮。
+- 候选题结果保存在 `AiQuestionCandidate` 隔离区；AI 生成题必须通过提交审核动作转换为题库待审核草稿，不能直接进入正式题库或考试。
+- 失败路径覆盖无授权上下文、模型失败、模型坏格式和候选题结构校验失败，并写入任务状态和模型调用日志。
+- 结构化校验已覆盖题干、选项、答案、解析、来源 citation、题型和难度；缺字段、非法枚举、不一致枚举或坏答案都会进入 `ValidationFailed`，不能提交审核。
+- QA-002 测试覆盖有依据生成、无依据拒绝、越权知识不能出题、坏格式、模型失败，以及 citation 可追溯且不复制完整知识正文。
+
+### 本轮验证记录
+
+- `.\ops\verify-mvp3.ps1 -NoBuild -CheckRuntimePages`：通过。
+  - 静态验收通过，确认 MVP-3 模型、迁移、权限、菜单、页面、API、审计脚本和测试入口存在。
+  - MVP-3 领域测试 8 通过；MVP-3 EF 应用服务测试 7 通过。
+  - RAG 评测专项通过：领域测试 2 通过，应用服务测试 3 通过，API 契约测试 8 通过。
+  - Blazor Client 构建通过，0 警告，0 错误。
+  - `ops/audit-check.ps1 -FailOnSensitiveHits -Limit 10` 通过，敏感字段扫描硬门禁为 0。
+  - `https://localhost:44305/swagger/index.html`、`https://localhost:44307/learning/my`、`https://localhost:44307/knowledge/feedback`、`https://localhost:44307/_framework/dotnet.js` 均返回 HTTP 200。
+- `.\ops\start-local.ps1 -HealthRetries 15 -HealthRetryDelaySeconds 4`：通过，PostgreSQL、MinIO、Qdrant、LiteLLM 健康检查通过，DbMigrator 完成。
+- `dotnet build .\KnowPulse.slnx --no-restore -m:1 -p:UseSharedCompilation=false -p:BuildInParallel=false -nr:false`：通过。
+  - 13 个既有 NuGet 漏洞告警，0 错误。
+- `dotnet test .\test\KnowPulse.Domain.Tests\KnowPulse.Domain.Tests.csproj --filter "FullyQualifiedName~RagEvaluationTests" --no-restore -m:1 -p:UseSharedCompilation=false -p:BuildInParallel=false -nr:false`：通过。
+  - 2 通过，0 失败，0 跳过。
+- `dotnet test .\test\KnowPulse.EntityFrameworkCore.Tests\KnowPulse.EntityFrameworkCore.Tests.csproj --filter "FullyQualifiedName~Mvp1RagEvaluationAppServiceTests" --no-restore -m:1 -p:UseSharedCompilation=false -p:BuildInParallel=false -nr:false`：通过。
+  - 3 通过，0 失败，0 跳过。
+- `.\ops\verify-rag-evaluation.ps1`：通过。
+  - 领域测试 2 通过；应用服务测试 3 通过；API 契约测试 8 通过。
+- `.\ops\verify-rag-evaluation.ps1 -NoBuild`：通过。
+  - 使用既有编译产物验证，领域测试 2 通过；应用服务测试 3 通过；API 契约测试 8 通过。
+- `dotnet test .\KnowPulse.slnx --no-build --no-restore --filter "FullyQualifiedName~Mvp1" -v:m -m:1 -nr:false`：通过。
+  - `KnowPulse.Application.Tests` 中 8 个、`KnowPulse.Domain.Tests` 中 2 个、`KnowPulse.EntityFrameworkCore.Tests` 中 23 个 MVP-1 测试通过；总计 33 通过。
+- `dotnet ef migrations add Mvp1RagEvaluation --no-build`：通过。
+  - 生成 `20260628133051_Mvp1RagEvaluation.cs`、`20260628133051_Mvp1RagEvaluation.Designer.cs`，并更新 `KnowPulseDbContextModelSnapshot.cs`。
+- `dotnet ef database update --no-build`：通过。
+  - 已应用 `20260628133051_Mvp1RagEvaluation`；PostgreSQL 查询确认 `AppRagEvaluationCases`、`AppRagEvaluationRuns`、`AppRagEvaluationRunCaseResults` 表存在。
+- `dotnet build src\KnowPulse.EntityFrameworkCore\KnowPulse.EntityFrameworkCore.csproj --no-restore -m:1 -p:UseSharedCompilation=false`：通过。
+  - 2 个既有 `Scriban 7.0.0` NuGet 漏洞告警，0 错误。
+- `dotnet ef migrations add Mvp3LearningPath --no-build`：通过。
+  - 生成 `20260628083615_Mvp3LearningPath.cs`、`20260628083615_Mvp3LearningPath.Designer.cs`，并更新 `KnowPulseDbContextModelSnapshot.cs`。
+- `dotnet ef migrations add Mvp3LearningCenter --no-build`：通过。
+  - 生成 `20260628085925_Mvp3LearningCenter.cs`、`20260628085925_Mvp3LearningCenter.Designer.cs`，并更新 `KnowPulseDbContextModelSnapshot.cs`。
+- `dotnet ef database update --no-build`：通过。
+  - 已应用 `20260628085925_Mvp3LearningCenter`；迁移列表确认包含该迁移。
+- `dotnet build src\KnowPulse.Application\KnowPulse.Application.csproj --no-restore -m:1 -p:UseSharedCompilation=false`：通过。
+  - 2 个既有 `Scriban 7.0.0` NuGet 漏洞告警，0 错误。
+- `dotnet build KnowPulse.slnx --no-restore -m:1 -p:UseSharedCompilation=false -p:BuildInParallel=false -nr:false`：通过。
+  - 13 个既有 NuGet 漏洞告警，0 错误。
+- `dotnet test test\KnowPulse.Domain.Tests\KnowPulse.Domain.Tests.csproj --filter "FullyQualifiedName~LearningPathTests"`：通过。
+  - 4 通过，0 失败，0 跳过。
+  - 覆盖学习路径分配目标约束、全员分配目标归一化、停用、配置版本递增和阅读记录完成时间。
+- `dotnet test test\KnowPulse.EntityFrameworkCore.Tests\KnowPulse.EntityFrameworkCore.Tests.csproj --filter "FullyQualifiedName~Mvp3LearningPathAppServiceTests"`：通过。
+  - 4 通过，0 失败，0 跳过。
+  - 覆盖学习路径创建、编辑、查询、停用、部门/岗位/职级分配过滤、知识权限范围二次过滤，以及个人学习阅读状态从未开始到进行中、已完成的闭环。
+- `dotnet build .\src\KnowPulse.Blazor.Client\KnowPulse.Blazor.Client.csproj --no-restore -m:1 -p:UseSharedCompilation=false -p:BuildInParallel=false -nr:false`：通过。
+  - 0 警告，0 错误。
+  - 覆盖 `/learning/my` 页面、学习菜单和知识文档深链查询参数的 Razor 编译。
+- 本地运行态抽验：
+  - `https://localhost:44305/swagger/index.html`：200。
+  - `https://localhost:44307/learning/my`：200。
+  - `https://localhost:44307/_framework/dotnet.js`：200，`text/javascript`。
+- `dotnet test test\KnowPulse.EntityFrameworkCore.Tests\KnowPulse.EntityFrameworkCore.Tests.csproj --filter "FullyQualifiedName~Mvp2ExamAppServiceTests"`：通过。
+  - 5 通过，0 失败，0 跳过。
+  - 覆盖题目不足、状态过滤、固定题目只允许已审核题、试卷快照不可变、开始考试、保存幂等、提交幂等、提交后禁止修改、评分幂等、错题记录和过期禁止提交。
+- `dotnet test .\KnowPulse.slnx --no-restore --filter "FullyQualifiedName~Mvp2" -v:m -m:1 -nr:false -p:BuildInParallel=false`：通过。
+  - `KnowPulse.EntityFrameworkCore.Tests` 中 25 个 MVP-2 测试通过；其他测试程序集无匹配用例。
+- `.\ops\verify-mvp2.ps1 -NoBuild`：通过。
+  - 静态范围检查、25 个 MVP-2 过滤测试和审计敏感字段扫描均通过。
+- `.\ops\verify-mvp2.ps1 -SkipDotnetTests -SkipStatic -SkipAudit -CheckExamRuntime -DemoPlanId 3a221f08-6a7d-053f-396b-87054ead4b71`：通过。
+  - `plans=1 paper_questions=2 scored_attempts=1 answers=2 scores=1`。
+- `.\ops\audit-check.ps1 -FailOnSensitiveHits -Limit 10`：通过。
+  - 审计记录包含考试 `CreatePlanAsync`、`StartAttemptAsync`、`SaveAnswersAsync`、`SubmitAttemptAsync`，敏感字段命中为 0。
+- `dotnet build .\KnowPulse.slnx`：通过。
+  - 26 个既有 NuGet 漏洞告警，0 错误。
+- `dotnet build .\src\KnowPulse.Blazor.Client\KnowPulse.Blazor.Client.csproj --no-restore -v:m -m:1 -p:BuildInParallel=false -nr:false`：通过。
+  - 0 警告，0 错误。
+  - 覆盖考试管理页面、在线答题页和修正后的按钮禁用绑定。
+- `.\ops\start-local.ps1 -HealthRetries 15 -HealthRetryDelaySeconds 4`：通过。
+  - PostgreSQL、MinIO、Qdrant、LiteLLM 健康检查通过，DbMigrator 完成。
+- `.\ops\seed-mvp2-demo-data.ps1 -ApiBaseUrl https://localhost:44305`：通过。
+  - 生成 `PlanId=3a221f08-6a7d-053f-396b-87054ead4b71`、`PaperId=3a221f08-6a32-e530-0327-7b15a94bd997`、2 道题、总分 20。
+- `.\ops\verify-mvp2.ps1 -SkipDotnetTests -SkipAudit`：通过。
+  - 静态检查确认考试领域模型、迁移、权限点、应用服务、页面、测试和演示脚本均存在并包含关键行为。
+- 运行态端点抽验：
+  - `https://localhost:44305/swagger`：200。
+  - `https://localhost:44307/exam/take`：200。
+- 答题页浏览器验收：
+  - 登录态打开 `/exam/take`，可见演示考试、点击开始后显示进行中 attempt、2 道题、剩余时间和保存/提交按钮。
+  - 选择答案后两题均显示“已答”，状态显示“已保存”，console/page error 为空。
+  - 修复后浏览器确认“手动保存”和“提交试卷”均未禁用。
+  - 提交动作触发后，数据库只读查询确认 attempt 状态为已评分、2 个答案、1 条成绩、20/20 分、0 条错题。
+  - 重启 API/Blazor 后再次打开 `/exam/take`，登录态 admin 可见演示考试和开始按钮，console/page error 为空。
+- `dotnet test test\KnowPulse.EntityFrameworkCore.Tests\KnowPulse.EntityFrameworkCore.Tests.csproj --filter "FullyQualifiedName~Mvp2AiQuestionGenerationAppServiceTests"`：通过。
+  - 17 通过，0 失败，0 跳过。
+  - 覆盖 prompt/模型配置与调用日志、正常候选题生成与 citation、提交审核后仍为 `PendingReview`、无上下文失败、越权向量命中丢弃、模型坏格式失败、模型调用失败和相似题提示。
+  - 新增覆盖缺解析、缺来源、缺题型、非法题型、题型不一致、缺难度、非法难度、难度不一致和答案不匹配选项，确认坏输出只能作为失败候选题落库，不能提交审核。
+  - 新增覆盖长知识正文 citation：候选题 citation 和提交后的题库来源均保存 `KnowledgeItemId`、`KnowledgeVersionId`、`ChunkId`、短摘录和 SHA-256 hash，且不复制完整 chunk 正文或向量 payload 正文。
+- `dotnet test test\KnowPulse.EntityFrameworkCore.Tests\KnowPulse.EntityFrameworkCore.Tests.csproj --filter "FullyQualifiedName~Qa002_Citation_Should_Be_Traceable_And_Not_Copy_Full_Knowledge_Content"`：通过。
+  - 1 通过，0 失败，0 跳过。
+- `dotnet test test\KnowPulse.Application.Tests\KnowPulse.Application.Tests.csproj --filter "FullyQualifiedName~AiQuestionGenerationApiContractTests"`：通过。
+  - 7 通过，0 失败，0 跳过。
+  - 覆盖 AI 出题 Controller 根路由、权限策略，以及任务列表/详情、候选题详情、任务创建、失败重试和提交审核 API 路由契约。
+- `dotnet build .\src\KnowPulse.Blazor.Client\KnowPulse.Blazor.Client.csproj --no-restore -v:m -m:1 -p:BuildInParallel=false -nr:false`：通过。
+  - 0 警告，0 错误。
+  - 覆盖 AI 候选题页面 Razor 编译、服务注入、权限检查、表单绑定、候选题状态展示和审核动作按钮。
+- `dotnet build .\src\KnowPulse.Blazor\KnowPulse.Blazor.csproj --no-restore -v:m -m:1 -p:BuildInParallel=false -nr:false`：通过。
+  - 0 警告，0 错误。
+  - 重新生成 Blazor Host 静态资源映射，确认 `_framework/dotnet.js` 运行态返回 `text/javascript` 且非空。
+- 本地运行态抽验：
+  - `https://localhost:44307/question-bank/ai-candidates`：200。
+  - `https://localhost:44305/swagger`：200。
+  - 系统 Chrome headless 打开 `https://localhost:44307/question-bank/ai-candidates` 后进入未登录登录页，Blazor 启动无 console error / page error。
+
+### 注意事项
+
+- 本轮后端测试仍输出既有 NuGet 漏洞告警：`Scriban 7.0.0`、`SQLitePCLRaw.lib.e_sqlite3 2.1.11`。这些告警不是 `KP-MVP2-AI-002` / `KP-MVP2-AI-003` / `KP-MVP2-BE-005` / `KP-MVP2-FE-002` / `KP-MVP2-QA-002` 新增失败。
+- 当前 AI 出题执行为同步管道；后续如切换后台任务，应保持现有任务状态、候选题隔离区和调用日志契约不变。
+
+## 2026-06-27
+
+### 本轮完成
+
+- 完成 MVP-2 包 A：MVP-1 固化范围内的 S0 收尾，不进入题库、AI 出题、组卷或考试开发。
+- 新增 `docs/mvp-1-acceptance-matrix.md`：
+  - 按 MVP-1 任务列出验收证据、当前结论和剩余动作。
+  - 固化模型 key 缺失、Qdrant 不可达、LiteLLM 不可达、无依据问题和越权命中的预期降级行为。
+  - 写入本轮回归命令、验证结果和仍需普通浏览器手工补验的页面。
+- 新增 `ops/verify-mvp1.ps1`：
+  - 默认串联 MVP-1 过滤测试、RAG provider 边界扫描、Qdrant collection 验证、LiteLLM 配置验证和 RAG 审计敏感字段扫描。
+  - 支持 `-EnsureQdrant`、`-LiveLiteLlm`、`-SkipQdrant`、`-SkipAudit`、`-NoBuild` 等本地回归开关。
+- 更新 `docs/mvp-1-qa-test-plan.md` 和 `docs/development-environment.md`：
+  - 将 MVP-1 过滤测试固定为 `dotnet test .\KnowPulse.slnx --no-restore --filter "FullyQualifiedName~Mvp1"`。
+  - 增加提交前必须说明是否影响 MVP-1 RAG 回归范围的要求。
+- 更新 `docs/rag-ai-boundary.md`：
+  - 补充 MVP-1 RAG 审计字段规则，明确 hash、summary、preview 可保存字段和完整 prompt / 完整正文 / 完整附件内容禁存字段。
+- 增强 `ops/audit-check.ps1`：
+  - 增加 `-FailOnSensitiveHits`，用于把 ABP 审计和 RAG 审计敏感字段命中作为硬失败。
+- 增强 `ops/verify-rag-provider-boundaries.ps1`：
+  - 将 SemanticKernel、Microsoft.Extensions.AI、OpenAI、Azure.AI 的 `using` 和 PackageReference 泄漏纳入边界扫描。
+
+### 本轮验证记录
+
+- `.\ops\verify-mvp1.ps1`：通过。
+  - MVP-1 过滤测试：20 通过，0 失败，0 跳过；匹配用例集中在 `KnowPulse.EntityFrameworkCore.Tests`，其他测试程序集无 `FullyQualifiedName~Mvp1` 匹配用例。
+  - RAG provider boundary check：通过。
+  - Qdrant collection check：通过，`knowledge_chunks_1536_mvp1` 存在，向量维度 `1536`，必需 payload index 无缺失。
+  - LiteLLM RAG config check：通过，Host/DbMigrator appsettings、LiteLLM 模板和 `.env.example` alias/key 变量一致。
+  - RAG audit sensitive field check：通过，ABP 审计参数、实体属性变更、RAG 调用日志和 citation 敏感命中均为 0。
+- `.\ops\audit-check.ps1 -FailOnSensitiveHits`：单独执行通过；最近 RAG 调用日志能看到 LiteLLM embedding HTTP 401 被记录为 `embedding` / `search` 失败阶段，未出现敏感字段命中。
+
+### 仍需人工验收
+
+- `/knowledge/items` 索引状态和重建操作页面需要普通浏览器抽验。
+- `/knowledge/index-jobs` 失败阶段、失败原因、重试次数和筛选分页需要普通浏览器抽验。
+- `/rag/answer` 的回答、引用、置信度、人审提示和无依据拒答需要普通浏览器抽验。
+
+### 注意事项
+
+- 本轮 `dotnet test` 仍输出既有 NuGet 漏洞告警：`Scriban 7.0.0`、`SQLitePCLRaw.lib.e_sqlite3 2.1.11`。这些告警不是包 A 新增失败。
+- 本地真实 RAG 页面调用存在 LiteLLM embedding HTTP 401 记录，说明当前模型网关 key/alias 运行态仍需在演示或真实问答前修复；自动化替身测试和静态配置验证已通过。
+
 ## 2026-06-26
 
 ### 本轮完成
@@ -280,6 +485,19 @@
 | KP-MVP0-QA-003 | 完成 | 测试计划包含知识创建、版本创建、发布、下架、归档用例；EF Core 集成测试和运行时脚本已覆盖版本生命周期 |
 | KP-MVP0-QA-004 | 完成 | 测试计划包含上传、下载、越权下载、审计检查脚本和审计敏感内容排除用例；EF Core 集成测试已覆盖附件上传、下载、删除和越权下载；运行时脚本已覆盖真实 MinIO 和审计落库 |
 
+### MVP-3 知识反馈和纠错闭环
+
+- 新增 `KnowledgeFeedback` 聚合根和 `AppKnowledgeFeedbacks` 表，覆盖反馈类型、状态流转、来源知识、来源版本、提交人、处理人、处理结论、关闭原因和关联修订版本。
+- 新增 `KnowledgeFeedbackType`、`KnowledgeFeedbackStatus`、`KnowledgeBase.Feedback` 权限和本地化菜单文本。
+- 新增 `IKnowledgeFeedbackAppService`、`KnowledgeFeedbackAppService` 和 `/api/knowledge/feedback` 显式 HTTP API。
+- 用户提交反馈时复用知识文档功能权限，并叠加 `KnowledgePermissionScope` 业务可见性校验。
+- 管理员处理反馈时只更新反馈状态和关联版本，不直接修改已发布知识版本正文或发布状态。
+- 新增 Blazor `/knowledge/feedback` 管理页，支持筛选、查看、接手处理、关联版本、标记已处理和关闭。
+- 知识文档页新增当前知识/版本的反馈提交入口。
+- 审计脚本 `ops/audit-check.ps1` 增加知识反馈生命周期、反馈审计动作和敏感字段扫描。
+- 验收记录：`docs/mvp-3-knowledge-feedback-acceptance.md`。
+- EF 迁移：`20260628100956_Mvp3KnowledgeFeedback`，已应用到本地 PostgreSQL 并确认 `AppKnowledgeFeedbacks` 表存在。
+
 ### 验证记录
 
 - `docker compose config`：通过。
@@ -297,6 +515,12 @@
 - FE-006 失败、无权限和重试状态补强后，执行 `dotnet msbuild .\src\KnowPulse.Blazor.Client\KnowPulse.Blazor.Client.csproj /t:CoreCompile /p:NoRestore=true /p:BuildInParallel=false /m:1 /nr:false /v:m` 通过。
 - 增加 `ops/audit-check.ps1` 后，已执行 PowerShell 静态解析检查；2026-06-25 已补充真实审计查询验证。
 - 增加 `ops/start-local.ps1` 后，已执行 PowerShell 静态解析检查；2026-06-25 已补充真实启动链路和健康检查验证。
+- MVP-3 知识反馈闭环加入后，执行 `dotnet build .\KnowPulse.slnx --no-restore -m:1 -p:UseSharedCompilation=false -p:BuildInParallel=false -nr:false` 通过，13 个既有 NuGet 漏洞告警，0 错误。
+- MVP-3 知识反馈迁移已执行 `dotnet ef migrations add Mvp3KnowledgeFeedback --no-build`；首次 `database update --no-build` 因迁移未重新编译误判最新，重新构建 EF Core 项目后已应用 `20260628100956_Mvp3KnowledgeFeedback`，并通过 PostgreSQL 查询确认 `AppKnowledgeFeedbacks` 表存在。
+- MVP-3 知识反馈领域测试：`dotnet test .\test\KnowPulse.Domain.Tests\KnowPulse.Domain.Tests.csproj --filter "FullyQualifiedName~KnowledgeFeedbackTests" --no-restore -m:1 -p:UseSharedCompilation=false -p:BuildInParallel=false -nr:false`，4 通过。
+- MVP-3 知识反馈应用服务测试：`dotnet test .\test\KnowPulse.EntityFrameworkCore.Tests\KnowPulse.EntityFrameworkCore.Tests.csproj --filter "FullyQualifiedName~Mvp3KnowledgeFeedbackAppServiceTests" --no-restore -m:1 -p:UseSharedCompilation=false -p:BuildInParallel=false -nr:false`，3 通过。
+- MVP-3 知识反馈审计检查：`.\ops\audit-check.ps1 -FailOnSensitiveHits -Limit 10` 通过；反馈生命周期当前为空态，反馈敏感字段扫描 0 命中。
+- MVP-3 知识反馈页面烟测：API Host 和 Blazor 已启动，`GET https://localhost:44305/swagger/index.html` 与 `GET https://localhost:44307/knowledge/feedback` 均返回 200。
 - AI-003 风险闸口补齐后，执行 `rg -n "DataIngestion|VectorData|Qdrant|LiteLLM|Microsoft.Extensions.AI|SemanticKernel|Agent Framework|OpenAI|Azure.AI" src test -g "*.cs" -g "*.csproj"` 无命中，确认 MVP-0 业务代码未直接引入禁用 RAG/AI provider。
 - Blazor 主列表分页接入后，执行 `dotnet msbuild .\src\KnowPulse.Blazor.Client\KnowPulse.Blazor.Client.csproj /t:CoreCompile /p:NoRestore=true /p:BuildInParallel=false /m:1 /nr:false /v:m` 通过。
 - 首次执行 `.\ops\start-local.ps1` 时 Docker 可访问，但 LiteLLM `ghcr.io/berriai/litellm:v1.75.0-stable` 标签不存在导致启动失败；已用 `docker manifest inspect` 验证 `main-stable` 可用并修正默认配置。

@@ -109,6 +109,38 @@ $env:BlobStoring__Minio__SecretKey="knowpulse-local-password"
 .\ops\audit-check.ps1
 ```
 
+MVP-1 RAG 回归和安全扫描：
+
+```powershell
+.\ops\verify-mvp1.ps1
+```
+
+该脚本串联 MVP-1 过滤测试、RAG provider 边界扫描、Qdrant collection 验证、LiteLLM alias 静态验证和 RAG 审计敏感字段扫描。若需要初始化缺失的本地 Qdrant collection：
+
+```powershell
+.\ops\verify-mvp1.ps1 -EnsureQdrant
+```
+
+如果只想执行纯代码和配置回归，可跳过依赖本地运行服务的步骤：
+
+```powershell
+.\ops\verify-mvp1.ps1 -SkipQdrant -SkipAudit
+```
+
+单独执行 MVP-1 测试过滤器：
+
+```powershell
+dotnet test .\KnowPulse.slnx --no-restore --filter "FullyQualifiedName~Mvp1" -v:m -m:1 -nr:false -p:BuildInParallel=false
+```
+
+MVP-3 学习路径最小闭环定向验证：
+
+```powershell
+dotnet test .\test\KnowPulse.Domain.Tests\KnowPulse.Domain.Tests.csproj --filter "FullyQualifiedName~LearningPathTests"
+dotnet test .\test\KnowPulse.EntityFrameworkCore.Tests\KnowPulse.EntityFrameworkCore.Tests.csproj --filter "FullyQualifiedName~Mvp3LearningPathAppServiceTests"
+dotnet build .\src\KnowPulse.Blazor.Client\KnowPulse.Blazor.Client.csproj --no-restore -m:1 -p:UseSharedCompilation=false -p:BuildInParallel=false -nr:false
+```
+
 MVP-0 静态契约检查：
 
 ```powershell
@@ -187,6 +219,14 @@ MVP-0 综合验证：
 .\ops\audit-check.ps1 -LocalPsql
 ```
 
+知识反馈闭环的审计验证可使用：
+
+```powershell
+.\ops\audit-check.ps1 -FailOnSensitiveHits -Limit 10
+```
+
+脚本会额外输出最近知识反馈生命周期、反馈相关审计动作，以及反馈审计参数中是否出现 `ContentText`、附件流或超长处理字段。
+
 关键参数：
 
 | 参数 | 默认值 | 说明 |
@@ -202,6 +242,18 @@ MVP-0 综合验证：
 
 ```powershell
 dotnet run --project .\src\KnowPulse.DbMigrator\KnowPulse.DbMigrator.csproj
+```
+
+EF Core 迁移需要先在 `src\KnowPulse.EntityFrameworkCore` 生成迁移，再重新构建 EF 项目后应用数据库。使用 `--no-build` 更新数据库时，必须确认迁移已经编译进程序集：
+
+```powershell
+Push-Location .\src\KnowPulse.EntityFrameworkCore
+dotnet ef migrations add Mvp3KnowledgeFeedback --no-build
+Pop-Location
+dotnet build .\src\KnowPulse.EntityFrameworkCore\KnowPulse.EntityFrameworkCore.csproj --no-restore -m:1 -p:UseSharedCompilation=false
+Push-Location .\src\KnowPulse.EntityFrameworkCore
+dotnet ef database update --no-build
+Pop-Location
 ```
 
 当前默认连接字符串：
@@ -257,7 +309,8 @@ Pop-Location
 - 只提交 `.env.example`。
 - 不提交 `.env`、`appsettings.secrets.json`、真实模型密钥、真实对象存储密钥。
 - LiteLLM 的 `OPENAI_API_KEY` 在 MVP-0 可以为空；MVP-0 不调用模型推理。
-- Qdrant 在 MVP-0 不保存业务事实数据；后续索引可由 PostgreSQL 和 MinIO 重建。
+- LiteLLM 的 MVP-1 应用访问 key 使用 `KNOWPULSE_LITELLM_API_KEY`，真实供应商 key 只放在本地 `.env` 或安全配置源。
+- Qdrant 在 MVP-0/MVP-1 都不保存业务事实数据；MVP-1 索引可由 PostgreSQL 和 MinIO 重建。
 
 ## 6. 数据持久化
 
@@ -287,7 +340,7 @@ docker exec knowpulse-postgres pg_restore -U root -d KnowPulse --clean --if-exis
 
 MinIO 本地对象保存在 `knowpulse-minio-data` volume。开发环境如需保留上传文件，优先使用 MinIO Console 下载 bucket，或在停止容器前使用 `mc mirror` 将 `knowpulse-knowledge` bucket 镜像到本地备份目录。
 
-Qdrant 在 MVP-0 只作为 MVP-1 环境占位，不保存业务事实。后续真实索引可由 PostgreSQL 和 MinIO 重建；如需临时保留，可使用 Qdrant snapshot 机制导出。
+Qdrant 在 MVP-0 只作为 MVP-1 环境占位；MVP-1 也只保存可重建向量索引，不保存业务事实。真实索引可由 PostgreSQL 和 MinIO 重建；如需临时保留，可使用 Qdrant snapshot 机制导出。
 
 ## 8. 清理
 

@@ -26,6 +26,8 @@ ABP 后端是业务事实的唯一可信来源。知识、题目、考试、权�
 
 Qdrant 只作为检索索引库，不作为业务主库。
 
+Qdrant 中的 collection 和 payload index 必须能从 PostgreSQL 业务事实与 MinIO/BlobStoring 原始附件重建，不能成为唯一状态来源。
+
 ### 2.2 RAG 能力自研，底层组件复用
 
 RAG 的核心风险在于权限、租户、知识版本、引用来源和审计追溯。这些能力强依赖业务模型，不建议交给完整外部 RAG 平台接管。
@@ -281,7 +283,7 @@ RAG Service 可以先作为 ABP 单体中的模块实现，后续如果检索压
 生产落地闸口：
 
 - Agent Framework 必须包在 `IAiWorkflowRunner`、`IQuestionGenerationWorkflow`、`ISubjectiveScoringWorkflow` 等应用层接口后面，业务模块不能直接依赖具体 Agent SDK。
-- MVP 阶段的权限化问答可以先用确定性的 `RagAnswerService + IChatClient` 实现；只有当多步骤编排、人审节点、工具调用审批确实需要时，再启用 Agent workflow。
+- MVP 阶段的权限化问答先用 `RagAnswerService + LiteLLM chat alias` 实现；只有当多步骤编排、人审节点、工具调用审批确实需要时，再启用 Agent workflow。
 - 使用 preview 包或实验 provider 时，只能在功能开关后运行，并保留不用 Agent 的降级路径。
 - 写入业务状态的工具调用必须经过人工审批或明确的应用服务权限校验，Agent 输出不能直接发布知识、审批题目、改分或变更权限。
 - 每个 Agent workflow 必须记录版本、输入摘要、工具调用列表、人工审批记录、输出摘要、token/成本和异常。
@@ -618,6 +620,13 @@ sequenceDiagram
 - Processor：摘要、关键词、分类建议可以使用 DataIngestion chunk processor，但必须记录 prompt 版本和模型调用。
 - Writer：优先使用 DataIngestion `VectorStoreWriter<T>` 写入 VectorData 支持的 vector store。
 
+MVP-1 初始文档类型：
+
+- 知识版本正文 `KnowledgeVersion.ContentText`，按 Markdown 文本处理。
+- UTF-8 `.txt` 附件，读取后包装为 Markdown 文档。
+- UTF-8 `.md` / `.markdown` 附件，按 Markdown 文档处理。
+- PDF、Word、PPT、HTML 和表格文档先进入 reader failure，不在 MVP-1 初始 pipeline 中静默跳过。
+
 需要保存的 chunk 元数据：
 
 - `ChunkId`
@@ -636,9 +645,14 @@ sequenceDiagram
 
 ### 7.3 Qdrant Collection 设计
 
-推荐 collection：
+MVP-1 初始 collection 固定为：
 
-- `knowledge_chunks`
+- `knowledge_chunks_1536_mvp1`
+
+命名规则为 `{业务对象}_{向量维度}_{阶段或模型代号}`。embedding 维度变化时必须创建新 collection，例如 `knowledge_chunks_3072_mvp2`，禁止把不同维度向量写入同一个 collection。
+
+后续可扩展 collection：
+
 - `question_chunks` 或后续复用 `questions`
 
 `knowledge_chunks` payload 建议：
@@ -646,9 +660,8 @@ sequenceDiagram
 ```json
 {
   "tenantId": "string",
-  "knowledgeId": "guid",
+  "knowledgeItemId": "guid",
   "knowledgeVersionId": "guid",
-  "documentId": "guid",
   "chunkId": "guid",
   "categoryId": "guid",
   "tagIds": ["guid"],
@@ -674,7 +687,10 @@ payload 设计要求：
 - `departmentIds`、`positionIds`、`roleIds`、`userIds` 只用于检索前过滤，不作为最终授权依据。
 - `securityLevel` 必须与 PostgreSQL 中的知识安全等级保持一致。
 - `embeddingModel` 与 `embeddingModelVersion` 必须能定位到实际 embedding 模型、维度和 collection。
-- 高频过滤字段必须建立 Qdrant payload index，至少包括 `tenantId`、`isPublished`、`visibility`、`departmentIds`、`positionIds`、`roleIds`、`userIds`、`securityLevel`、`effectiveFrom`、`effectiveTo`。
+- MVP-1 默认通过 LiteLLM alias `knowpulse-embedding-default` 调用 embedding，模型版本记为 `2026-06-mvp1`，向量维度为 `1536`，collection 为 `knowledge_chunks_1536_mvp1`。
+- MVP-1 必建 Qdrant payload index 为 `tenantId`、`knowledgeItemId`、`knowledgeVersionId`、`chunkId`、`isPublished`、`departmentIds`、`positionIds`、`roleIds`、`userIds`、`securityLevel`。
+- collection 和 payload index 通过 `IKnowledgeVectorStoreMaintenance` 或 `.\ops\verify-qdrant-knowledge-collection.ps1 -Ensure` 显式初始化；脚本可重复执行，缺失时创建，存在时只做健康验证。
+- Qdrant 不保存业务最终状态，只保存 embedding、检索 payload 和外部 point id。全量重建时以 PostgreSQL 的 `KnowledgeVersion`、`KnowledgeChunk`、`KnowledgeEmbeddingRecord`、权限范围记录和 MinIO/BlobStoring 原始附件为准。
 
 ### 7.4 权限化检索流程
 
@@ -682,7 +698,7 @@ payload 设计要求：
 用户提问
 -> ABP 获取 CurrentTenant / CurrentUser / 部门 / 岗位 / 角色 / 安全等级 / 权限
 -> RagService 生成 vector search request 和 payload filter
--> IKnowledgeVectorStore 通过 VectorData/Qdrant 执行向量检索
+-> IKnowledgeVectorStore 通过项目内 Qdrant 适配层执行向量检索
 -> PostgreSQL 按 chunkId / knowledgeVersionId 二次校验知识状态、版本、权限范围
 -> 可选 rerank
 -> 拼装上下文
@@ -950,6 +966,40 @@ PostgreSQL 是主库，Qdrant 是索引库。
 - 不同 embedding 维度使用不同 collection 或迁移策略。
 - 支持全量重建。
 - 支持灰度切换检索 collection。
+
+MVP-1 默认模型配置通过 `RagAI` 配置节表达：
+
+- `RagAI:Embedding:Provider = LiteLLM`
+- `RagAI:Embedding:ModelName = knowpulse-embedding-default`
+- `RagAI:Embedding:ModelVersion = 2026-06-mvp1`
+- `RagAI:Embedding:VectorDimension = 1536`
+- `RagAI:Embedding:CollectionName = knowledge_chunks_1536_mvp1`
+- `RagAI:LiteLlm:ApiKeyEnvironmentVariable = KNOWPULSE_LITELLM_API_KEY`
+
+仓库配置模板只保存模型 alias、endpoint、timeout、fallback alias 和环境变量名，不保存真实模型密钥。
+
+MVP-1 embedding 生成规则：
+
+- 模型调用必须经过 `IKnowledgeEmbeddingClient`，业务应用服务和 pipeline 不直接依赖供应商 SDK。
+- 本地没有 `KNOWPULSE_LITELLM_API_KEY` 时，LiteLLM client 返回明确的 `embedding` 阶段失败，不阻塞非 RAG 测试。
+- `KnowledgeEmbeddingRecord` 保存 chunk、模型版本、content hash、向量维度和目标向量库 record id。
+- 同一模型版本下 content hash 或维度不匹配的 active chunk 必须进入重建查询结果。
+
+MVP-1 Qdrant 适配规则：
+
+- 业务代码只依赖 `IKnowledgeVectorStore`。
+- Qdrant REST 适配层负责 upsert、search、delete 和 payload filter 构造。
+- `IKnowledgeVectorStoreMaintenance` 负责显式 ensure collection、ensure payload index 和健康检查。
+- Qdrant provider/SDK 类型不得泄漏到 Application.Contracts、Application 或 Domain。
+- 权限前置过滤至少包含 tenant、published、department、position、role、user 和 security level 条件；命中结果仍需 PostgreSQL 二次校验。
+- Qdrant collection 可以通过 `.\ops\verify-qdrant-knowledge-collection.ps1 -Ensure` 初始化，并通过同一脚本验证向量维度和必建 payload index。
+
+MVP-1 RAG 搜索和问答规则：
+
+- `POST /api/ai/rag/search` 只能返回 `IKnowledgeRetriever` 二次校验后的 chunk。
+- `POST /api/ai/rag/answer` 当前使用 `RagAnswerService` 调用 LiteLLM chat alias 生成回答和 citation；模型上下文只能来自二次校验后的 chunk，模型不可用时降级为保守回答。
+- 无可访问依据时必须返回“知识库依据不足”，不得编造制度、流程、数字、日期或引用。
+- citation 必须包含 `KnowledgeItemId`、`KnowledgeVersionId`、`ChunkId`、来源标题、页码和受控长度摘录。
 
 ## 11. 后台任务设计
 

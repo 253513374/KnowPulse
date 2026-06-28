@@ -1,0 +1,562 @@
+@page "/knowledge/feedback"
+@attribute [Authorize(KnowPulsePermissions.KnowledgeBase.Feedback)]
+@inherits KnowPulseComponentBase
+@inject IKnowledgeFeedbackAppService FeedbackAppService
+@inject NavigationManager NavigationManager
+@inject IJSRuntime JSRuntime
+
+<PageTitle>知识反馈</PageTitle>
+
+<div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+    <div>
+        <h1 class="h4 mb-1">知识反馈</h1>
+        <div class="text-muted small">KnowledgeBase / Feedback</div>
+    </div>
+    <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="LoadAsync" disabled="@IsBusy">刷新</button>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(ErrorMessage))
+{
+    <div class="alert @(IsPermissionError ? "alert-warning" : "alert-danger") d-flex flex-wrap align-items-center justify-content-between gap-2" role="alert">
+        <span>@ErrorMessage</span>
+        <button class="btn btn-sm @(IsPermissionError ? "btn-outline-warning" : "btn-outline-danger")" type="button" @onclick="LoadAsync" disabled="@IsBusy">重试</button>
+    </div>
+}
+
+@if (!string.IsNullOrWhiteSpace(SuccessMessage))
+{
+    <div class="alert alert-success" role="status">@SuccessMessage</div>
+}
+
+@if (IsPermissionError)
+{
+    <div class="card">
+        <div class="card-body text-center py-5">
+            <h2 class="h6 mb-2">无权限处理知识反馈</h2>
+            <div class="text-muted">请确认账号已授予知识反馈处理权限。</div>
+        </div>
+    </div>
+}
+else
+{
+    <div class="row g-3">
+        <div class="col-xl-7">
+            <div class="card">
+                <div class="card-body border-bottom">
+                    <div class="row g-2 align-items-end">
+                        <div class="col-md-3">
+                            <label class="form-label" for="feedback-status">状态</label>
+                            <select id="feedback-status" class="form-select" @bind="StatusFilterText">
+                                <option value="">全部</option>
+                                <option value="@KnowledgeFeedbackStatus.Submitted">待处理</option>
+                                <option value="@KnowledgeFeedbackStatus.Processing">处理中</option>
+                                <option value="@KnowledgeFeedbackStatus.Resolved">已处理</option>
+                                <option value="@KnowledgeFeedbackStatus.Closed">已关闭</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label" for="feedback-type">类型</label>
+                            <select id="feedback-type" class="form-select" @bind="TypeFilterText">
+                                <option value="">全部</option>
+                                <option value="@KnowledgeFeedbackType.Problem">问题</option>
+                                <option value="@KnowledgeFeedbackType.Outdated">过期</option>
+                                <option value="@KnowledgeFeedbackType.Error">错误</option>
+                                <option value="@KnowledgeFeedbackType.Missing">缺失</option>
+                                <option value="@KnowledgeFeedbackType.Suggestion">建议</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label" for="feedback-keyword">关键词</label>
+                            <input id="feedback-keyword" class="form-control" @bind="Keyword" @bind:event="oninput" />
+                        </div>
+                        <div class="col-md-2">
+                            <button class="btn btn-primary w-100" type="button" @onclick="ApplyFilterAsync" disabled="@IsBusy">查询</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead>
+                            <tr>
+                                <th>反馈</th>
+                                <th>知识</th>
+                                <th>状态</th>
+                                <th>提交时间</th>
+                                <th class="text-end">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @if (IsLoading)
+                            {
+                                <tr>
+                                    <td colspan="5" class="text-center py-4 text-muted">加载中</td>
+                                </tr>
+                            }
+                            else if (FeedbackList.Count == 0)
+                            {
+                                <tr>
+                                    <td colspan="5" class="text-center py-4 text-muted">暂无知识反馈</td>
+                                </tr>
+                            }
+                            else
+                            {
+                                @foreach (var feedback in FeedbackList)
+                                {
+                                    <tr class="@(SelectedFeedback?.Id == feedback.Id ? "table-active" : null)">
+                                        <td>
+                                            <div class="fw-semibold">@feedback.Title</div>
+                                            <div class="text-muted small">@GetTypeText(feedback.Type)</div>
+                                        </td>
+                                        <td>
+                                            <div>@feedback.KnowledgeTitle</div>
+                                            <div class="text-muted small">@GetVersionText(feedback)</div>
+                                        </td>
+                                        <td><span class="badge @GetStatusBadge(feedback.Status)">@GetStatusText(feedback.Status)</span></td>
+                                        <td>@feedback.CreationTime.ToString("yyyy-MM-dd HH:mm")</td>
+                                        <td class="text-end">
+                                            <button class="btn btn-link btn-sm" type="button" @onclick="() => SelectFeedbackAsync(feedback)" disabled="@IsBusy">查看</button>
+                                        </td>
+                                    </tr>
+                                }
+                            }
+                        </tbody>
+                    </table>
+                </div>
+
+                <MvpPager SkipCount="SkipCount" PageSize="PageSize" TotalCount="TotalCount" IsBusy="IsBusy" OnSkipCountChanged="ChangePageAsync" />
+            </div>
+        </div>
+
+        <div class="col-xl-5">
+            <div class="card">
+                <div class="card-body border-bottom">
+                    <div class="d-flex flex-wrap align-items-start justify-content-between gap-2">
+                        <div>
+                            <h2 class="h6 mb-1">处理详情</h2>
+                            <div class="text-muted small">@SelectedFeedbackTitle</div>
+                        </div>
+                        @if (SelectedFeedback != null)
+                        {
+                            <span class="badge @GetStatusBadge(SelectedFeedback.Status)">@GetStatusText(SelectedFeedback.Status)</span>
+                        }
+                    </div>
+                </div>
+
+                @if (SelectedFeedback == null)
+                {
+                    <div class="card-body text-center text-muted py-5">请选择一条反馈</div>
+                }
+                else
+                {
+                    <div class="card-body">
+                        <dl class="row small mb-3">
+                            <dt class="col-4">类型</dt>
+                            <dd class="col-8">@GetTypeText(SelectedFeedback.Type)</dd>
+                            <dt class="col-4">知识</dt>
+                            <dd class="col-8">
+                                <button class="btn btn-link btn-sm p-0" type="button" @onclick="OpenKnowledge" disabled="@IsBusy">@SelectedFeedback.KnowledgeTitle</button>
+                                <div class="text-muted">@GetVersionText(SelectedFeedback)</div>
+                            </dd>
+                            <dt class="col-4">提交人</dt>
+                            <dd class="col-8">@SelectedFeedback.SubmitterUserId</dd>
+                            <dt class="col-4">提交时间</dt>
+                            <dd class="col-8">@SelectedFeedback.CreationTime.ToString("yyyy-MM-dd HH:mm")</dd>
+                            <dt class="col-4">关联版本</dt>
+                            <dd class="col-8">@GetLinkedVersionText(SelectedFeedback)</dd>
+                        </dl>
+
+                        <div class="border rounded p-3 mb-3">
+                            <div class="fw-semibold mb-1">@SelectedFeedback.Title</div>
+                            <div class="small">@SelectedFeedback.Description</div>
+                        </div>
+
+                        @if (!string.IsNullOrWhiteSpace(SelectedFeedback.Resolution))
+                        {
+                            <div class="border rounded p-3 mb-3 bg-light">
+                                <div class="fw-semibold mb-1">处理结论</div>
+                                <div class="small">@SelectedFeedback.Resolution</div>
+                            </div>
+                        }
+
+                        @if (!string.IsNullOrWhiteSpace(SelectedFeedback.CloseReason))
+                        {
+                            <div class="border rounded p-3 mb-3 bg-light">
+                                <div class="fw-semibold mb-1">关闭原因</div>
+                                <div class="small">@SelectedFeedback.CloseReason</div>
+                            </div>
+                        }
+
+                        <div class="d-flex flex-column gap-3">
+                            <EditForm Model="@ProcessForm" OnValidSubmit="@ProcessAsync">
+                                <DataAnnotationsValidator />
+                                <label class="form-label" for="process-resolution">处理备注</label>
+                                <textarea id="process-resolution" class="form-control mb-2" rows="2" @bind="ProcessForm.Resolution" @bind:event="oninput" disabled="@IsSelectedClosed"></textarea>
+                                <button class="btn btn-outline-primary btn-sm" type="submit" disabled="@(IsBusy || IsSelectedClosed || SelectedFeedback.Status == KnowledgeFeedbackStatus.Resolved)">接手处理</button>
+                            </EditForm>
+
+                            <EditForm Model="@LinkForm" OnValidSubmit="@LinkVersionAsync">
+                                <DataAnnotationsValidator />
+                                <label class="form-label" for="link-version">关联修订版本 ID</label>
+                                <input id="link-version" class="form-control mb-2" @bind="LinkForm.LinkedVersionIdText" @bind:event="oninput" disabled="@IsSelectedClosed" />
+                                <label class="form-label" for="link-resolution">关联备注</label>
+                                <textarea id="link-resolution" class="form-control mb-2" rows="2" @bind="LinkForm.Resolution" @bind:event="oninput" disabled="@IsSelectedClosed"></textarea>
+                                <button class="btn btn-outline-secondary btn-sm" type="submit" disabled="@(IsBusy || IsSelectedClosed)">关联版本</button>
+                            </EditForm>
+
+                            <EditForm Model="@ResolveForm" OnValidSubmit="@ResolveAsync">
+                                <DataAnnotationsValidator />
+                                <label class="form-label" for="resolve-version">完成时关联版本 ID</label>
+                                <input id="resolve-version" class="form-control mb-2" @bind="ResolveForm.LinkedVersionIdText" @bind:event="oninput" disabled="@IsSelectedClosed" />
+                                <label class="form-label" for="resolve-resolution">处理结论</label>
+                                <textarea id="resolve-resolution" class="form-control mb-2" rows="3" @bind="ResolveForm.Resolution" @bind:event="oninput" disabled="@IsSelectedClosed"></textarea>
+                                <button class="btn btn-success btn-sm" type="submit" disabled="@(IsBusy || IsSelectedClosed || SelectedFeedback.Status == KnowledgeFeedbackStatus.Resolved)">标记已处理</button>
+                            </EditForm>
+
+                            <EditForm Model="@CloseForm" OnValidSubmit="@CloseAsync">
+                                <DataAnnotationsValidator />
+                                <label class="form-label" for="close-reason">关闭原因</label>
+                                <textarea id="close-reason" class="form-control mb-2" rows="2" @bind="CloseForm.CloseReason" @bind:event="oninput" disabled="@IsSelectedClosed"></textarea>
+                                <button class="btn btn-outline-danger btn-sm" type="submit" disabled="@(IsBusy || IsSelectedClosed)">关闭反馈</button>
+                            </EditForm>
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private const int PageSize = 20;
+
+    private readonly List<KnowledgeFeedbackDto> FeedbackList = new();
+    private int SkipCount { get; set; }
+    private long TotalCount { get; set; }
+    private string? StatusFilterText { get; set; }
+    private string? TypeFilterText { get; set; }
+    private string? Keyword { get; set; }
+    private bool IsLoading { get; set; }
+    private bool IsBusy { get; set; }
+    private string? ErrorMessage { get; set; }
+    private string? SuccessMessage { get; set; }
+    private KnowledgeFeedbackDto? SelectedFeedback { get; set; }
+    private ProcessFormModel ProcessForm { get; set; } = new();
+    private LinkVersionFormModel LinkForm { get; set; } = new();
+    private ResolveFormModel ResolveForm { get; set; } = new();
+    private CloseFormModel CloseForm { get; set; } = new();
+
+    private bool IsSelectedClosed => SelectedFeedback?.Status == KnowledgeFeedbackStatus.Closed;
+    private bool IsPermissionError => ErrorMessage?.Contains("无权限", StringComparison.OrdinalIgnoreCase) == true ||
+                                      ErrorMessage?.Contains("未登录", StringComparison.OrdinalIgnoreCase) == true ||
+                                      ErrorMessage?.Contains("Unauthorized", StringComparison.OrdinalIgnoreCase) == true ||
+                                      ErrorMessage?.Contains("Forbidden", StringComparison.OrdinalIgnoreCase) == true;
+    private string SelectedFeedbackTitle => SelectedFeedback?.Title ?? "未选择反馈";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+    }
+
+    private async Task ApplyFilterAsync()
+    {
+        SkipCount = 0;
+        await LoadAsync();
+    }
+
+    private async Task ChangePageAsync(int skipCount)
+    {
+        SkipCount = skipCount;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        await RunBusyAsync(LoadListCoreAsync);
+    }
+
+    private async Task LoadListCoreAsync()
+    {
+        IsLoading = true;
+        var result = await FeedbackAppService.GetListAsync(new GetKnowledgeFeedbackListInput
+        {
+            Status = ParseStatus(StatusFilterText),
+            Type = ParseType(TypeFilterText),
+            Keyword = string.IsNullOrWhiteSpace(Keyword) ? null : Keyword.Trim(),
+            SkipCount = SkipCount,
+            MaxResultCount = PageSize
+        });
+
+        FeedbackList.Clear();
+        FeedbackList.AddRange(result.Items);
+        TotalCount = result.TotalCount;
+
+        if (SelectedFeedback != null)
+        {
+            SelectedFeedback = FeedbackList.FirstOrDefault(x => x.Id == SelectedFeedback.Id) ?? SelectedFeedback;
+        }
+
+        IsLoading = false;
+    }
+
+    private async Task SelectFeedbackAsync(KnowledgeFeedbackDto feedback)
+    {
+        await RunBusyAsync(async () =>
+        {
+            SelectedFeedback = await FeedbackAppService.GetAsync(feedback.Id);
+            ResetActionForms(SelectedFeedback);
+        });
+    }
+
+    private async Task ProcessAsync()
+    {
+        if (SelectedFeedback == null)
+        {
+            return;
+        }
+
+        await RunBusyAsync(async () =>
+        {
+            SelectedFeedback = await FeedbackAppService.ProcessAsync(SelectedFeedback.Id, new ProcessKnowledgeFeedbackDto
+            {
+                Resolution = NormalizeOptionalText(ProcessForm.Resolution)
+            });
+            ResetActionForms(SelectedFeedback);
+            await LoadListCoreAsync();
+            SuccessMessage = "已接手处理反馈。";
+        });
+    }
+
+    private async Task LinkVersionAsync()
+    {
+        if (SelectedFeedback == null || !TryParseRequiredGuid(LinkForm.LinkedVersionIdText, "请输入有效的修订版本 ID。", out var linkedVersionId))
+        {
+            return;
+        }
+
+        await RunBusyAsync(async () =>
+        {
+            SelectedFeedback = await FeedbackAppService.LinkVersionAsync(SelectedFeedback.Id, new LinkKnowledgeFeedbackVersionDto
+            {
+                LinkedKnowledgeVersionId = linkedVersionId,
+                Resolution = NormalizeOptionalText(LinkForm.Resolution)
+            });
+            ResetActionForms(SelectedFeedback);
+            await LoadListCoreAsync();
+            SuccessMessage = "已关联修订版本。";
+        });
+    }
+
+    private async Task ResolveAsync()
+    {
+        if (SelectedFeedback == null)
+        {
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(ResolveForm.LinkedVersionIdText) &&
+            !Guid.TryParse(ResolveForm.LinkedVersionIdText, out _))
+        {
+            ErrorMessage = "请输入有效的修订版本 ID。";
+            return;
+        }
+
+        var linkedVersionId = ParseNullableGuid(ResolveForm.LinkedVersionIdText);
+        await RunBusyAsync(async () =>
+        {
+            SelectedFeedback = await FeedbackAppService.ResolveAsync(SelectedFeedback.Id, new ResolveKnowledgeFeedbackDto
+            {
+                Resolution = ResolveForm.Resolution.Trim(),
+                LinkedKnowledgeVersionId = linkedVersionId
+            });
+            ResetActionForms(SelectedFeedback);
+            await LoadListCoreAsync();
+            SuccessMessage = "反馈已标记为已处理。";
+        });
+    }
+
+    private async Task CloseAsync()
+    {
+        if (SelectedFeedback == null || !await ConfirmAsync("确定关闭该反馈吗？关闭后不能继续处理或关联版本。"))
+        {
+            return;
+        }
+
+        await RunBusyAsync(async () =>
+        {
+            SelectedFeedback = await FeedbackAppService.CloseAsync(SelectedFeedback.Id, new CloseKnowledgeFeedbackDto
+            {
+                CloseReason = NormalizeOptionalText(CloseForm.CloseReason)
+            });
+            ResetActionForms(SelectedFeedback);
+            await LoadListCoreAsync();
+            SuccessMessage = "反馈已关闭。";
+        });
+    }
+
+    private void OpenKnowledge()
+    {
+        if (SelectedFeedback == null)
+        {
+            return;
+        }
+
+        var url = SelectedFeedback.KnowledgeVersionId.HasValue
+            ? $"/knowledge/items?itemId={SelectedFeedback.KnowledgeItemId}&versionId={SelectedFeedback.KnowledgeVersionId.Value}"
+            : $"/knowledge/items?itemId={SelectedFeedback.KnowledgeItemId}";
+        NavigationManager.NavigateTo(url);
+    }
+
+    private void ResetActionForms(KnowledgeFeedbackDto feedback)
+    {
+        ProcessForm = new ProcessFormModel { Resolution = feedback.Resolution };
+        LinkForm = new LinkVersionFormModel
+        {
+            LinkedVersionIdText = feedback.LinkedKnowledgeVersionId?.ToString(),
+            Resolution = feedback.Resolution
+        };
+        ResolveForm = new ResolveFormModel
+        {
+            LinkedVersionIdText = feedback.LinkedKnowledgeVersionId?.ToString(),
+            Resolution = feedback.Resolution ?? string.Empty
+        };
+        CloseForm = new CloseFormModel { CloseReason = feedback.CloseReason };
+    }
+
+    private bool TryParseRequiredGuid(string? value, string message, out Guid id)
+    {
+        if (Guid.TryParse(value, out id))
+        {
+            ErrorMessage = null;
+            return true;
+        }
+
+        ErrorMessage = message;
+        return false;
+    }
+
+    private static KnowledgeFeedbackStatus? ParseStatus(string? value)
+    {
+        return Enum.TryParse<KnowledgeFeedbackStatus>(value, out var status) ? status : null;
+    }
+
+    private static KnowledgeFeedbackType? ParseType(string? value)
+    {
+        return Enum.TryParse<KnowledgeFeedbackType>(value, out var type) ? type : null;
+    }
+
+    private static Guid? ParseNullableGuid(string? value)
+    {
+        return Guid.TryParse(value, out var id) ? id : null;
+    }
+
+    private static string GetVersionText(KnowledgeFeedbackDto feedback)
+    {
+        return feedback.KnowledgeVersionId.HasValue
+            ? $"v{feedback.KnowledgeVersionNumber?.ToString() ?? "-"} - {feedback.KnowledgeVersionTitle ?? feedback.KnowledgeVersionId.Value.ToString("N")}"
+            : "未绑定来源版本";
+    }
+
+    private static string GetLinkedVersionText(KnowledgeFeedbackDto feedback)
+    {
+        return feedback.LinkedKnowledgeVersionId.HasValue
+            ? $"v{feedback.LinkedKnowledgeVersionNumber?.ToString() ?? "-"} - {feedback.LinkedKnowledgeVersionTitle ?? feedback.LinkedKnowledgeVersionId.Value.ToString("N")}"
+            : "未关联修订版本";
+    }
+
+    private static string GetTypeText(KnowledgeFeedbackType type)
+    {
+        return type switch
+        {
+            KnowledgeFeedbackType.Problem => "问题",
+            KnowledgeFeedbackType.Outdated => "过期",
+            KnowledgeFeedbackType.Error => "错误",
+            KnowledgeFeedbackType.Missing => "缺失",
+            KnowledgeFeedbackType.Suggestion => "建议",
+            _ => type.ToString()
+        };
+    }
+
+    private static string GetStatusText(KnowledgeFeedbackStatus status)
+    {
+        return status switch
+        {
+            KnowledgeFeedbackStatus.Submitted => "待处理",
+            KnowledgeFeedbackStatus.Processing => "处理中",
+            KnowledgeFeedbackStatus.Resolved => "已处理",
+            KnowledgeFeedbackStatus.Closed => "已关闭",
+            _ => status.ToString()
+        };
+    }
+
+    private static string GetStatusBadge(KnowledgeFeedbackStatus status)
+    {
+        return status switch
+        {
+            KnowledgeFeedbackStatus.Submitted => "bg-warning text-dark",
+            KnowledgeFeedbackStatus.Processing => "bg-info text-dark",
+            KnowledgeFeedbackStatus.Resolved => "bg-success",
+            KnowledgeFeedbackStatus.Closed => "bg-secondary",
+            _ => "bg-secondary"
+        };
+    }
+
+    private static string? NormalizeOptionalText(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    }
+
+    private async Task<bool> ConfirmAsync(string message)
+    {
+        return await JSRuntime.InvokeAsync<bool>("confirm", message);
+    }
+
+    private async Task RunBusyAsync(Func<Task> action)
+    {
+        try
+        {
+            ErrorMessage = null;
+            SuccessMessage = null;
+            IsBusy = true;
+            await action();
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = GetUserFriendlyErrorMessage(ex);
+        }
+        finally
+        {
+            IsBusy = false;
+            IsLoading = false;
+        }
+    }
+
+    private class ProcessFormModel
+    {
+        [StringLength(2048)]
+        public string? Resolution { get; set; }
+    }
+
+    private class LinkVersionFormModel
+    {
+        public string? LinkedVersionIdText { get; set; }
+
+        [StringLength(2048)]
+        public string? Resolution { get; set; }
+    }
+
+    private class ResolveFormModel
+    {
+        public string? LinkedVersionIdText { get; set; }
+
+        [Required]
+        [StringLength(2048)]
+        public string Resolution { get; set; } = string.Empty;
+    }
+
+    private class CloseFormModel
+    {
+        [StringLength(1024)]
+        public string? CloseReason { get; set; }
+    }
+}

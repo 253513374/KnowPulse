@@ -1,0 +1,199 @@
+@page "/rag/answer"
+@attribute [Authorize(KnowPulsePermissions.Rag.Answer)]
+@inherits KnowPulseComponentBase
+@inject IRagAnswerService RagAnswerService
+
+@* MVP-1 基础问答页只展示回答、置信度、人审提示和 citation；不展示内部 prompt 或未授权候选 chunk。 *@
+<PageTitle>知识问答</PageTitle>
+
+<div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+    <div>
+        <h1 class="h4 mb-1">知识问答</h1>
+        <div class="text-muted small">RAG / Answer</div>
+    </div>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(ErrorMessage))
+{
+    <div class="alert alert-danger" role="alert">@ErrorMessage</div>
+}
+
+<div class="row g-3">
+    <div class="col-xl-5">
+        <div class="card">
+            <div class="card-body">
+                <EditForm Model="@FormModel" OnValidSubmit="@AskAsync">
+                    <DataAnnotationsValidator />
+
+                    <div class="mb-3">
+                        <label class="form-label" for="rag-question">问题</label>
+                        <textarea id="rag-question" class="form-control" rows="8" @bind="FormModel.Question" @bind:event="oninput"></textarea>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label" for="rag-topk">引用数量</label>
+                        <InputNumber id="rag-topk" class="form-control" @bind-Value="FormModel.TopK" />
+                    </div>
+
+                    <div class="d-flex gap-2">
+                        <button class="btn btn-primary" type="submit" disabled="@IsBusy">提问</button>
+                        <button class="btn btn-outline-secondary" type="button" @onclick="ResetAsync" disabled="@IsBusy">清空</button>
+                    </div>
+                </EditForm>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-xl-7">
+        <div class="card mb-3">
+            <div class="card-body">
+                <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+                    <h2 class="h6 mb-0">回答</h2>
+                    @if (AnswerResult != null)
+                    {
+                        <div class="d-flex flex-wrap gap-2">
+                            <span class="badge bg-primary">置信度 @AnswerResult.Confidence.ToString("0.##")</span>
+                            <span class="badge @(AnswerResult.NeedHumanReview ? "bg-warning text-dark" : "bg-success")">
+                                @(AnswerResult.NeedHumanReview ? "需要复核" : "可用")
+                            </span>
+                        </div>
+                    }
+                </div>
+
+                @if (IsBusy)
+                {
+                    <div class="text-muted py-4">生成中</div>
+                }
+                else if (AnswerResult == null)
+                {
+                    <div class="text-muted py-4">暂无回答</div>
+                }
+                else
+                {
+                    <pre class="mb-0 rag-answer-text">@AnswerResult.Answer</pre>
+                }
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-body border-bottom">
+                <h2 class="h6 mb-0">引用</h2>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th>来源</th>
+                            <th>版本</th>
+                            <th>片段</th>
+                            <th>摘录</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (AnswerResult == null)
+                        {
+                            <tr>
+                                <td colspan="4" class="text-center py-4 text-muted">暂无引用</td>
+                            </tr>
+                        }
+                        else if (AnswerResult.Citations.Count == 0)
+                        {
+                            <tr>
+                                <td colspan="4" class="text-center py-4 text-muted">无可引用依据</td>
+                            </tr>
+                        }
+                        else
+                        {
+                            @foreach (var citation in AnswerResult.Citations)
+                            {
+                                <tr>
+                                    <td>
+                                        <div class="fw-semibold">@citation.Title</div>
+                                        @if (citation.Page.HasValue)
+                                        {
+                                            <div class="text-muted small">第 @citation.Page.Value 页</div>
+                                        }
+                                    </td>
+                                    <td><code>@citation.KnowledgeVersionId.ToString("N")</code></td>
+                                    <td><code>@citation.ChunkId.ToString("N")</code></td>
+                                    <td>@citation.Quote</td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    // 前端只维护问题表单和结果展示，不缓存检索候选或内部 prompt。
+    private RagQuestionFormModel FormModel { get; set; } = new();
+    private RagAnswerResult? AnswerResult { get; set; }
+    private bool IsBusy { get; set; }
+    private string? ErrorMessage { get; set; }
+
+    /// <summary>
+    /// 提交问题并调用后端 RAG 问答服务。
+    /// </summary>
+    private async Task AskAsync()
+    {
+        await RunBusyAsync(async () =>
+        {
+            // 后端会重新根据当前登录用户构建权限上下文。前端只提交问题和期望引用数量，
+            // 不传用户/租户身份，避免浏览器端自报访问范围。
+            AnswerResult = await RagAnswerService.AnswerAsync(new RagAnswerRequest
+            {
+                Question = FormModel.Question.Trim(),
+                TopK = FormModel.TopK
+            });
+        });
+    }
+
+    /// <summary>
+    /// 清空当前问题、回答和错误提示。
+    /// </summary>
+    private Task ResetAsync()
+    {
+        // 清空仅重置浏览器端状态，不影响后端审计日志。
+        FormModel = new RagQuestionFormModel();
+        AnswerResult = null;
+        ErrorMessage = null;
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// 执行带 busy 状态和错误展示的页面操作。
+    /// </summary>
+    private async Task RunBusyAsync(Func<Task> action)
+    {
+        // 问答页所有交互都走同一套 busy/error 处理，避免重复提交导致 UI 状态错乱。
+        try
+        {
+            ErrorMessage = null;
+            IsBusy = true;
+            await action();
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = GetUserFriendlyErrorMessage(ex);
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    private class RagQuestionFormModel
+    {
+        // 限制问题长度，避免浏览器端误提交超长 prompt；后端仍会做自己的安全边界控制。
+        [Required]
+        [StringLength(1024)]
+        public string Question { get; set; } = string.Empty;
+
+        // 前端允许用户选择更少引用，但实际最大上下文数由后端服务再次限制。
+        [Range(1, 10)]
+        public int TopK { get; set; } = 5;
+    }
+}

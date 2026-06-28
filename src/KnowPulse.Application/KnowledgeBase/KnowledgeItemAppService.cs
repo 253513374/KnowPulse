@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
-using KnowPulse.Organization;
+using KnowPulse.KnowledgeIndexing;
 using KnowPulse.Permissions;
 using Microsoft.AspNetCore.Authorization;
 using Volo.Abp;
@@ -13,7 +13,6 @@ using Volo.Abp.BlobStoring;
 using Volo.Abp.Content;
 using Volo.Abp.Domain.Entities;
 using Volo.Abp.Domain.Repositories;
-using Volo.Abp.Identity;
 
 namespace KnowPulse.KnowledgeBase;
 
@@ -29,25 +28,31 @@ public class KnowledgeItemAppService : KnowPulseAppService, IKnowledgeItemAppSer
     private readonly IRepository<KnowledgeVersion, Guid> _versionRepository;
     private readonly IRepository<KnowledgeAttachment, Guid> _attachmentRepository;
     private readonly IRepository<KnowledgePermissionScope, Guid> _permissionScopeRepository;
-    private readonly IRepository<UserOrganizationAssignment, Guid> _assignmentRepository;
-    private readonly IIdentityRoleRepository _roleRepository;
+    private readonly IRepository<KnowledgeIndexJob, Guid> _indexJobRepository;
+    private readonly IRepository<KnowledgeChunk, Guid> _chunkRepository;
+    private readonly IKnowledgeAccessContextProvider _accessContextProvider;
     private readonly IBlobContainer<KnowledgeAttachmentBlobContainer> _attachmentContainer;
 
+    /// <summary>
+    /// 创建知识文档应用服务。
+    /// </summary>
     public KnowledgeItemAppService(
         IRepository<KnowledgeItem, Guid> itemRepository,
         IRepository<KnowledgeVersion, Guid> versionRepository,
         IRepository<KnowledgeAttachment, Guid> attachmentRepository,
         IRepository<KnowledgePermissionScope, Guid> permissionScopeRepository,
-        IRepository<UserOrganizationAssignment, Guid> assignmentRepository,
-        IIdentityRoleRepository roleRepository,
+        IRepository<KnowledgeIndexJob, Guid> indexJobRepository,
+        IRepository<KnowledgeChunk, Guid> chunkRepository,
+        IKnowledgeAccessContextProvider accessContextProvider,
         IBlobContainer<KnowledgeAttachmentBlobContainer> attachmentContainer)
     {
         _itemRepository = itemRepository;
         _versionRepository = versionRepository;
         _attachmentRepository = attachmentRepository;
         _permissionScopeRepository = permissionScopeRepository;
-        _assignmentRepository = assignmentRepository;
-        _roleRepository = roleRepository;
+        _indexJobRepository = indexJobRepository;
+        _chunkRepository = chunkRepository;
+        _accessContextProvider = accessContextProvider;
         _attachmentContainer = attachmentContainer;
     }
 
@@ -62,7 +67,7 @@ public class KnowledgeItemAppService : KnowPulseAppService, IKnowledgeItemAppSer
         var queryable = await _itemRepository.GetQueryableAsync();
         var allItems = await AsyncExecuter.ToListAsync(queryable.OrderBy(x => x.Title));
         var scopesByItemId = await GetScopeLookupAsync(allItems.Select(x => x.Id));
-        var accessContext = await CreateAccessContextAsync();
+        var accessContext = await _accessContextProvider.CreateAsync();
 
         var visibleItems = allItems
             .Where(item => KnowledgeAccessEvaluator.CanAccess(scopesByItemId[item.Id], accessContext))
@@ -177,6 +182,7 @@ public class KnowledgeItemAppService : KnowPulseAppService, IKnowledgeItemAppSer
             {
                 currentVersion.ClearCurrentPublished();
                 await _versionRepository.UpdateAsync(currentVersion, autoSave: true);
+                await MarkVersionIndexOutdatedAsync(currentVersion.Id, "Replaced by a newly published version.");
             }
         }
 
@@ -184,7 +190,10 @@ public class KnowledgeItemAppService : KnowPulseAppService, IKnowledgeItemAppSer
         item.SetCurrentPublishedVersion(version.Id);
 
         await _itemRepository.UpdateAsync(item);
-        return MapToDto(await _versionRepository.UpdateAsync(version, autoSave: true));
+        var updatedVersion = await _versionRepository.UpdateAsync(version, autoSave: true);
+        await CreateIndexJobAsync(item.Id, version.Id, KnowledgeIndexJobTriggerType.Publish);
+
+        return MapToDto(updatedVersion);
     }
 
     /// <summary>
@@ -204,7 +213,10 @@ public class KnowledgeItemAppService : KnowPulseAppService, IKnowledgeItemAppSer
             await _itemRepository.UpdateAsync(item);
         }
 
-        return MapToDto(await _versionRepository.UpdateAsync(version, autoSave: true));
+        var updatedVersion = await _versionRepository.UpdateAsync(version, autoSave: true);
+        await MarkVersionIndexOutdatedAsync(version.Id, "Version withdrawn.");
+
+        return MapToDto(updatedVersion);
     }
 
     /// <summary>
@@ -224,7 +236,10 @@ public class KnowledgeItemAppService : KnowPulseAppService, IKnowledgeItemAppSer
             await _itemRepository.UpdateAsync(item);
         }
 
-        return MapToDto(await _versionRepository.UpdateAsync(version, autoSave: true));
+        var updatedVersion = await _versionRepository.UpdateAsync(version, autoSave: true);
+        await MarkVersionIndexOutdatedAsync(version.Id, "Version archived.");
+
+        return MapToDto(updatedVersion);
     }
 
     /// <summary>
@@ -331,7 +346,7 @@ public class KnowledgeItemAppService : KnowPulseAppService, IKnowledgeItemAppSer
     public virtual async Task<KnowledgePermissionScopeDto> CreatePermissionScopeAsync(Guid id, CreateKnowledgePermissionScopeDto input)
     {
         await CheckMvpPermissionAsync(KnowPulsePermissions.KnowledgeBase.PermissionScopes);
-        await _itemRepository.GetAsync(id);
+        var item = await _itemRepository.GetAsync(id);
 
         var scope = new KnowledgePermissionScope(
             GuidGenerator.Create(),
@@ -341,7 +356,10 @@ public class KnowledgeItemAppService : KnowPulseAppService, IKnowledgeItemAppSer
             input.TargetId,
             input.MinimumSecurityLevel);
 
-        return MapToDto(await _permissionScopeRepository.InsertAsync(scope, autoSave: true));
+        var insertedScope = await _permissionScopeRepository.InsertAsync(scope, autoSave: true);
+        await QueuePermissionChangedReindexAsync(item);
+
+        return MapToDto(insertedScope);
     }
 
     /// <summary>
@@ -358,13 +376,105 @@ public class KnowledgeItemAppService : KnowPulseAppService, IKnowledgeItemAppSer
         }
 
         await _permissionScopeRepository.DeleteAsync(scope);
+        await QueuePermissionChangedReindexAsync(await _itemRepository.GetAsync(id));
     }
 
+    /// <summary>
+    /// 创建索引任务。任务作为异步 pipeline 的事实入口，实际 chunk/embedding 写入由后续处理器消费。
+    /// </summary>
+    private Task<KnowledgeIndexJob> CreateIndexJobAsync(
+        Guid knowledgeItemId,
+        Guid knowledgeVersionId,
+        KnowledgeIndexJobTriggerType triggerType)
+    {
+        var job = new KnowledgeIndexJob(
+            GuidGenerator.Create(),
+            CurrentTenant.Id,
+            knowledgeItemId,
+            knowledgeVersionId,
+            triggerType,
+            requestedByUserId: CurrentUser.Id);
+
+        return _indexJobRepository.InsertAsync(job, autoSave: true);
+    }
+
+    /// <summary>
+    /// 权限范围变更会让已写入向量库的 payload 变旧；先使旧 chunk 不可检索，再为当前发布版本创建重建任务。
+    /// </summary>
+    private async Task QueuePermissionChangedReindexAsync(KnowledgeItem item)
+    {
+        await MarkItemIndexOutdatedAsync(item.Id, "Permission scope changed.");
+        if (item.CurrentPublishedVersionId.HasValue)
+        {
+            await CreateIndexJobAsync(
+                item.Id,
+                item.CurrentPublishedVersionId.Value,
+                KnowledgeIndexJobTriggerType.PermissionChanged);
+        }
+    }
+
+    /// <summary>
+    /// 将指定知识版本的索引任务和 active chunk 标记为过期。
+    /// </summary>
+    private async Task MarkVersionIndexOutdatedAsync(Guid knowledgeVersionId, string reason)
+    {
+        var chunkQueryable = await _chunkRepository.GetQueryableAsync();
+        var chunks = await AsyncExecuter.ToListAsync(
+            chunkQueryable.Where(x => x.KnowledgeVersionId == knowledgeVersionId && x.IsActive));
+        foreach (var chunk in chunks)
+        {
+            chunk.MarkOutdated();
+            await _chunkRepository.UpdateAsync(chunk, autoSave: true);
+        }
+
+        var jobQueryable = await _indexJobRepository.GetQueryableAsync();
+        var jobs = await AsyncExecuter.ToListAsync(
+            jobQueryable.Where(x => x.KnowledgeVersionId == knowledgeVersionId)
+                .Where(x => x.Status == KnowledgeIndexJobStatus.Pending ||
+                            x.Status == KnowledgeIndexJobStatus.Processing ||
+                            x.Status == KnowledgeIndexJobStatus.Indexed));
+        foreach (var job in jobs)
+        {
+            job.MarkOutdated(reason);
+            await _indexJobRepository.UpdateAsync(job, autoSave: true);
+        }
+    }
+
+    /// <summary>
+    /// 将指定知识条目的所有索引任务和 active chunk 标记为过期。
+    /// </summary>
+    private async Task MarkItemIndexOutdatedAsync(Guid knowledgeItemId, string reason)
+    {
+        var chunkQueryable = await _chunkRepository.GetQueryableAsync();
+        var chunks = await AsyncExecuter.ToListAsync(
+            chunkQueryable.Where(x => x.KnowledgeItemId == knowledgeItemId && x.IsActive));
+        foreach (var chunk in chunks)
+        {
+            chunk.MarkOutdated();
+            await _chunkRepository.UpdateAsync(chunk, autoSave: true);
+        }
+
+        var jobQueryable = await _indexJobRepository.GetQueryableAsync();
+        var jobs = await AsyncExecuter.ToListAsync(
+            jobQueryable.Where(x => x.KnowledgeItemId == knowledgeItemId)
+                .Where(x => x.Status == KnowledgeIndexJobStatus.Pending ||
+                            x.Status == KnowledgeIndexJobStatus.Processing ||
+                            x.Status == KnowledgeIndexJobStatus.Indexed));
+        foreach (var job in jobs)
+        {
+            job.MarkOutdated(reason);
+            await _indexJobRepository.UpdateAsync(job, autoSave: true);
+        }
+    }
+
+    /// <summary>
+    /// 获取当前用户可见的知识条目。
+    /// </summary>
     private async Task<KnowledgeItem> GetVisibleItemAsync(Guid id)
     {
         var item = await _itemRepository.GetAsync(id);
         var scopes = await GetEnabledScopesAsync(id);
-        var accessContext = await CreateAccessContextAsync();
+        var accessContext = await _accessContextProvider.CreateAsync();
 
         // 知识权限范围是知识库的二次业务授权，不等同于 ABP 功能权限。
         // 用户必须同时拥有功能权限，并命中知识本身的可见范围。
@@ -406,47 +516,6 @@ public class KnowledgeItemAppService : KnowPulseAppService, IKnowledgeItemAppSer
         }
 
         return lookup;
-    }
-
-    /// <summary>
-    /// 根据当前登录用户组装知识访问上下文。
-    /// 组织关系提供部门、岗位和安全等级，Identity 角色提供角色维度授权。
-    /// </summary>
-    private async Task<KnowledgeAccessContext> CreateAccessContextAsync()
-    {
-        if (!CurrentUser.IsAuthenticated || CurrentUser.Id == null)
-        {
-            return new KnowledgeAccessContext(null);
-        }
-
-        var userId = CurrentUser.Id.Value;
-        var assignmentQueryable = await _assignmentRepository.GetQueryableAsync();
-        var assignments = await AsyncExecuter.ToListAsync(assignmentQueryable.Where(x => x.UserId == userId && x.IsActive));
-        var departmentIds = assignments.Select(x => x.DepartmentId).ToHashSet();
-        var positionIds = assignments.Where(x => x.PositionId.HasValue).Select(x => x.PositionId!.Value).ToHashSet();
-        var securityLevel = assignments.Count == 0 ? 0 : assignments.Max(x => x.SecurityLevel);
-        var roleIds = await GetCurrentRoleIdsAsync();
-
-        return new KnowledgeAccessContext(userId, departmentIds, positionIds, roleIds, securityLevel);
-    }
-
-    /// <summary>
-    /// 将当前用户的角色名称解析为角色编号，便于和知识权限范围中的角色目标编号匹配。
-    /// </summary>
-    private async Task<IReadOnlySet<Guid>> GetCurrentRoleIdsAsync()
-    {
-        var roleNames = CurrentUser.Roles?
-            .Where(x => !string.IsNullOrWhiteSpace(x))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToArray() ?? Array.Empty<string>();
-
-        if (roleNames.Length == 0)
-        {
-            return new HashSet<Guid>();
-        }
-
-        var roles = await _roleRepository.GetListAsync(roleNames);
-        return roles.Select(x => x.Id).ToHashSet();
     }
 
     /// <summary>

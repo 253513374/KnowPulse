@@ -9,6 +9,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using KnowPulse.EntityFrameworkCore;
+using KnowPulse.KnowledgeIndexing;
 using KnowPulse.KnowledgeBase;
 using KnowPulse.MultiTenancy;
 using Volo.Abp.AspNetCore.Mvc.UI.Theme.LeptonXLite;
@@ -51,6 +52,9 @@ namespace KnowPulse;
 )]
 public class KnowPulseHttpApiHostModule : AbpModule
 {
+    /// <summary>
+    /// 预配置 OpenIddict 本地验证服务。
+    /// </summary>
     public override void PreConfigureServices(ServiceConfigurationContext context)
     {
         PreConfigure<OpenIddictBuilder>(builder =>
@@ -64,6 +68,9 @@ public class KnowPulseHttpApiHostModule : AbpModule
         });
     }
 
+    /// <summary>
+    /// 注册 HTTP Host 层认证、审计、Blob、Swagger、CORS 和虚拟文件系统配置。
+    /// </summary>
     public override void ConfigureServices(ServiceConfigurationContext context)
     {
         var configuration = context.Services.GetConfiguration();
@@ -80,6 +87,9 @@ public class KnowPulseHttpApiHostModule : AbpModule
         ConfigureSwaggerServices(context, configuration);
     }
 
+    /// <summary>
+    /// 配置 Bearer token 认证转发和动态 claims。
+    /// </summary>
     private void ConfigureAuthentication(ServiceConfigurationContext context)
     {
         context.Services.ForwardIdentityAuthenticationForBearer(OpenIddictValidationAspNetCoreDefaults.AuthenticationScheme);
@@ -89,6 +99,9 @@ public class KnowPulseHttpApiHostModule : AbpModule
         });
     }
 
+    /// <summary>
+    /// 配置 LeptonX 全局样式 bundle。
+    /// </summary>
     private void ConfigureBundles()
     {
         Configure<AbpBundlingOptions>(options =>
@@ -103,6 +116,9 @@ public class KnowPulseHttpApiHostModule : AbpModule
         });
     }
 
+    /// <summary>
+    /// 配置应用根地址和允许跳转地址。
+    /// </summary>
     private void ConfigureUrls(IConfiguration configuration)
     {
         Configure<AppUrlOptions>(options =>
@@ -115,6 +131,9 @@ public class KnowPulseHttpApiHostModule : AbpModule
         });
     }
 
+    /// <summary>
+    /// 配置 ABP 审计策略，避免大正文和二进制流进入通用审计日志。
+    /// </summary>
     private void ConfigureAuditing()
     {
         Configure<AbpAuditingOptions>(options =>
@@ -125,9 +144,13 @@ public class KnowPulseHttpApiHostModule : AbpModule
             options.IgnoredTypes.Add(typeof(IRemoteStreamContent));
             options.IgnoredTypes.Add(typeof(RemoteStreamContent));
             options.IgnoredTypes.Add(typeof(KnowledgeVersion));
+            options.IgnoredTypes.Add(typeof(KnowledgeChunk));
         });
     }
 
+    /// <summary>
+    /// 配置知识附件 Blob 存储容器。
+    /// </summary>
     private void ConfigureBlobStoring(IConfiguration configuration)
     {
         Configure<AbpBlobStoringOptions>(options =>
@@ -147,6 +170,9 @@ public class KnowPulseHttpApiHostModule : AbpModule
         });
     }
 
+    /// <summary>
+    /// 开发环境下将嵌入式虚拟文件替换为物理源码文件。
+    /// </summary>
     private void ConfigureVirtualFileSystem(ServiceConfigurationContext context)
     {
         var hostingEnvironment = context.Services.GetHostingEnvironment();
@@ -171,6 +197,9 @@ public class KnowPulseHttpApiHostModule : AbpModule
         }
     }
 
+    /// <summary>
+    /// 启用应用层 conventional controller。
+    /// </summary>
     private void ConfigureConventionalControllers()
     {
         Configure<AbpAspNetCoreMvcOptions>(options =>
@@ -179,6 +208,9 @@ public class KnowPulseHttpApiHostModule : AbpModule
         });
     }
 
+    /// <summary>
+    /// 配置 Swagger/OpenAPI 文档和 OAuth 集成。
+    /// </summary>
     private static void ConfigureSwaggerServices(ServiceConfigurationContext context, IConfiguration configuration)
     {
         context.Services.AddAbpSwaggerGenWithOAuth(
@@ -195,6 +227,9 @@ public class KnowPulseHttpApiHostModule : AbpModule
             });
     }
 
+    /// <summary>
+    /// 配置跨域来源和 ABP 暴露 header。
+    /// </summary>
     private void ConfigureCors(ServiceConfigurationContext context, IConfiguration configuration)
     {
         context.Services.AddCors(options =>
@@ -215,6 +250,9 @@ public class KnowPulseHttpApiHostModule : AbpModule
         });
     }
 
+    /// <summary>
+    /// 配置 ASP.NET Core 请求管道。
+    /// </summary>
     public override void OnApplicationInitialization(ApplicationInitializationContext context)
     {
         var app = context.GetApplicationBuilder();

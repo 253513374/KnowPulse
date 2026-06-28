@@ -1,0 +1,433 @@
+@page "/exam/take"
+@attribute [Authorize(KnowPulsePermissions.Exam.Participate)]
+@inherits KnowPulseComponentBase
+@inject IExamAppService ExamAppService
+@inject IJSRuntime JSRuntime
+
+<PageTitle>在线考试</PageTitle>
+
+<div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+    <div>
+        <h1 class="h4 mb-1">在线考试</h1>
+        <div class="text-muted small">Exam / Take</div>
+    </div>
+    <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="LoadPlansAsync" disabled="@IsBusy">刷新</button>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(ErrorMessage))
+{
+    <div class="alert alert-danger d-flex flex-wrap align-items-center justify-content-between gap-2" role="alert">
+        <span>@ErrorMessage</span>
+        <button class="btn btn-sm btn-outline-danger" type="button" @onclick="RetrySaveAsync" disabled="@IsBusy">重试保存</button>
+    </div>
+}
+
+@if (!string.IsNullOrWhiteSpace(SaveStatus))
+{
+    <div class="alert @SaveStatusCss" role="status">@SaveStatus</div>
+}
+
+<div class="row g-3">
+    <div class="col-xl-4">
+        <div class="card">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th>可参加考试</th>
+                            <th class="text-end">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (IsLoading)
+                        {
+                            <tr>
+                                <td colspan="2" class="text-center py-4 text-muted">加载中</td>
+                            </tr>
+                        }
+                        else if (PlanList.Count == 0)
+                        {
+                            <tr>
+                                <td colspan="2" class="text-center py-4 text-muted">暂无可参加考试</td>
+                            </tr>
+                        }
+                        else
+                        {
+                            @foreach (var plan in PlanList)
+                            {
+                                <tr class="@(CurrentAttempt?.PlanId == plan.Id ? "table-primary" : null)">
+                                    <td>
+                                        <div class="fw-semibold">@plan.Name</div>
+                                        <div class="small text-muted">@plan.Paper?.QuestionCount 题 / @plan.DurationMinutes 分钟 / @plan.PassingScore 分及格</div>
+                                    </td>
+                                    <td class="text-end">
+                                        <button class="btn btn-primary btn-sm" type="button" @onclick="() => StartAsync(plan.Id)" disabled="@IsBusy">开始</button>
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-xl-8">
+        @if (CurrentAttempt == null)
+        {
+            <div class="card">
+                <div class="card-body text-center text-muted py-5">请选择一场考试开始作答</div>
+            </div>
+        }
+        else
+        {
+            <div class="card mb-3">
+                <div class="card-body">
+                    <div class="d-flex flex-wrap align-items-start justify-content-between gap-2">
+                        <div>
+                            <h2 class="h5 mb-1">@CurrentAttempt.Plan?.Name</h2>
+                            <div class="small text-muted">
+                                第 @CurrentAttempt.AttemptNumber 次 / @GetAttemptStatusText(CurrentAttempt.Status) / 剩余 @GetRemainingText()
+                            </div>
+                        </div>
+                        @if (CurrentAttempt.Score != null)
+                        {
+                            <span class="badge @(CurrentAttempt.Score.IsPassed ? "bg-success" : "bg-danger")">
+                                @CurrentAttempt.Score.ObtainedScore / @CurrentAttempt.Score.TotalScore
+                            </span>
+                        }
+                    </div>
+                </div>
+            </div>
+
+            <div class="d-flex flex-column gap-3">
+                @foreach (var question in CurrentAttempt.Paper?.Questions.OrderBy(x => x.DisplayOrder) ?? Enumerable.Empty<ExamPaperQuestionDto>())
+                {
+                    <div class="card">
+                        <div class="card-body">
+                            <div class="d-flex flex-wrap align-items-start justify-content-between gap-2">
+                                <div>
+                                    <h3 class="h6 mb-1">@question.DisplayOrder. @question.Title</h3>
+                                    <div class="small text-muted">@GetTypeText(question.Type) / @question.Score 分</div>
+                                </div>
+                                <span class="badge @(IsAnswered(question.Id) ? "bg-success" : "bg-light text-dark")">
+                                    @(IsAnswered(question.Id) ? "已答" : "未答")
+                                </span>
+                            </div>
+
+                            <p class="mt-3">@question.Stem</p>
+
+                            @if (question.Type == QuestionType.MultipleChoice)
+                            {
+                                <div class="list-group mb-2">
+                                    @foreach (var option in question.Options.OrderBy(x => x.DisplayOrder))
+                                    {
+                                        <label class="list-group-item">
+                                            <input class="form-check-input me-2"
+                                                   type="checkbox"
+                                                   checked="@HasValue(question.Id, option.OptionKey)"
+                                                   disabled="@IsSubmitted"
+                                                   @onchange="async e => await ToggleMultiAnswerAsync(question, option.OptionKey, (bool?)e.Value == true)" />
+                                            <span class="fw-semibold">@option.OptionKey.</span> @option.Content
+                                        </label>
+                                    }
+                                </div>
+                            }
+                            else if (question.Type == QuestionType.SingleChoice)
+                            {
+                                <select class="form-select" value="@GetFirstAnswer(question.Id)" disabled="@IsSubmitted" @onchange="async e => await SetSingleAnswerAsync(question, e.Value?.ToString())">
+                                    <option value="">请选择</option>
+                                    @foreach (var option in question.Options.OrderBy(x => x.DisplayOrder))
+                                    {
+                                        <option value="@option.OptionKey">@option.OptionKey. @option.Content</option>
+                                    }
+                                </select>
+                            }
+                            else if (question.Type == QuestionType.TrueFalse)
+                            {
+                                <select class="form-select" value="@GetFirstAnswer(question.Id)" disabled="@IsSubmitted" @onchange="async e => await SetSingleAnswerAsync(question, e.Value?.ToString())">
+                                    <option value="">请选择</option>
+                                    <option value="true">对</option>
+                                    <option value="false">错</option>
+                                </select>
+                            }
+                            else
+                            {
+                                <input class="form-control" value="@GetFirstAnswer(question.Id)" disabled="@IsSubmitted" @onchange="async e => await SetSingleAnswerAsync(question, e.Value?.ToString())" />
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+
+            <div class="d-flex flex-wrap gap-2 mt-3">
+                <button class="btn btn-outline-primary" type="button" @onclick="SaveAllAsync" disabled="@(IsBusy || IsSubmitted)">手动保存</button>
+                <button class="btn btn-primary" type="button" @onclick="SubmitAsync" disabled="@(IsBusy || IsSubmitted)">提交试卷</button>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private const int PageSize = 20;
+    private readonly List<ExamPlanDto> PlanList = new();
+    private readonly Dictionary<Guid, List<string>> Answers = new();
+    private readonly Dictionary<Guid, int> AnswerVersions = new();
+    private ExamAttemptDto? CurrentAttempt { get; set; }
+    private SaveExamAnswersDto? LastSaveInput { get; set; }
+    private bool IsBusy { get; set; }
+    private bool IsLoading { get; set; }
+    private string? ErrorMessage { get; set; }
+    private string? SaveStatus { get; set; }
+    private string SaveStatusCss { get; set; } = "alert-info";
+    private bool IsSubmitted => CurrentAttempt?.Status is ExamAttemptStatus.Submitted or ExamAttemptStatus.Scored or ExamAttemptStatus.Expired or ExamAttemptStatus.Cancelled;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadPlansAsync();
+    }
+
+    private async Task LoadPlansAsync()
+    {
+        await RunBusyAsync(async () =>
+        {
+            IsLoading = true;
+            var result = await ExamAppService.GetMyPlanListAsync(new GetExamPlanListInput { MaxResultCount = PageSize });
+            PlanList.Clear();
+            PlanList.AddRange(result.Items);
+        });
+    }
+
+    private async Task StartAsync(Guid planId)
+    {
+        await RunBusyAsync(async () =>
+        {
+            CurrentAttempt = await ExamAppService.StartAttemptAsync(planId);
+            LoadAnswersFromAttempt();
+            SetSaveStatus("考试已开始，已恢复服务端保存的答案。", "alert-info");
+        });
+    }
+
+    private async Task SetSingleAnswerAsync(ExamPaperQuestionDto question, string? value)
+    {
+        Answers[question.Id] = string.IsNullOrWhiteSpace(value) ? new List<string>() : new List<string> { value.Trim() };
+        await SaveQuestionAsync(question.Id);
+    }
+
+    private async Task ToggleMultiAnswerAsync(ExamPaperQuestionDto question, string value, bool isChecked)
+    {
+        if (!Answers.TryGetValue(question.Id, out var values))
+        {
+            values = new List<string>();
+            Answers[question.Id] = values;
+        }
+
+        if (isChecked && !values.Contains(value, StringComparer.OrdinalIgnoreCase))
+        {
+            values.Add(value);
+        }
+        else if (!isChecked)
+        {
+            values.RemoveAll(x => x.Equals(value, StringComparison.OrdinalIgnoreCase));
+        }
+
+        await SaveQuestionAsync(question.Id);
+    }
+
+    private async Task SaveQuestionAsync(Guid paperQuestionId)
+    {
+        if (CurrentAttempt == null || IsSubmitted)
+        {
+            return;
+        }
+
+        await SaveAsync(new List<Guid> { paperQuestionId });
+    }
+
+    private async Task SaveAllAsync()
+    {
+        if (CurrentAttempt == null)
+        {
+            return;
+        }
+
+        await SaveAsync(CurrentAttempt.Paper?.Questions.Select(x => x.Id).ToList() ?? new List<Guid>());
+    }
+
+    private async Task RetrySaveAsync()
+    {
+        if (CurrentAttempt == null || LastSaveInput == null)
+        {
+            return;
+        }
+
+        await RunBusyAsync(async () =>
+        {
+            SetSaveStatus("保存中...", "alert-info");
+            CurrentAttempt = await ExamAppService.SaveAnswersAsync(CurrentAttempt.Id, LastSaveInput);
+            LoadAnswersFromAttempt();
+            SetSaveStatus("已保存", "alert-success");
+        });
+    }
+
+    private async Task SaveAsync(List<Guid> questionIds)
+    {
+        if (CurrentAttempt == null)
+        {
+            return;
+        }
+
+        await RunBusyAsync(async () =>
+        {
+            SetSaveStatus("保存中...", "alert-info");
+            await PersistAnswersAsync(BuildSaveInput(questionIds));
+            SetSaveStatus("已保存", "alert-success");
+        });
+    }
+
+    private async Task SubmitAsync()
+    {
+        if (CurrentAttempt == null)
+        {
+            return;
+        }
+
+        var unanswered = CurrentAttempt.Paper?.Questions.Count(x => !IsAnswered(x.Id)) ?? 0;
+        if (!await JSRuntime.InvokeAsync<bool>("confirm", $"还有 {unanswered} 题未答，确定提交吗？"))
+        {
+            return;
+        }
+
+        await RunBusyAsync(async () =>
+        {
+            SetSaveStatus("保存中...", "alert-info");
+            await PersistAnswersAsync(BuildSaveInput(CurrentAttempt.Paper?.Questions.Select(x => x.Id).ToList() ?? new List<Guid>()));
+            CurrentAttempt = await ExamAppService.SubmitAttemptAsync(CurrentAttempt.Id, new SubmitExamAttemptDto
+            {
+                IdempotencyKey = Guid.NewGuid().ToString("N")
+            });
+            LoadAnswersFromAttempt();
+            SetSaveStatus("试卷已提交并完成客观题评分。", "alert-success");
+        });
+    }
+
+    private SaveExamAnswersDto BuildSaveInput(List<Guid> questionIds)
+    {
+        return new SaveExamAnswersDto
+        {
+            IdempotencyKey = Guid.NewGuid().ToString("N"),
+            Answers = questionIds.Select(id => new SaveExamAnswerItemDto
+            {
+                PaperQuestionId = id,
+                Values = Answers.TryGetValue(id, out var values) ? values : new List<string>(),
+                ClientVersion = AnswerVersions.TryGetValue(id, out var version) ? version + 1 : 1
+            }).ToList()
+        };
+    }
+
+    private async Task PersistAnswersAsync(SaveExamAnswersDto input)
+    {
+        if (CurrentAttempt == null)
+        {
+            return;
+        }
+
+        LastSaveInput = input;
+        CurrentAttempt = await ExamAppService.SaveAnswersAsync(CurrentAttempt.Id, input);
+        LoadAnswersFromAttempt();
+    }
+
+    private void LoadAnswersFromAttempt()
+    {
+        Answers.Clear();
+        AnswerVersions.Clear();
+        if (CurrentAttempt == null)
+        {
+            return;
+        }
+
+        foreach (var answer in CurrentAttempt.Answers)
+        {
+            Answers[answer.PaperQuestionId] = answer.Values.ToList();
+            AnswerVersions[answer.PaperQuestionId] = answer.SaveVersion;
+        }
+    }
+
+    private async Task RunBusyAsync(Func<Task> action)
+    {
+        try
+        {
+            ErrorMessage = null;
+            IsBusy = true;
+            await action();
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = GetUserFriendlyErrorMessage(ex);
+            SetSaveStatus("保存失败，请重试。", "alert-danger");
+        }
+        finally
+        {
+            IsBusy = false;
+            IsLoading = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void SetSaveStatus(string message, string css)
+    {
+        SaveStatus = message;
+        SaveStatusCss = css;
+    }
+
+    private bool IsAnswered(Guid questionId)
+    {
+        return Answers.TryGetValue(questionId, out var values) && values.Any(x => !string.IsNullOrWhiteSpace(x));
+    }
+
+    private bool HasValue(Guid questionId, string value)
+    {
+        return Answers.TryGetValue(questionId, out var values) && values.Contains(value, StringComparer.OrdinalIgnoreCase);
+    }
+
+    private string GetFirstAnswer(Guid questionId)
+    {
+        return Answers.TryGetValue(questionId, out var values) ? values.FirstOrDefault() ?? string.Empty : string.Empty;
+    }
+
+    private string GetRemainingText()
+    {
+        if (CurrentAttempt == null)
+        {
+            return "-";
+        }
+
+        var remaining = CurrentAttempt.ExpiresTime - DateTime.UtcNow;
+        if (remaining <= TimeSpan.Zero)
+        {
+            return "已到期";
+        }
+
+        return $"{(int)remaining.TotalMinutes:D2}:{remaining.Seconds:D2}";
+    }
+
+    private static string GetTypeText(QuestionType type) => type switch
+    {
+        QuestionType.SingleChoice => "单选",
+        QuestionType.MultipleChoice => "多选",
+        QuestionType.TrueFalse => "判断",
+        QuestionType.FillBlank => "填空",
+        _ => type.ToString()
+    };
+
+    private static string GetAttemptStatusText(ExamAttemptStatus status) => status switch
+    {
+        ExamAttemptStatus.NotStarted => "未开始",
+        ExamAttemptStatus.InProgress => "进行中",
+        ExamAttemptStatus.Submitted => "已提交",
+        ExamAttemptStatus.Scored => "已评分",
+        ExamAttemptStatus.Expired => "已过期",
+        ExamAttemptStatus.Cancelled => "已取消",
+        _ => status.ToString()
+    };
+}

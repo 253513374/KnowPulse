@@ -31,6 +31,30 @@ public class KnowPulsePermissionDefinitionProvider : PermissionDefinitionProvide
         knowledgeBase.AddChild(KnowPulsePermissions.KnowledgeBase.Versions, L("Permission:KnowledgeBase.Versions"));
         knowledgeBase.AddChild(KnowPulsePermissions.KnowledgeBase.Attachments, L("Permission:KnowledgeBase.Attachments"));
         knowledgeBase.AddChild(KnowPulsePermissions.KnowledgeBase.PermissionScopes, L("Permission:KnowledgeBase.PermissionScopes"));
+        knowledgeBase.AddChild(KnowPulsePermissions.KnowledgeBase.Feedback, L("Permission:KnowledgeBase.Feedback"));
+
+        var knowledgeIndexing = myGroup.AddPermission(KnowPulsePermissions.KnowledgeIndexing.Default, L("Permission:KnowledgeIndexing"));
+        knowledgeIndexing.AddChild(KnowPulsePermissions.KnowledgeIndexing.IndexJobs, L("Permission:KnowledgeIndexing.IndexJobs"));
+
+        var rag = myGroup.AddPermission(KnowPulsePermissions.Rag.Default, L("Permission:Rag"));
+        rag.AddChild(KnowPulsePermissions.Rag.Search, L("Permission:Rag.Search"));
+        rag.AddChild(KnowPulsePermissions.Rag.Answer, L("Permission:Rag.Answer"));
+        rag.AddChild(KnowPulsePermissions.Rag.AuditLogs, L("Permission:Rag.AuditLogs"));
+        rag.AddChild(KnowPulsePermissions.Rag.Evaluations, L("Permission:Rag.Evaluations"));
+
+        var questionBank = myGroup.AddPermission(KnowPulsePermissions.QuestionBank.Default, L("Permission:QuestionBank"));
+        questionBank.AddChild(KnowPulsePermissions.QuestionBank.Questions, L("Permission:QuestionBank.Questions"));
+        questionBank.AddChild(KnowPulsePermissions.QuestionBank.Reviews, L("Permission:QuestionBank.Reviews"));
+        questionBank.AddChild(KnowPulsePermissions.QuestionBank.AiGeneration, L("Permission:QuestionBank.AiGeneration"));
+
+        var exam = myGroup.AddPermission(KnowPulsePermissions.Exam.Default, L("Permission:Exam"));
+        exam.AddChild(KnowPulsePermissions.Exam.Manage, L("Permission:Exam.Manage"));
+        exam.AddChild(KnowPulsePermissions.Exam.Participate, L("Permission:Exam.Participate"));
+        exam.AddChild(KnowPulsePermissions.Exam.Results, L("Permission:Exam.Results"));
+
+        var learning = myGroup.AddPermission(KnowPulsePermissions.Learning.Default, L("Permission:Learning"));
+        learning.AddChild(KnowPulsePermissions.Learning.Manage, L("Permission:Learning.Manage"));
+        learning.AddChild(KnowPulsePermissions.Learning.View, L("Permission:Learning.View"));
     }
 
     /// <summary>

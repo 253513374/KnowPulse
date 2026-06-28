@@ -81,5 +81,130 @@ public static class KnowPulsePermissions
         /// 知识权限范围管理权限。
         /// </summary>
         public const string PermissionScopes = Default + ".PermissionScopes";
+
+        /// <summary>
+        /// 知识反馈处理权限。
+        /// </summary>
+        public const string Feedback = Default + ".Feedback";
+    }
+
+    /// <summary>
+    /// 知识索引管理权限集合，覆盖索引任务、重建和状态更新入口。
+    /// </summary>
+    public static class KnowledgeIndexing
+    {
+        /// <summary>
+        /// 知识索引根权限，用于后续菜单分组和任务管理入口。
+        /// </summary>
+        public const string Default = GroupName + ".KnowledgeIndexing";
+
+        /// <summary>
+        /// 知识索引任务管理权限。
+        /// </summary>
+        public const string IndexJobs = Default + ".IndexJobs";
+    }
+
+    /// <summary>
+    /// RAG 问答权限集合，控制搜索和问答 API 入口。
+    /// </summary>
+    public static class Rag
+    {
+        /// <summary>
+        /// RAG 根权限，用于菜单或功能分组。
+        /// </summary>
+        public const string Default = GroupName + ".Rag";
+
+        /// <summary>
+        /// RAG 检索权限。
+        /// </summary>
+        public const string Search = Default + ".Search";
+
+        /// <summary>
+        /// RAG 问答权限。
+        /// </summary>
+        public const string Answer = Default + ".Answer";
+
+        /// <summary>
+        /// RAG 调用日志查询权限。
+        /// </summary>
+        public const string AuditLogs = Default + ".AuditLogs";
+
+        /// <summary>
+        /// RAG 质量评测权限。
+        /// </summary>
+        public const string Evaluations = Default + ".Evaluations";
+    }
+
+    /// <summary>
+    /// 题库权限集合，控制题目管理和审核入口。
+    /// </summary>
+    public static class QuestionBank
+    {
+        /// <summary>
+        /// 题库根权限，用于菜单分组显示。
+        /// </summary>
+        public const string Default = GroupName + ".QuestionBank";
+
+        /// <summary>
+        /// 题目管理权限，覆盖题目 CRUD、提交审核、停用和归档。
+        /// </summary>
+        public const string Questions = Default + ".Questions";
+
+        /// <summary>
+        /// 题目审核权限，覆盖审核通过、驳回和退回修改。
+        /// </summary>
+        public const string Reviews = Default + ".Reviews";
+
+        /// <summary>
+        /// AI 出题权限，覆盖候选题生成、查看、重试和提交审核。
+        /// </summary>
+        public const string AiGeneration = Default + ".AiGeneration";
+    }
+
+    /// <summary>
+    /// 考试闭环权限集合，覆盖考试管理、在线答题和成绩查看。
+    /// </summary>
+    public static class Exam
+    {
+        /// <summary>
+        /// 考试根权限，用于菜单分组显示。
+        /// </summary>
+        public const string Default = GroupName + ".Exam";
+
+        /// <summary>
+        /// 考试管理权限，覆盖考试计划、组卷和发布。
+        /// </summary>
+        public const string Manage = Default + ".Manage";
+
+        /// <summary>
+        /// 考试参加权限，覆盖开始考试、保存答案和提交。
+        /// </summary>
+        public const string Participate = Default + ".Participate";
+
+        /// <summary>
+        /// 成绩查看权限，覆盖成绩和错题记录查询。
+        /// </summary>
+        public const string Results = Default + ".Results";
+    }
+
+    /// <summary>
+    /// 学习路径权限集合，控制路径配置和个人学习内容查询。
+    /// </summary>
+    public static class Learning
+    {
+        /// <summary>
+        /// 学习路径根权限，用于菜单分组或功能分组。
+        /// </summary>
+        public const string Default = GroupName + ".Learning";
+
+        /// <summary>
+        /// 学习路径管理权限，覆盖创建、编辑、查询和停用。
+        /// </summary>
+        public const string Manage = Default + ".Manage";
+
+        /// <summary>
+        /// 个人学习内容查看权限，只能读取分配给当前用户的路径。
+        /// </summary>
+        public const string View = Default + ".View";
     }
 }

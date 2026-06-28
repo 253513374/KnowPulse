@@ -1,0 +1,520 @@
+@page "/exam/management"
+@attribute [Authorize(KnowPulsePermissions.Exam.Manage)]
+@inherits KnowPulseComponentBase
+@inject IExamAppService ExamAppService
+@inject IPositionAppService PositionAppService
+@inject IDepartmentAppService DepartmentAppService
+@inject IJSRuntime JSRuntime
+
+<PageTitle>考试管理</PageTitle>
+
+<div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+    <div>
+        <h1 class="h4 mb-1">考试管理</h1>
+        <div class="text-muted small">Exam / Management</div>
+    </div>
+    <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="LoadAsync" disabled="@IsBusy">刷新</button>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(ErrorMessage))
+{
+    <div class="alert alert-danger d-flex flex-wrap align-items-center justify-content-between gap-2" role="alert">
+        <span>@ErrorMessage</span>
+        <button class="btn btn-sm btn-outline-danger" type="button" @onclick="LoadAsync" disabled="@IsBusy">重试</button>
+    </div>
+}
+
+@if (!string.IsNullOrWhiteSpace(SuccessMessage))
+{
+    <div class="alert alert-success" role="alert">@SuccessMessage</div>
+}
+
+<div class="row g-3">
+    <div class="col-xl-4">
+        <div class="card">
+            <div class="card-body">
+                <h2 class="h6 mb-3">创建考试</h2>
+                <EditForm Model="@FormModel" OnValidSubmit="@CreatePlanAsync">
+                    <DataAnnotationsValidator />
+
+                    <div class="mb-3">
+                        <label class="form-label" for="exam-name">考试名称</label>
+                        <input id="exam-name" class="form-control" @bind="FormModel.Name" @bind:event="oninput" />
+                        <ValidationMessage For="@(() => FormModel.Name)" />
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label" for="exam-description">说明</label>
+                        <textarea id="exam-description" class="form-control" rows="2" @bind="FormModel.Description" @bind:event="oninput"></textarea>
+                    </div>
+
+                    <div class="row g-2">
+                        <div class="col-md-6">
+                            <label class="form-label" for="exam-start">开始时间</label>
+                            <input id="exam-start" class="form-control" type="datetime-local" value="@FormModel.StartTimeText" @onchange="OnStartTimeChanged" />
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label" for="exam-end">结束时间</label>
+                            <input id="exam-end" class="form-control" type="datetime-local" value="@FormModel.EndTimeText" @onchange="OnEndTimeChanged" />
+                        </div>
+                    </div>
+
+                    <div class="row g-2 mt-1">
+                        <div class="col-md-4">
+                            <label class="form-label" for="exam-duration">时长分钟</label>
+                            <InputNumber id="exam-duration" class="form-control" @bind-Value="FormModel.DurationMinutes" />
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label" for="exam-pass">及格分</label>
+                            <InputNumber id="exam-pass" class="form-control" @bind-Value="FormModel.PassingScore" />
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label" for="exam-attempts">次数</label>
+                            <InputNumber id="exam-attempts" class="form-control" @bind-Value="FormModel.MaxAttempts" />
+                        </div>
+                    </div>
+
+                    <div class="row g-2 mt-1">
+                        <div class="col-md-6">
+                            <label class="form-label" for="paper-mode">组卷方式</label>
+                            <select id="paper-mode" class="form-select" @bind="FormModel.BuildMode">
+                                <option value="@ExamPaperBuildMode.Random">规则组卷</option>
+                                <option value="@ExamPaperBuildMode.Fixed">固定题目</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label" for="paper-position">适用岗位</label>
+                            <select id="paper-position" class="form-select" @bind="FormModel.ApplicablePositionIdText">
+                                <option value="">不限</option>
+                                @foreach (var position in PositionList)
+                                {
+                                    <option value="@position.Id">@position.Name</option>
+                                }
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="mt-3">
+                        <label class="form-label" for="paper-rules">组卷规则</label>
+                        <textarea id="paper-rules" class="form-control" rows="5" @bind="FormModel.RuleLines" @bind:event="oninput"></textarea>
+                        <div class="form-text">每行：题型|难度|知识点|数量|分值。例如：单选|普通|制度基础|5|10。</div>
+                    </div>
+
+                    <div class="mt-3">
+                        <label class="form-label" for="fixed-questions">固定题目 ID</label>
+                        <textarea id="fixed-questions" class="form-control" rows="3" @bind="FormModel.FixedQuestionIdsText" @bind:event="oninput"></textarea>
+                    </div>
+
+                    <div class="mt-3">
+                        <label class="form-label" for="assignment-scope">分配范围</label>
+                        <div class="row g-2">
+                            <div class="col-md-5">
+                                <select id="assignment-scope" class="form-select" @bind="FormModel.AssignmentScope">
+                                    <option value="@ExamAssignmentScopeType.All">全员</option>
+                                    <option value="@ExamAssignmentScopeType.Department">部门</option>
+                                    <option value="@ExamAssignmentScopeType.Position">岗位</option>
+                                    <option value="@ExamAssignmentScopeType.User">指定用户</option>
+                                </select>
+                            </div>
+                            <div class="col-md-7">
+                                @if (FormModel.AssignmentScope == ExamAssignmentScopeType.Department)
+                                {
+                                    <select class="form-select" @bind="FormModel.AssignmentTargetIdText">
+                                        <option value="">请选择部门</option>
+                                        @foreach (var department in DepartmentList)
+                                        {
+                                            <option value="@department.Id">@department.Name</option>
+                                        }
+                                    </select>
+                                }
+                                else if (FormModel.AssignmentScope == ExamAssignmentScopeType.Position)
+                                {
+                                    <select class="form-select" @bind="FormModel.AssignmentTargetIdText">
+                                        <option value="">请选择岗位</option>
+                                        @foreach (var position in PositionList)
+                                        {
+                                            <option value="@position.Id">@position.Name</option>
+                                        }
+                                    </select>
+                                }
+                                else if (FormModel.AssignmentScope == ExamAssignmentScopeType.User)
+                                {
+                                    <input class="form-control" placeholder="用户 ID" @bind="FormModel.AssignmentTargetIdText" @bind:event="oninput" />
+                                }
+                                else
+                                {
+                                    <input class="form-control" value="全员可参加" disabled />
+                                }
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="d-flex flex-wrap gap-2 mt-3">
+                        <button class="btn btn-outline-primary" type="button" @onclick="PreviewAsync" disabled="@IsBusy">预览试卷</button>
+                        <button class="btn btn-primary" type="submit" disabled="@IsBusy">发布考试</button>
+                    </div>
+                </EditForm>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-xl-8">
+        @if (PreviewPaper != null)
+        {
+            <div class="card mb-3">
+                <div class="card-body">
+                    <div class="d-flex flex-wrap align-items-start justify-content-between gap-2">
+                        <div>
+                            <h2 class="h6 mb-1">@PreviewPaper.Title</h2>
+                            <div class="text-muted small">@PreviewPaper.QuestionCount 题 / @PreviewPaper.TotalScore 分 / 快照 v@PreviewPaper.SnapshotVersion</div>
+                        </div>
+                        <span class="badge bg-info">预览</span>
+                    </div>
+                    <div class="list-group list-group-flush mt-3">
+                        @foreach (var question in PreviewPaper.Questions.OrderBy(x => x.DisplayOrder))
+                        {
+                            <div class="list-group-item px-0">
+                                <div class="d-flex justify-content-between gap-2">
+                                    <div>
+                                        <div class="fw-semibold">@question.DisplayOrder. @question.Title</div>
+                                        <div class="small text-muted">@GetTypeText(question.Type) / @GetDifficultyText(question.Difficulty) / @question.Score 分</div>
+                                    </div>
+                                    <span class="small text-muted">@question.KnowledgePointsSnapshot</span>
+                                </div>
+                                <div class="mt-2">@question.Stem</div>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        }
+
+        <div class="card">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th>考试</th>
+                            <th>时间</th>
+                            <th>试卷</th>
+                            <th>分配</th>
+                            <th>状态</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (IsLoading)
+                        {
+                            <tr>
+                                <td colspan="5" class="text-center py-4 text-muted">加载中</td>
+                            </tr>
+                        }
+                        else if (PlanList.Count == 0)
+                        {
+                            <tr>
+                                <td colspan="5" class="text-center py-4 text-muted">暂无考试</td>
+                            </tr>
+                        }
+                        else
+                        {
+                            @foreach (var plan in PlanList)
+                            {
+                                <tr>
+                                    <td>
+                                        <div class="fw-semibold">@plan.Name</div>
+                                        <div class="small text-muted">@plan.Description</div>
+                                    </td>
+                                    <td class="small">
+                                        <div>@plan.StartTime.ToString("yyyy-MM-dd HH:mm")</div>
+                                        <div>@plan.EndTime.ToString("yyyy-MM-dd HH:mm")</div>
+                                    </td>
+                                    <td>
+                                        <div>@plan.Paper?.Title</div>
+                                        <div class="small text-muted">@plan.Paper?.QuestionCount 题 / @plan.Paper?.TotalScore 分</div>
+                                    </td>
+                                    <td class="small">@GetAssignmentText(plan)</td>
+                                    <td><span class="badge @GetPlanStatusBadge(plan.Status)">@GetPlanStatusText(plan.Status)</span></td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private const int PageSize = 20;
+    private readonly List<ExamPlanDto> PlanList = new();
+    private readonly List<PositionDto> PositionList = new();
+    private readonly List<DepartmentDto> DepartmentList = new();
+    private ExamFormModel FormModel { get; set; } = new();
+    private ExamPaperDto? PreviewPaper { get; set; }
+    private bool IsBusy { get; set; }
+    private bool IsLoading { get; set; }
+    private string? ErrorMessage { get; set; }
+    private string? SuccessMessage { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadLookupsAsync();
+        await LoadAsync();
+    }
+
+    private async Task LoadLookupsAsync()
+    {
+        var positions = await PositionAppService.GetListAsync(new PagedAndSortedResultRequestDto { MaxResultCount = 200 });
+        PositionList.Clear();
+        PositionList.AddRange(positions.Items.OrderBy(x => x.Name));
+
+        var departments = await DepartmentAppService.GetListAsync(new PagedAndSortedResultRequestDto { MaxResultCount = 200 });
+        DepartmentList.Clear();
+        DepartmentList.AddRange(departments.Items.OrderBy(x => x.Name));
+    }
+
+    private async Task LoadAsync()
+    {
+        await RunBusyAsync(async () =>
+        {
+            IsLoading = true;
+            var result = await ExamAppService.GetPlanListAsync(new GetExamPlanListInput { MaxResultCount = PageSize });
+            PlanList.Clear();
+            PlanList.AddRange(result.Items);
+        });
+    }
+
+    private async Task PreviewAsync()
+    {
+        await RunBusyAsync(async () =>
+        {
+            PreviewPaper = await ExamAppService.PreviewPaperAsync(BuildPaperInput());
+        });
+    }
+
+    private async Task CreatePlanAsync()
+    {
+        if (!await JSRuntime.InvokeAsync<bool>("confirm", "确定发布该考试吗？发布后考生可在时间范围内开始作答。"))
+        {
+            return;
+        }
+
+        await RunBusyAsync(async () =>
+        {
+            var plan = await ExamAppService.CreatePlanAsync(new CreateExamPlanDto
+            {
+                Name = FormModel.Name.Trim(),
+                Description = FormModel.Description,
+                StartTime = ParseDateTime(FormModel.StartTimeText),
+                EndTime = ParseDateTime(FormModel.EndTimeText),
+                DurationMinutes = FormModel.DurationMinutes,
+                PassingScore = FormModel.PassingScore,
+                MaxAttempts = FormModel.MaxAttempts,
+                ResultVisibility = FormModel.ResultVisibility,
+                Paper = BuildPaperInput(),
+                Assignments = BuildAssignments()
+            });
+
+            SuccessMessage = $"考试已发布：{plan.Name}";
+            FormModel = new ExamFormModel();
+            PreviewPaper = null;
+            await LoadAsync();
+        });
+    }
+
+    private void OnStartTimeChanged(ChangeEventArgs e)
+    {
+        FormModel.StartTimeText = e.Value?.ToString() ?? string.Empty;
+    }
+
+    private void OnEndTimeChanged(ChangeEventArgs e)
+    {
+        FormModel.EndTimeText = e.Value?.ToString() ?? string.Empty;
+    }
+
+    private GenerateExamPaperDto BuildPaperInput()
+    {
+        return new GenerateExamPaperDto
+        {
+            Title = string.IsNullOrWhiteSpace(FormModel.PaperTitle) ? FormModel.Name.Trim() : FormModel.PaperTitle.Trim(),
+            BuildMode = FormModel.BuildMode,
+            ApplicablePositionId = ParseNullableGuid(FormModel.ApplicablePositionIdText),
+            Randomize = FormModel.Randomize,
+            FixedQuestionIds = SplitValues(FormModel.FixedQuestionIdsText).Select(ParseGuidRequired).ToList(),
+            Rules = ParseRules(FormModel.RuleLines)
+        };
+    }
+
+    private List<ExamAssignmentInputDto> BuildAssignments()
+    {
+        return new List<ExamAssignmentInputDto>
+        {
+            new()
+            {
+                ScopeType = FormModel.AssignmentScope,
+                TargetId = FormModel.AssignmentScope == ExamAssignmentScopeType.All ? null : ParseNullableGuid(FormModel.AssignmentTargetIdText)
+            }
+        };
+    }
+
+    private async Task RunBusyAsync(Func<Task> action)
+    {
+        try
+        {
+            ErrorMessage = null;
+            SuccessMessage = null;
+            IsBusy = true;
+            await action();
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = GetUserFriendlyErrorMessage(ex);
+        }
+        finally
+        {
+            IsBusy = false;
+            IsLoading = false;
+        }
+    }
+
+    private static List<ExamPaperRuleDto> ParseRules(string? value)
+    {
+        var rules = new List<ExamPaperRuleDto>();
+        foreach (var line in SplitLines(value))
+        {
+            var parts = line.Split('|', StringSplitOptions.TrimEntries);
+            if (parts.Length < 5)
+            {
+                continue;
+            }
+
+            rules.Add(new ExamPaperRuleDto
+            {
+                Type = ParseQuestionType(parts[0]),
+                Difficulty = ParseDifficulty(parts[1]),
+                KnowledgePoint = string.IsNullOrWhiteSpace(parts[2]) ? null : parts[2],
+                Count = int.TryParse(parts[3], out var count) ? count : 1,
+                ScorePerQuestion = decimal.TryParse(parts[4], out var score) ? score : 5m
+            });
+        }
+
+        return rules;
+    }
+
+    private static QuestionType? ParseQuestionType(string value) => value switch
+    {
+        "单选" or "SingleChoice" => QuestionType.SingleChoice,
+        "多选" or "MultipleChoice" => QuestionType.MultipleChoice,
+        "判断" or "TrueFalse" => QuestionType.TrueFalse,
+        "填空" or "FillBlank" => QuestionType.FillBlank,
+        _ => Enum.TryParse<QuestionType>(value, out var parsed) ? parsed : null
+    };
+
+    private static QuestionDifficulty? ParseDifficulty(string value) => value switch
+    {
+        "简单" or "Easy" => QuestionDifficulty.Easy,
+        "普通" or "Normal" => QuestionDifficulty.Normal,
+        "困难" or "Hard" => QuestionDifficulty.Hard,
+        _ => Enum.TryParse<QuestionDifficulty>(value, out var parsed) ? parsed : null
+    };
+
+    private static DateTime ParseDateTime(string value)
+    {
+        return DateTime.TryParse(value, out var parsed) ? parsed : DateTime.UtcNow;
+    }
+
+    private static Guid ParseGuidRequired(string value)
+    {
+        return Guid.TryParse(value, out var id) ? id : Guid.Empty;
+    }
+
+    private static Guid? ParseNullableGuid(string? value)
+    {
+        return Guid.TryParse(value, out var id) ? id : null;
+    }
+
+    private static List<string> SplitLines(string? value)
+    {
+        return (value ?? string.Empty)
+            .Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .ToList();
+    }
+
+    private static List<string> SplitValues(string? value)
+    {
+        return (value ?? string.Empty)
+            .Split(new[] { "\r\n", "\n", ",", "，", ";", "；" }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .ToList();
+    }
+
+    private static string GetAssignmentText(ExamPlanDto plan)
+    {
+        return plan.Assignments.Count == 0
+            ? "全员"
+            : string.Join(", ", plan.Assignments.Select(x => x.ScopeType == ExamAssignmentScopeType.All ? "全员" : $"{x.ScopeType}:{x.TargetId}"));
+    }
+
+    private static string GetTypeText(QuestionType type) => type switch
+    {
+        QuestionType.SingleChoice => "单选",
+        QuestionType.MultipleChoice => "多选",
+        QuestionType.TrueFalse => "判断",
+        QuestionType.FillBlank => "填空",
+        _ => type.ToString()
+    };
+
+    private static string GetDifficultyText(QuestionDifficulty difficulty) => difficulty switch
+    {
+        QuestionDifficulty.Easy => "简单",
+        QuestionDifficulty.Normal => "普通",
+        QuestionDifficulty.Hard => "困难",
+        _ => difficulty.ToString()
+    };
+
+    private static string GetPlanStatusText(ExamPlanStatus status) => status switch
+    {
+        ExamPlanStatus.Draft => "草稿",
+        ExamPlanStatus.Published => "已发布",
+        ExamPlanStatus.Cancelled => "已取消",
+        _ => status.ToString()
+    };
+
+    private static string GetPlanStatusBadge(ExamPlanStatus status) => status switch
+    {
+        ExamPlanStatus.Draft => "bg-secondary",
+        ExamPlanStatus.Published => "bg-success",
+        ExamPlanStatus.Cancelled => "bg-dark",
+        _ => "bg-secondary"
+    };
+
+    private class ExamFormModel
+    {
+        public ExamFormModel()
+        {
+            var now = DateTime.UtcNow;
+            StartTimeText = now.AddMinutes(-5).ToString("yyyy-MM-ddTHH:mm");
+            EndTimeText = now.AddDays(7).ToString("yyyy-MM-ddTHH:mm");
+        }
+
+        [Required]
+        [StringLength(256)]
+        public string Name { get; set; } = "MVP-2 考试";
+
+        public string? Description { get; set; }
+        public string? PaperTitle { get; set; }
+        public string StartTimeText { get; set; }
+        public string EndTimeText { get; set; }
+        public int DurationMinutes { get; set; } = 60;
+        public decimal PassingScore { get; set; } = 60;
+        public int MaxAttempts { get; set; } = 1;
+        public ExamResultVisibility ResultVisibility { get; set; } = ExamResultVisibility.ScoreOnly;
+        public ExamPaperBuildMode BuildMode { get; set; } = ExamPaperBuildMode.Random;
+        public string? ApplicablePositionIdText { get; set; }
+        public bool Randomize { get; set; }
+        public string RuleLines { get; set; } = "单选|普通|制度基础|3|10";
+        public string? FixedQuestionIdsText { get; set; }
+        public ExamAssignmentScopeType AssignmentScope { get; set; } = ExamAssignmentScopeType.All;
+        public string? AssignmentTargetIdText { get; set; }
+    }
+}

@@ -2,6 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using KnowPulse.Permissions;
+using Microsoft.AspNetCore.Authorization;
+using Volo.Abp.Application.Dtos;
+using Volo.Abp.Application.Services;
 
 namespace KnowPulse.RagAI;
 
@@ -40,14 +44,68 @@ public interface IKnowledgeVectorStore
 }
 
 /// <summary>
+/// 向量库维护接口，负责 collection 和 payload index 的初始化/健康检查。
+/// </summary>
+public interface IKnowledgeVectorStoreMaintenance
+{
+    /// <summary>
+    /// 确保知识向量 collection 和必需 payload index 存在。
+    /// 该方法是幂等维护入口，适合应用启动检查或运维脚本调用。
+    /// </summary>
+    Task<KnowledgeVectorCollectionHealthResult> EnsureKnowledgeCollectionAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 读取知识向量 collection 健康状态，不创建或修改任何外部资源。
+    /// </summary>
+    Task<KnowledgeVectorCollectionHealthResult> GetKnowledgeCollectionHealthAsync(CancellationToken cancellationToken = default);
+}
+
+/// <summary>
+/// Embedding 客户端接口，封装 LiteLLM 或 Microsoft.Extensions.AI 的具体调用。
+/// 业务 pipeline 只依赖该接口，避免模型 SDK 或 HTTP 细节散落到应用服务。
+/// </summary>
+public interface IKnowledgeEmbeddingClient
+{
+    /// <summary>
+    /// 为输入文本生成 embedding。
+    /// 实现类必须校验返回向量维度，避免污染目标 collection。
+    /// </summary>
+    Task<KnowledgeEmbeddingClientResult> GenerateAsync(
+        KnowledgeEmbeddingClientRequest request,
+        CancellationToken cancellationToken = default);
+}
+
+/// <summary>
+/// Embedding pipeline 接口，负责为已生成的 chunk 创建 embedding 并保存主库追踪记录。
+/// </summary>
+public interface IKnowledgeEmbeddingPipeline
+{
+    /// <summary>
+    /// 为指定知识版本的 active chunk 生成 embedding 追踪记录。
+    /// </summary>
+    Task<KnowledgeEmbeddingRunResult> GenerateForVersionAsync(
+        Guid knowledgeVersionId,
+        Guid? embeddingModelVersionId = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 查询指定模型版本下需要重建 embedding 的 chunk。
+    /// </summary>
+    Task<IReadOnlyList<KnowledgeChunkEmbeddingRebuildDto>> GetChunksRequiringRebuildAsync(
+        Guid embeddingModelVersionId,
+        CancellationToken cancellationToken = default);
+}
+
+/// <summary>
 /// 权限感知知识检索接口，负责把用户查询转换为向量检索请求，并做 PostgreSQL 二次权限校验。
 /// MVP-0 仅定义契约，实际 RAG 检索在后续阶段实现。
 /// </summary>
-public interface IKnowledgeRetriever
+public interface IKnowledgeRetriever : IApplicationService
 {
     /// <summary>
     /// 检索当前用户可访问的知识分块。
     /// </summary>
+    [Authorize(KnowPulsePermissions.Rag.Search)]
     Task<IReadOnlyList<RetrievedChunk>> SearchAsync(RagSearchRequest request, CancellationToken cancellationToken = default);
 }
 
@@ -55,12 +113,25 @@ public interface IKnowledgeRetriever
 /// RAG 问答服务接口，负责基于检索结果生成带引用的回答。
 /// 模型调用应通过统一模型网关或 Microsoft.Extensions.AI 封装，便于审计、限流和替换模型。
 /// </summary>
-public interface IRagAnswerService
+public interface IRagAnswerService : IApplicationService
 {
     /// <summary>
     /// 根据问题生成回答，并返回引用来源、置信度和是否需要人工复核。
     /// </summary>
+    [Authorize(KnowPulsePermissions.Rag.Answer)]
     Task<RagAnswerResult> AnswerAsync(RagAnswerRequest request, CancellationToken cancellationToken = default);
+}
+
+/// <summary>
+/// RAG 调用日志查询接口，用于审计、排障和评测集复用 citation 链路。
+/// </summary>
+public interface IRagCallLogAppService : IApplicationService
+{
+    /// <summary>
+    /// 分页查询 RAG 调用日志及其 citation 链路。
+    /// </summary>
+    [Authorize(KnowPulsePermissions.Rag.AuditLogs)]
+    Task<PagedResultDto<RagCallLogDto>> GetListAsync(GetRagCallLogListInput input);
 }
 
 /// <summary>
@@ -92,6 +163,214 @@ public class KnowledgeIngestionResult
     /// 本次摄取生成的知识分块向量记录。
     /// </summary>
     public IReadOnlyList<KnowledgeChunkVectorRecord> Chunks { get; set; } = Array.Empty<KnowledgeChunkVectorRecord>();
+}
+
+/// <summary>
+/// Embedding 客户端请求。携带输入文本、模型版本和目标 collection 信息，供实现类校验维度和路由模型。
+/// </summary>
+public class KnowledgeEmbeddingClientRequest
+{
+    /// <summary>
+    /// 需要生成 embedding 的文本。
+    /// </summary>
+    public string Input { get; set; } = string.Empty;
+
+    /// <summary>
+    /// embedding provider 逻辑名称。
+    /// </summary>
+    public string Provider { get; set; } = string.Empty;
+
+    /// <summary>
+    /// embedding 模型 alias。
+    /// </summary>
+    public string ModelName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 业务侧模型版本。
+    /// </summary>
+    public string ModelVersion { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 期望返回的向量维度。
+    /// </summary>
+    public int VectorDimension { get; set; }
+
+    /// <summary>
+    /// 目标向量 collection。
+    /// </summary>
+    public string CollectionName { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// Embedding client 返回结果。
+/// 成功时携带向量，失败时携带阶段和原因，调用方据此更新索引任务。
+/// </summary>
+public class KnowledgeEmbeddingClientResult
+{
+    /// <summary>
+    /// 是否成功生成 embedding。
+    /// </summary>
+    public bool Succeeded { get; set; }
+
+    /// <summary>
+    /// 成功返回的向量。
+    /// </summary>
+    public ReadOnlyMemory<float> Embedding { get; set; }
+
+    /// <summary>
+    /// 失败阶段，默认 embedding。
+    /// </summary>
+    public string? FailureStage { get; set; }
+
+    /// <summary>
+    /// 失败原因摘要。
+    /// </summary>
+    public string? FailureReason { get; set; }
+
+    /// <summary>
+    /// 创建成功结果。
+    /// </summary>
+    public static KnowledgeEmbeddingClientResult Success(ReadOnlyMemory<float> embedding)
+    {
+        return new KnowledgeEmbeddingClientResult
+        {
+            Succeeded = true,
+            Embedding = embedding
+        };
+    }
+
+    /// <summary>
+    /// 创建失败结果。
+    /// </summary>
+    public static KnowledgeEmbeddingClientResult Failed(string failureReason, string failureStage = "embedding")
+    {
+        return new KnowledgeEmbeddingClientResult
+        {
+            Succeeded = false,
+            FailureStage = failureStage,
+            FailureReason = failureReason
+        };
+    }
+}
+
+/// <summary>
+/// Embedding pipeline 执行结果。
+/// </summary>
+public class KnowledgeEmbeddingRunResult
+{
+    /// <summary>
+    /// 本次处理的知识版本编号。
+    /// </summary>
+    public Guid KnowledgeVersionId { get; set; }
+
+    /// <summary>
+    /// 本次使用的 embedding 模型版本编号。
+    /// </summary>
+    public Guid? EmbeddingModelVersionId { get; set; }
+
+    /// <summary>
+    /// 是否成功完成全部 chunk 的 embedding 记录生成。
+    /// </summary>
+    public bool Succeeded { get; set; }
+
+    /// <summary>
+    /// 本次实际新增或替换的 embedding 记录数量。
+    /// </summary>
+    public int ProcessedChunkCount { get; set; }
+
+    /// <summary>
+    /// 失败阶段。
+    /// </summary>
+    public string? FailureStage { get; set; }
+
+    /// <summary>
+    /// 失败原因摘要。
+    /// </summary>
+    public string? FailureReason { get; set; }
+}
+
+/// <summary>
+/// 知识向量 collection 健康检查结果。
+/// </summary>
+public class KnowledgeVectorCollectionHealthResult
+{
+    /// <summary>
+    /// collection 名称。
+    /// </summary>
+    public string CollectionName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 配置期望的向量维度。
+    /// </summary>
+    public int ExpectedVectorDimension { get; set; }
+
+    /// <summary>
+    /// 实际读取到的向量维度。collection 不存在或结构异常时为空。
+    /// </summary>
+    public int? ActualVectorDimension { get; set; }
+
+    /// <summary>
+    /// collection 是否存在。
+    /// </summary>
+    public bool CollectionExists { get; set; }
+
+    /// <summary>
+    /// 实际维度是否与配置一致。
+    /// </summary>
+    public bool VectorDimensionMatches { get; set; }
+
+    /// <summary>
+    /// 应存在的 payload index 字段。
+    /// </summary>
+    public IReadOnlyList<string> RequiredPayloadIndexes { get; set; } = Array.Empty<string>();
+
+    /// <summary>
+    /// 当前 collection 已存在的 payload index 字段。
+    /// </summary>
+    public IReadOnlyList<string> ExistingPayloadIndexes { get; set; } = Array.Empty<string>();
+
+    /// <summary>
+    /// 当前缺失的 payload index 字段。
+    /// </summary>
+    public IReadOnlyList<string> MissingPayloadIndexes { get; set; } = Array.Empty<string>();
+
+    /// <summary>
+    /// collection 存在、维度匹配且 payload index 齐全时视为健康。
+    /// </summary>
+    public bool IsHealthy => CollectionExists &&
+                             VectorDimensionMatches &&
+                             MissingPayloadIndexes.Count == 0;
+}
+
+/// <summary>
+/// 需要重建 embedding 的 chunk 描述。
+/// </summary>
+public class KnowledgeChunkEmbeddingRebuildDto
+{
+    /// <summary>
+    /// 需要重建的 chunk 编号。
+    /// </summary>
+    public Guid KnowledgeChunkId { get; set; }
+
+    /// <summary>
+    /// chunk 所属知识版本编号。
+    /// </summary>
+    public Guid KnowledgeVersionId { get; set; }
+
+    /// <summary>
+    /// 目标 embedding 模型版本编号。
+    /// </summary>
+    public Guid EmbeddingModelVersionId { get; set; }
+
+    /// <summary>
+    /// 当前 chunk 内容 hash。
+    /// </summary>
+    public string ContentHash { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 需要重建的原因，例如 MissingEmbeddingRecord、ContentHashChanged 或 VectorDimensionChanged。
+    /// </summary>
+    public string Reason { get; set; } = string.Empty;
 }
 
 /// <summary>
@@ -166,6 +445,11 @@ public class KnowledgeVectorPayload
     /// 知识分类编号。
     /// </summary>
     public Guid? CategoryId { get; set; }
+
+    /// <summary>
+    /// 权限范围类型。默认 All，向量库只做前置过滤，最终授权仍回 PostgreSQL 校验。
+    /// </summary>
+    public string Visibility { get; set; } = "All";
 
     /// <summary>
     /// 标签编号集合。
@@ -289,6 +573,11 @@ public class KnowledgeVectorPermissionFilter
     /// 当前用户角色集合。
     /// </summary>
     public IReadOnlyList<Guid> RoleIds { get; set; } = Array.Empty<Guid>();
+
+    /// <summary>
+    /// 当前用户可见用户编号集合。通常包含当前用户本人，也可由调用方补充代理访问上下文。
+    /// </summary>
+    public IReadOnlyList<Guid> UserIds { get; set; } = Array.Empty<Guid>();
 
     /// <summary>
     /// 当前用户安全等级。
@@ -428,6 +717,11 @@ public class RagAnswerRequest
     /// 当前用户编号。
     /// </summary>
     public Guid? UserId { get; set; }
+
+    /// <summary>
+    /// 问答时最多检索的上下文分块数量。
+    /// </summary>
+    public int TopK { get; set; } = 5;
 }
 
 /// <summary>
@@ -490,4 +784,228 @@ public class RagCitation
     /// 引用摘录。需要控制长度，避免把原文大段回传给前端。
     /// </summary>
     public string Quote { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// RAG 调用日志分页查询条件，用于按用户、模型、调用状态和时间窗口筛选审计记录。
+/// </summary>
+public class GetRagCallLogListInput : PagedAndSortedResultRequestDto
+{
+    /// <summary>
+    /// 按调用用户过滤。
+    /// </summary>
+    public Guid? UserId { get; set; }
+
+    /// <summary>
+    /// 按 citation 中引用的知识版本过滤。
+    /// </summary>
+    public Guid? KnowledgeVersionId { get; set; }
+
+    /// <summary>
+    /// 按模型版本过滤。
+    /// </summary>
+    public string? ModelVersion { get; set; }
+
+    /// <summary>
+    /// 按调用类型过滤。
+    /// </summary>
+    public RagCallType? CallType { get; set; }
+
+    /// <summary>
+    /// 按调用状态过滤。
+    /// </summary>
+    public RagCallStatus? Status { get; set; }
+
+    /// <summary>
+    /// 调用时间窗口开始。
+    /// </summary>
+    public DateTime? StartTime { get; set; }
+
+    /// <summary>
+    /// 调用时间窗口结束。
+    /// </summary>
+    public DateTime? EndTime { get; set; }
+}
+
+/// <summary>
+/// RAG 调用日志 DTO。
+/// 该 DTO 只包含摘要、hash、模型元数据、统计信息和 citation，不包含完整 prompt 或完整知识正文。
+/// </summary>
+public class RagCallLogDto : EntityDto<Guid>
+{
+    /// <summary>
+    /// 调用所在租户。
+    /// </summary>
+    public Guid? TenantId { get; set; }
+
+    /// <summary>
+    /// 调用用户。
+    /// </summary>
+    public Guid? UserId { get; set; }
+
+    /// <summary>
+    /// 调用类型。
+    /// </summary>
+    public RagCallType CallType { get; set; }
+
+    /// <summary>
+    /// 调用状态。
+    /// </summary>
+    public RagCallStatus Status { get; set; }
+
+    /// <summary>
+    /// 用户问题 hash，用于去重和排障，不暴露完整问题。
+    /// </summary>
+    public string QueryHash { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 用户问题摘要，长度受控。
+    /// </summary>
+    public string QuerySummary { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 模型 provider。
+    /// </summary>
+    public string ModelProvider { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 模型 alias 或名称。
+    /// </summary>
+    public string ModelName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 模型版本。
+    /// </summary>
+    public string ModelVersion { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 检索 collection。
+    /// </summary>
+    public string CollectionName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 请求的 TopK。
+    /// </summary>
+    public int TopK { get; set; }
+
+    /// <summary>
+    /// 返回的授权 chunk 数。
+    /// </summary>
+    public int RetrievedChunkCount { get; set; }
+
+    /// <summary>
+    /// citation 数量。
+    /// </summary>
+    public int CitationCount { get; set; }
+
+    /// <summary>
+    /// prompt token 数。
+    /// </summary>
+    public int PromptTokenCount { get; set; }
+
+    /// <summary>
+    /// completion token 数。
+    /// </summary>
+    public int CompletionTokenCount { get; set; }
+
+    /// <summary>
+    /// 总 token 数。
+    /// </summary>
+    public int TotalTokenCount { get; set; }
+
+    /// <summary>
+    /// 预估成本，单位 USD。
+    /// </summary>
+    public decimal EstimatedCostUsd { get; set; }
+
+    /// <summary>
+    /// 调用置信度。
+    /// </summary>
+    public double? Confidence { get; set; }
+
+    /// <summary>
+    /// 是否需要人工复核。
+    /// </summary>
+    public bool NeedHumanReview { get; set; }
+
+    /// <summary>
+    /// 执行耗时，单位毫秒。
+    /// </summary>
+    public int ExecutionDurationMs { get; set; }
+
+    /// <summary>
+    /// 失败阶段。
+    /// </summary>
+    public string? FailureStage { get; set; }
+
+    /// <summary>
+    /// 失败原因摘要。
+    /// </summary>
+    public string? FailureReason { get; set; }
+
+    /// <summary>
+    /// 日志创建时间。
+    /// </summary>
+    public DateTime CreationTime { get; set; }
+
+    /// <summary>
+    /// 本次调用的 citation 链路。
+    /// </summary>
+    public IReadOnlyList<RagCitationRecordDto> Citations { get; set; } = Array.Empty<RagCitationRecordDto>();
+}
+
+/// <summary>
+/// RAG citation 审计 DTO。
+/// </summary>
+public class RagCitationRecordDto : EntityDto<Guid>
+{
+    /// <summary>
+    /// 所属 RAG 调用日志编号。
+    /// </summary>
+    public Guid RagCallLogId { get; set; }
+
+    /// <summary>
+    /// 引用知识条目编号。
+    /// </summary>
+    public Guid KnowledgeItemId { get; set; }
+
+    /// <summary>
+    /// 引用知识版本编号。
+    /// </summary>
+    public Guid KnowledgeVersionId { get; set; }
+
+    /// <summary>
+    /// 引用 chunk 编号。
+    /// </summary>
+    public Guid ChunkId { get; set; }
+
+    /// <summary>
+    /// 在本次回答中的引用排名，从 1 开始。
+    /// </summary>
+    public int Rank { get; set; }
+
+    /// <summary>
+    /// 向量检索得分。
+    /// </summary>
+    public double Score { get; set; }
+
+    /// <summary>
+    /// 来源标题。
+    /// </summary>
+    public string SourceTitle { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 来源页码。
+    /// </summary>
+    public int? SourcePage { get; set; }
+
+    /// <summary>
+    /// 引用摘录 hash。
+    /// </summary>
+    public string QuoteHash { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 引用短摘录。长度受控，不保存完整 chunk。
+    /// </summary>
+    public string QuotePreview { get; set; } = string.Empty;
 }

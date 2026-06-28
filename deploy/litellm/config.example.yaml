@@ -1,4 +1,16 @@
-model_list: []
+model_list:
+  - model_name: knowpulse-embedding-default
+    litellm_params:
+      model: openai/text-embedding-3-small
+      api_key: os.environ/OPENAI_API_KEY
+  - model_name: knowpulse-embedding-fallback
+    litellm_params:
+      model: openai/text-embedding-3-small
+      api_key: os.environ/OPENAI_API_KEY
+  - model_name: knowpulse-chat-default
+    litellm_params:
+      model: deepseek/deepseek-chat
+      api_key: os.environ/DEEPSEEK_API_KEY
 
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY

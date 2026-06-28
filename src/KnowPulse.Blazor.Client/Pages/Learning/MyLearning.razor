@@ -1,0 +1,371 @@
+@page "/learning/my"
+@attribute [Authorize(KnowPulsePermissions.Learning.View)]
+@inherits KnowPulseComponentBase
+@inject ILearningPathAppService LearningPathAppService
+@inject NavigationManager NavigationManager
+
+<PageTitle>我的学习</PageTitle>
+
+<div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+    <div>
+        <h1 class="h4 mb-1">我的学习</h1>
+        <div class="text-muted small">Learning / My Learning</div>
+    </div>
+    <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="LoadAsync" disabled="@IsBusy">刷新</button>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(ErrorMessage))
+{
+    <div class="alert @(IsPermissionError ? "alert-warning" : "alert-danger") d-flex flex-wrap align-items-center justify-content-between gap-2" role="alert">
+        <span>@ErrorMessage</span>
+        <button class="btn btn-sm @(IsPermissionError ? "btn-outline-warning" : "btn-outline-danger")" type="button" @onclick="LoadAsync" disabled="@IsBusy">重试</button>
+    </div>
+}
+
+@if (!string.IsNullOrWhiteSpace(SuccessMessage))
+{
+    <div class="alert alert-success" role="status">@SuccessMessage</div>
+}
+
+@if (IsLoading)
+{
+    <div class="card">
+        <div class="card-body text-center text-muted py-5">加载中</div>
+    </div>
+}
+else if (IsPermissionError)
+{
+    <div class="card">
+        <div class="card-body text-center py-5">
+            <h2 class="h6 mb-2">无权限访问学习中心</h2>
+            <div class="text-muted">请确认账号已授予个人学习内容查看权限。</div>
+        </div>
+    </div>
+}
+else if (PathList.Count == 0)
+{
+    <div class="card">
+        <div class="card-body text-center py-5">
+            <h2 class="h6 mb-2">暂无分配给你的学习路径</h2>
+            <div class="text-muted">当管理员按部门、岗位或职级配置学习路径后，这里会显示你的必学知识、推荐知识和必考考试。</div>
+        </div>
+    </div>
+}
+else
+{
+    <div class="d-flex flex-column gap-3">
+        @foreach (var path in PathList)
+        {
+            <div class="card">
+                <div class="card-body border-bottom">
+                    <div class="d-flex flex-wrap align-items-start justify-content-between gap-2">
+                        <div>
+                            <h2 class="h5 mb-1">@path.Name</h2>
+                            @if (!string.IsNullOrWhiteSpace(path.Description))
+                            {
+                                <div class="text-muted">@path.Description</div>
+                            }
+                            <div class="text-muted small mt-1">配置版本 @path.ConfigVersion</div>
+                        </div>
+                        <div class="d-flex flex-wrap gap-2">
+                            <span class="badge bg-primary-subtle text-primary-emphasis">必学 @GetCompletedCount(path.RequiredKnowledge)/@path.RequiredKnowledge.Count</span>
+                            <span class="badge bg-info-subtle text-info-emphasis">推荐 @GetCompletedCount(path.RecommendedKnowledge)/@path.RecommendedKnowledge.Count</span>
+                            <span class="badge bg-secondary-subtle text-secondary-emphasis">必考 @GetCompletedCount(path.RequiredExams)/@path.RequiredExams.Count</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card-body">
+                    <div class="row g-3">
+                        <div class="col-xl-6">
+                            <h3 class="h6 mb-2">必学知识</h3>
+                            @if (path.RequiredKnowledge.Count == 0)
+                            {
+                                <div class="border rounded p-3 text-muted small">暂无必学知识</div>
+                            }
+                            else
+                            {
+                                <div class="table-responsive">
+                                    <table class="table table-sm table-hover align-middle mb-0">
+                                        <thead>
+                                            <tr>
+                                                <th>知识</th>
+                                                <th>状态</th>
+                                                <th>最近阅读</th>
+                                                <th class="text-end">操作</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @foreach (var item in path.RequiredKnowledge.OrderBy(x => x.DisplayOrder))
+                                            {
+                                                <tr>
+                                                    <td>
+                                                        <div class="fw-semibold">@item.KnowledgeTitle</div>
+                                                        <div class="text-muted small">v@(item.VersionNumber) - @item.VersionTitle</div>
+                                                        @if (!string.IsNullOrWhiteSpace(item.Note))
+                                                        {
+                                                            <div class="text-muted small">@item.Note</div>
+                                                        }
+                                                    </td>
+                                                    <td><span class="badge @GetStatusBadge(item.CompletionStatus)">@GetStatusText(item.CompletionStatus)</span></td>
+                                                    <td>@FormatDate(item.LastReadTime)</td>
+                                                    <td class="text-end">
+                                                        <button class="btn btn-link btn-sm" type="button" @onclick="() => OpenKnowledgeAsync(item)" disabled="@IsBusy">去阅读</button>
+                                                        <button class="btn btn-link btn-sm" type="button" @onclick="() => MarkKnowledgeCompletedAsync(item)" disabled="@(IsBusy || item.CompletionStatus == LearningContentCompletionStatus.Completed)">标记完成</button>
+                                                    </td>
+                                                </tr>
+                                            }
+                                        </tbody>
+                                    </table>
+                                </div>
+                            }
+                        </div>
+
+                        <div class="col-xl-6">
+                            <h3 class="h6 mb-2">推荐知识</h3>
+                            @if (path.RecommendedKnowledge.Count == 0)
+                            {
+                                <div class="border rounded p-3 text-muted small">暂无推荐知识</div>
+                            }
+                            else
+                            {
+                                <div class="table-responsive">
+                                    <table class="table table-sm table-hover align-middle mb-0">
+                                        <thead>
+                                            <tr>
+                                                <th>知识</th>
+                                                <th>状态</th>
+                                                <th>最近阅读</th>
+                                                <th class="text-end">操作</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @foreach (var item in path.RecommendedKnowledge.OrderBy(x => x.DisplayOrder))
+                                            {
+                                                <tr>
+                                                    <td>
+                                                        <div class="fw-semibold">@item.KnowledgeTitle</div>
+                                                        <div class="text-muted small">v@(item.VersionNumber) - @item.VersionTitle</div>
+                                                        @if (!string.IsNullOrWhiteSpace(item.Reason))
+                                                        {
+                                                            <div class="text-muted small">@item.Reason</div>
+                                                        }
+                                                    </td>
+                                                    <td><span class="badge @GetStatusBadge(item.CompletionStatus)">@GetStatusText(item.CompletionStatus)</span></td>
+                                                    <td>@FormatDate(item.LastReadTime)</td>
+                                                    <td class="text-end">
+                                                        <button class="btn btn-link btn-sm" type="button" @onclick="() => OpenKnowledgeAsync(item)" disabled="@IsBusy">去阅读</button>
+                                                        <button class="btn btn-link btn-sm" type="button" @onclick="() => MarkKnowledgeCompletedAsync(item)" disabled="@(IsBusy || item.CompletionStatus == LearningContentCompletionStatus.Completed)">标记完成</button>
+                                                    </td>
+                                                </tr>
+                                            }
+                                        </tbody>
+                                    </table>
+                                </div>
+                            }
+                        </div>
+                    </div>
+
+                    <div class="mt-3">
+                        <h3 class="h6 mb-2">必考考试</h3>
+                        @if (path.RequiredExams.Count == 0)
+                        {
+                            <div class="border rounded p-3 text-muted small">暂无必考考试</div>
+                        }
+                        else
+                        {
+                            <div class="table-responsive">
+                                <table class="table table-sm table-hover align-middle mb-0">
+                                    <thead>
+                                        <tr>
+                                            <th>考试</th>
+                                            <th>状态</th>
+                                            <th>成绩</th>
+                                            <th>最近考试</th>
+                                            <th class="text-end">操作</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var exam in path.RequiredExams.OrderBy(x => x.DisplayOrder))
+                                        {
+                                            <tr>
+                                                <td>
+                                                    <div class="fw-semibold">@exam.ExamName</div>
+                                                    <div class="text-muted small">@FormatRange(exam.StartTime, exam.EndTime)</div>
+                                                    @if (!string.IsNullOrWhiteSpace(exam.Note))
+                                                    {
+                                                        <div class="text-muted small">@exam.Note</div>
+                                                    }
+                                                    @if (!exam.IsAssignedToCurrentUser)
+                                                    {
+                                                        <div class="text-warning small">考试计划尚未分配给当前用户</div>
+                                                    }
+                                                </td>
+                                                <td><span class="badge @GetStatusBadge(exam.CompletionStatus)">@GetStatusText(exam.CompletionStatus)</span></td>
+                                                <td>@GetScoreText(exam)</td>
+                                                <td>@FormatDate(exam.LastAttemptTime)</td>
+                                                <td class="text-end">
+                                                    <button class="btn btn-link btn-sm" type="button" @onclick="OpenExamEntry" disabled="@(IsBusy || !exam.IsAssignedToCurrentUser)">去考试入口</button>
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private const int PageSize = 20;
+
+    private readonly List<LearningPathDto> PathList = new();
+    private bool IsBusy { get; set; }
+    private bool IsLoading { get; set; }
+    private string? ErrorMessage { get; set; }
+    private string? SuccessMessage { get; set; }
+    private bool IsPermissionError => ErrorMessage?.Contains("无权限", StringComparison.OrdinalIgnoreCase) == true ||
+                                      ErrorMessage?.Contains("未登录", StringComparison.OrdinalIgnoreCase) == true ||
+                                      ErrorMessage?.Contains("Unauthorized", StringComparison.OrdinalIgnoreCase) == true ||
+                                      ErrorMessage?.Contains("Forbidden", StringComparison.OrdinalIgnoreCase) == true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        await RunBusyAsync(async () =>
+        {
+            IsLoading = true;
+            var result = await LearningPathAppService.GetMyListAsync(new GetLearningPathListInput
+            {
+                MaxResultCount = PageSize
+            });
+
+            PathList.Clear();
+            PathList.AddRange(result.Items);
+        });
+    }
+
+    private async Task OpenKnowledgeAsync(LearningPathKnowledgeDto item)
+    {
+        await RunBusyAsync(async () =>
+        {
+            await LearningPathAppService.MarkKnowledgeReadAsync(new MarkLearningKnowledgeReadDto
+            {
+                LearningPathId = item.LearningPathId,
+                KnowledgeItemId = item.KnowledgeItemId,
+                KnowledgeVersionId = item.KnowledgeVersionId,
+                MarkCompleted = false
+            });
+
+            NavigationManager.NavigateTo($"/knowledge/items?itemId={item.KnowledgeItemId}&versionId={item.KnowledgeVersionId}");
+        });
+    }
+
+    private async Task MarkKnowledgeCompletedAsync(LearningPathKnowledgeDto item)
+    {
+        await RunBusyAsync(async () =>
+        {
+            var updated = await LearningPathAppService.MarkKnowledgeReadAsync(new MarkLearningKnowledgeReadDto
+            {
+                LearningPathId = item.LearningPathId,
+                KnowledgeItemId = item.KnowledgeItemId,
+                KnowledgeVersionId = item.KnowledgeVersionId,
+                MarkCompleted = true
+            });
+
+            UpsertPath(updated);
+            SuccessMessage = "已标记为完成。";
+        });
+    }
+
+    private void OpenExamEntry()
+    {
+        NavigationManager.NavigateTo("/exam/take");
+    }
+
+    private void UpsertPath(LearningPathDto updated)
+    {
+        var index = PathList.FindIndex(x => x.Id == updated.Id);
+        if (index >= 0)
+        {
+            PathList[index] = updated;
+        }
+    }
+
+    private async Task RunBusyAsync(Func<Task> action)
+    {
+        try
+        {
+            ErrorMessage = null;
+            SuccessMessage = null;
+            IsBusy = true;
+            await action();
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = GetUserFriendlyErrorMessage(ex);
+        }
+        finally
+        {
+            IsBusy = false;
+            IsLoading = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private static int GetCompletedCount(IEnumerable<LearningPathKnowledgeDto> items)
+    {
+        return items.Count(x => x.CompletionStatus == LearningContentCompletionStatus.Completed);
+    }
+
+    private static int GetCompletedCount(IEnumerable<LearningPathRequiredExamDto> items)
+    {
+        return items.Count(x => x.CompletionStatus == LearningContentCompletionStatus.Completed);
+    }
+
+    private static string GetStatusBadge(LearningContentCompletionStatus status) => status switch
+    {
+        LearningContentCompletionStatus.Completed => "bg-success",
+        LearningContentCompletionStatus.InProgress => "bg-info text-dark",
+        LearningContentCompletionStatus.Unavailable => "bg-warning text-dark",
+        _ => "bg-light text-dark"
+    };
+
+    private static string GetStatusText(LearningContentCompletionStatus status) => status switch
+    {
+        LearningContentCompletionStatus.Completed => "已完成",
+        LearningContentCompletionStatus.InProgress => "进行中",
+        LearningContentCompletionStatus.Unavailable => "不可参加",
+        _ => "未开始"
+    };
+
+    private static string FormatDate(DateTime? value)
+    {
+        return value.HasValue ? value.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm") : "-";
+    }
+
+    private static string FormatRange(DateTime startTime, DateTime endTime)
+    {
+        return $"{startTime.ToLocalTime():yyyy-MM-dd HH:mm} - {endTime.ToLocalTime():yyyy-MM-dd HH:mm}";
+    }
+
+    private static string GetScoreText(LearningPathRequiredExamDto exam)
+    {
+        if (!exam.BestScore.HasValue)
+        {
+            return "-";
+        }
+
+        return exam.PassingScore.HasValue
+            ? $"{exam.BestScore:0.##} / 及格 {exam.PassingScore:0.##}"
+            : $"{exam.BestScore:0.##}";
+    }
+}

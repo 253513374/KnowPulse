@@ -1,0 +1,736 @@
+@page "/question-bank/ai-candidates"
+@attribute [Authorize(KnowPulsePermissions.QuestionBank.AiGeneration)]
+@inherits KnowPulseComponentBase
+@inject IAiQuestionGenerationAppService AiQuestionGenerationAppService
+@inject IQuestionAppService QuestionAppService
+@inject IPositionAppService PositionAppService
+@inject IJSRuntime JSRuntime
+@inject IPermissionChecker PermissionChecker
+
+<PageTitle>AI 候选题</PageTitle>
+
+@* 页面头部只提供刷新入口；候选题生成和审核动作集中在下方任务/详情区域。 *@
+<div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+    <div>
+        <h1 class="h4 mb-1">AI 候选题</h1>
+        <div class="text-muted small">QuestionBank / AI Candidates</div>
+    </div>
+    <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="LoadTasksAsync" disabled="@IsBusy">刷新</button>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(ErrorMessage))
+{
+    <div class="alert alert-danger d-flex flex-wrap align-items-center justify-content-between gap-2" role="alert">
+        <span>@ErrorMessage</span>
+        <button class="btn btn-sm btn-outline-danger" type="button" @onclick="LoadTasksAsync" disabled="@IsBusy">重试</button>
+    </div>
+}
+
+@if (!string.IsNullOrWhiteSpace(SuccessMessage))
+{
+    <div class="alert alert-success" role="alert">@SuccessMessage</div>
+}
+
+<div class="row g-3">
+    <div class="col-xl-4">
+        @* 左侧表单负责创建 AI 出题任务，用户输入的是生成约束，真正依据仍由服务端 RAG 检索决定。 *@
+        <div class="card mb-3">
+            <div class="card-body">
+                <h2 class="h6 mb-3">创建生成任务</h2>
+                <EditForm Model="@FormModel" OnValidSubmit="@GenerateAsync">
+                    <DataAnnotationsValidator />
+
+                    <div class="mb-3">
+                        <label class="form-label" for="ai-scope">知识范围</label>
+                        <textarea id="ai-scope" class="form-control" rows="3" @bind="FormModel.KnowledgeScope" @bind:event="oninput"></textarea>
+                        <ValidationMessage For="@(() => FormModel.KnowledgeScope)" />
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label" for="ai-points">知识点</label>
+                        <input id="ai-points" class="form-control" @bind="FormModel.KnowledgePointText" @bind:event="oninput" />
+                    </div>
+
+                    <div class="row g-2">
+                        <div class="col-md-6">
+                            <label class="form-label" for="ai-type">题型</label>
+                            <select id="ai-type" class="form-select" @bind="FormModel.Type">
+                                <option value="@QuestionType.SingleChoice">单选</option>
+                                <option value="@QuestionType.MultipleChoice">多选</option>
+                                <option value="@QuestionType.TrueFalse">判断</option>
+                                <option value="@QuestionType.FillBlank">填空</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label" for="ai-difficulty">难度</label>
+                            <select id="ai-difficulty" class="form-select" @bind="FormModel.Difficulty">
+                                <option value="@QuestionDifficulty.Easy">简单</option>
+                                <option value="@QuestionDifficulty.Normal">普通</option>
+                                <option value="@QuestionDifficulty.Hard">困难</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="row g-2 mt-1">
+                        <div class="col-md-6">
+                            <label class="form-label" for="ai-count">数量</label>
+                            <InputNumber id="ai-count" class="form-control" @bind-Value="FormModel.RequestedCount" />
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label" for="ai-topk">引用 TopK</label>
+                            <InputNumber id="ai-topk" class="form-control" @bind-Value="FormModel.TopK" />
+                        </div>
+                    </div>
+
+                    <div class="mt-3">
+                        <label class="form-label" for="ai-position">适用岗位</label>
+                        <select id="ai-position" class="form-select" @bind="FormModel.ApplicablePositionIdText">
+                            <option value="">不限</option>
+                            @foreach (var position in PositionList)
+                            {
+                                <option value="@position.Id">@position.Name</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="row g-2 mt-1">
+                        <div class="col-md-6">
+                            <label class="form-label" for="ai-security">安全等级</label>
+                            <InputNumber id="ai-security" class="form-control" @bind-Value="FormModel.SecurityLevel" />
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label" for="ai-tags">标签</label>
+                            <input id="ai-tags" class="form-control" @bind="FormModel.Tags" @bind:event="oninput" />
+                        </div>
+                    </div>
+
+                    <button class="btn btn-primary w-100 mt-3" type="submit" disabled="@IsBusy">生成候选题</button>
+                </EditForm>
+            </div>
+        </div>
+
+        @* 左侧任务列表展示最近生成任务，失败任务允许重试，点击任务后右侧展示候选题和引用。 *@
+        <div class="card">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th>任务</th>
+                            <th>状态</th>
+                            <th class="text-end">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (IsLoading)
+                        {
+                            <tr>
+                                <td colspan="3" class="text-center py-4 text-muted">加载中</td>
+                            </tr>
+                        }
+                        else if (TaskList.Count == 0)
+                        {
+                            <tr>
+                                <td colspan="3" class="text-center py-4 text-muted">暂无任务</td>
+                            </tr>
+                        }
+                        else
+                        {
+                            @foreach (var task in TaskList)
+                            {
+                                <tr class="@(SelectedTask?.Id == task.Id ? "table-primary" : null)">
+                                    <td>
+                                        <button class="btn btn-link p-0 text-start" type="button" @onclick="() => SelectTaskAsync(task.Id)" disabled="@IsBusy">
+                                            <span class="fw-semibold">@Trim(task.KnowledgeScope, 40)</span>
+                                        </button>
+                                        <div class="small text-muted">@GetTypeText(task.Type) / @GetDifficultyText(task.Difficulty) / @task.GeneratedCount/@task.RequestedCount</div>
+                                    </td>
+                                    <td><span class="badge @GetTaskStatusBadge(task.Status)">@GetTaskStatusText(task.Status)</span></td>
+                                    <td class="text-end">
+                                        @if (task.Status == AiQuestionGenerationTaskStatus.Failed)
+                                        {
+                                            <button class="btn btn-outline-primary btn-sm" type="button" @onclick="() => RetryAsync(task.Id)" disabled="@IsBusy">重试</button>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-xl-8">
+        @* 右侧详情区展示任务状态、失败原因、候选题、citation 和审核操作。 *@
+        @if (SelectedTask == null)
+        {
+            <div class="card">
+                <div class="card-body text-center text-muted py-5">请选择或创建 AI 出题任务</div>
+            </div>
+        }
+        else
+        {
+            @* 任务摘要卡展示 prompt/model 版本，方便审核人员确认生成环境。 *@
+            <div class="card mb-3">
+                <div class="card-body">
+                    <div class="d-flex flex-wrap align-items-start justify-content-between gap-2">
+                        <div>
+                            <h2 class="h6 mb-1">@SelectedTask.KnowledgeScope</h2>
+                            <div class="small text-muted">Prompt @SelectedTask.PromptVersion / @SelectedTask.ModelName / @SelectedTask.ModelVersion</div>
+                        </div>
+                        <span class="badge @GetTaskStatusBadge(SelectedTask.Status)">@GetTaskStatusText(SelectedTask.Status)</span>
+                    </div>
+                    @if (!string.IsNullOrWhiteSpace(SelectedTask.FailureReason))
+                    {
+                        <div class="alert alert-warning mt-3 mb-0">
+                            @SelectedTask.FailureStage：@SelectedTask.FailureReason
+                        </div>
+                    }
+                </div>
+            </div>
+
+            @if (SelectedTask.Candidates.Count == 0)
+            {
+                <div class="card">
+                    <div class="card-body text-center text-muted py-5">暂无候选题</div>
+                </div>
+            }
+            else
+            {
+                <div class="d-flex flex-column gap-3">
+                    @foreach (var candidate in SelectedTask.Candidates)
+                    {
+                        @* 每张候选题卡都明确标记其候选状态，避免被误认为已经进入正式题库。 *@
+                        <div class="card">
+                            <div class="card-body">
+                                <div class="d-flex flex-wrap align-items-start justify-content-between gap-2">
+                                    <div>
+                                        <h3 class="h6 mb-1">@candidate.Title</h3>
+                                        <div class="small text-muted">@GetTypeText(candidate.Type) / @GetDifficultyText(candidate.Difficulty)</div>
+                                    </div>
+                                    <div class="d-flex flex-wrap gap-2">
+                                        <span class="badge @GetCandidateStatusBadge(candidate.Status)">@GetCandidateStatusText(candidate.Status)</span>
+                                        @if (!candidate.LinkedQuestionId.HasValue)
+                                        {
+                                            <span class="badge bg-secondary">未入正式题库</span>
+                                        }
+                                        else
+                                        {
+                                            var linkedQuestion = GetLinkedQuestion(candidate);
+                                            if (linkedQuestion == null)
+                                            {
+                                                <span class="badge bg-light text-dark">已进入题库审核流</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="badge @GetQuestionStatusBadge(linkedQuestion.Status)">题库：@GetQuestionStatusText(linkedQuestion.Status)</span>
+                                            }
+                                        }
+                                    </div>
+                                </div>
+
+                                <p class="mt-3 mb-2">@candidate.Stem</p>
+
+                                @if (candidate.Options.Count > 0)
+                                {
+                                    <div class="list-group list-group-flush mb-3">
+                                        @foreach (var option in candidate.Options.OrderBy(x => x.DisplayOrder))
+                                        {
+                                            <div class="list-group-item px-0">
+                                                <span class="fw-semibold">@option.OptionKey.</span> @option.Content
+                                            </div>
+                                        }
+                                    </div>
+                                }
+
+                                <div class="row g-2 small">
+                                    <div class="col-md-6">
+                                        <div class="text-muted">标准答案</div>
+                                        <div>@(candidate.Answers.Count == 0 ? "-" : string.Join(", ", candidate.Answers.OrderBy(x => x.DisplayOrder).Select(x => x.Value)))</div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="text-muted">知识点</div>
+                                        <div>@(candidate.KnowledgePoints.Count == 0 ? "-" : string.Join(", ", candidate.KnowledgePoints))</div>
+                                    </div>
+                                </div>
+
+                                @if (!string.IsNullOrWhiteSpace(candidate.Analysis))
+                                {
+                                    <div class="mt-3 small">
+                                        <div class="text-muted">解析</div>
+                                        <div>@candidate.Analysis</div>
+                                    </div>
+                                }
+
+                                @if (!string.IsNullOrWhiteSpace(candidate.ValidationErrors))
+                                {
+                                    <div class="alert alert-danger mt-3 mb-0">@candidate.ValidationErrors</div>
+                                }
+
+                                @if (candidate.HighestSimilarityScore.HasValue)
+                                {
+                                    <div class="alert alert-warning mt-3 mb-0">
+                                        @candidate.SimilaritySummary（相似度 @candidate.HighestSimilarityScore.Value.ToString("P0")）
+                                    </div>
+                                }
+
+                                <div class="mt-3">
+                                    <div class="fw-semibold small mb-2">引用来源</div>
+                                    @* citation 是候选题可提交审核的必要条件，无 citation 时只允许排查，不允许提交。 *@
+                                    @if (candidate.Citations.Count == 0)
+                                    {
+                                        <div class="text-muted small">无 citation</div>
+                                    }
+                                    else
+                                    {
+                                        <div class="d-flex flex-column gap-2">
+                                            @foreach (var citation in candidate.Citations.OrderBy(x => x.Rank))
+                                            {
+                                                <div class="border rounded p-2 small">
+                                                    <div class="fw-semibold">[@citation.Rank] @citation.SourceTitle @GetPageText(citation.SourcePage)</div>
+                                                    <div class="text-muted">@citation.SourceExcerpt</div>
+                                                    <div class="text-muted">chunk @citation.ChunkId / hash @Trim(citation.SourceHash, 16)</div>
+                                                </div>
+                                            }
+                                        </div>
+                                    }
+                                </div>
+
+                                <div class="d-flex flex-wrap gap-2 mt-3">
+                                    @* 提交审核只会创建待审核题；审核通过/驳回按钮针对已关联的题库草稿。 *@
+                                    @if (CanSubmit(candidate))
+                                    {
+                                        <button class="btn btn-primary btn-sm" type="button" @onclick="() => SubmitCandidateAsync(candidate)" disabled="@IsBusy">提交审核</button>
+                                    }
+                                    @if (CanReview(candidate))
+                                    {
+                                        <button class="btn btn-outline-success btn-sm" type="button" @onclick="() => ApproveLinkedQuestionAsync(candidate)" disabled="@IsBusy">审核通过</button>
+                                        <button class="btn btn-outline-danger btn-sm" type="button" @onclick="() => RejectLinkedQuestionAsync(candidate)" disabled="@IsBusy">驳回</button>
+                                    }
+                                    else if (IsPendingLinkedQuestion(candidate) && !CanReviewQuestions)
+                                    {
+                                        <span class="text-muted small align-self-center">需要题目审核权限处理</span>
+                                    }
+                                </div>
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+        }
+    </div>
+</div>
+
+@code {
+    // 页面一次加载的任务数量。MVP-2 页面以最近任务审核为主，暂不做复杂分页控件。
+    private const int PageSize = 20;
+
+    // 最近 AI 出题任务列表，点击后加载右侧详情。
+    private readonly List<AiQuestionGenerationTaskDto> TaskList = new();
+
+    // 岗位下拉选项，用于给生成任务指定适用岗位。
+    private readonly List<PositionDto> PositionList = new();
+
+    // 已提交审核的候选题关联题库草稿；用于判断是否展示审核通过/驳回按钮。
+    private readonly Dictionary<Guid, QuestionDto> LinkedQuestions = new();
+
+    // 当前右侧正在查看的 AI 出题任务。
+    private AiQuestionGenerationTaskDto? SelectedTask { get; set; }
+
+    // 创建任务表单模型，和后端 CreateAiQuestionGenerationTaskDto 保持字段语义一致。
+    private GenerationFormModel FormModel { get; set; } = new();
+
+    // 全局忙碌状态，防止生成、重试、提交审核等操作重复点击。
+    private bool IsBusy { get; set; }
+
+    // 首次或刷新任务列表时的加载状态。
+    private bool IsLoading { get; set; }
+
+    // 页面级错误提示，统一由 RunBusyAsync 捕获用户友好错误。
+    private string? ErrorMessage { get; set; }
+
+    // 页面级成功提示，操作完成后短文本反馈给审核人员。
+    private string? SuccessMessage { get; set; }
+
+    // 当前用户是否可读取题库草稿详情，用于展示候选题提交审核后的题库状态。
+    private bool CanViewQuestions { get; set; }
+
+    // 当前用户是否可执行题目审核动作，用于控制审核通过/驳回按钮显示。
+    private bool CanReviewQuestions { get; set; }
+
+    // 页面初始化时先加载岗位，再加载任务列表；这样表单下拉和默认任务详情都能一次展示。
+    protected override async Task OnInitializedAsync()
+    {
+        CanViewQuestions = await PermissionChecker.IsGrantedAsync(KnowPulsePermissions.QuestionBank.Questions);
+        CanReviewQuestions = await PermissionChecker.IsGrantedAsync(KnowPulsePermissions.QuestionBank.Reviews);
+        await LoadPositionsAsync();
+        await LoadTasksAsync();
+    }
+
+    // 加载岗位列表。岗位只影响候选题适用范围，不改变 RAG 权限过滤。
+    private async Task LoadPositionsAsync()
+    {
+        var positions = await PositionAppService.GetListAsync(new PagedAndSortedResultRequestDto { MaxResultCount = 200 });
+        PositionList.Clear();
+        PositionList.AddRange(positions.Items.OrderBy(x => x.Name));
+    }
+
+    // 刷新任务列表，并保持当前选中任务；没有选中任务时默认选择最新一条。
+    private async Task LoadTasksAsync()
+    {
+        await RunBusyAsync(async () =>
+        {
+            IsLoading = true;
+            var result = await AiQuestionGenerationAppService.GetListAsync(new GetAiQuestionGenerationTaskListInput
+            {
+                MaxResultCount = PageSize
+            });
+
+            TaskList.Clear();
+            TaskList.AddRange(result.Items);
+            if (SelectedTask == null && TaskList.Count > 0)
+            {
+                await SelectTaskCoreAsync(TaskList[0].Id);
+            }
+            else if (SelectedTask != null)
+            {
+                await SelectTaskCoreAsync(SelectedTask.Id);
+            }
+        });
+    }
+
+    // 用户点击任务列表时切换右侧详情。
+    private async Task SelectTaskAsync(Guid taskId)
+    {
+        await RunBusyAsync(() => SelectTaskCoreAsync(taskId));
+    }
+
+    // 加载任务详情并同步其已关联题库草稿，确保审核按钮状态准确。
+    private async Task SelectTaskCoreAsync(Guid taskId)
+    {
+        SelectedTask = await AiQuestionGenerationAppService.GetAsync(taskId);
+        await LoadLinkedQuestionsAsync();
+    }
+
+    // 加载候选题已经提交出的题库草稿。加载失败不阻断页面，只隐藏对应审核按钮。
+    private async Task LoadLinkedQuestionsAsync()
+    {
+        LinkedQuestions.Clear();
+        if (SelectedTask == null || !CanViewQuestions)
+        {
+            return;
+        }
+
+        foreach (var questionId in SelectedTask.Candidates
+            .Where(x => x.LinkedQuestionId.HasValue)
+            .Select(x => x.LinkedQuestionId!.Value)
+            .Distinct())
+        {
+            try
+            {
+                LinkedQuestions[questionId] = await QuestionAppService.GetAsync(questionId);
+            }
+            catch
+            {
+                // Linked question status is only used to show action buttons.
+            }
+        }
+    }
+
+    // 创建 AI 出题任务。后端会同步执行 RAG 检索、模型调用和候选题校验。
+    private async Task GenerateAsync()
+    {
+        await RunBusyAsync(async () =>
+        {
+            var task = await AiQuestionGenerationAppService.CreateAsync(new CreateAiQuestionGenerationTaskDto
+            {
+                Type = FormModel.Type,
+                Difficulty = FormModel.Difficulty,
+                RequestedCount = FormModel.RequestedCount,
+                TopK = FormModel.TopK,
+                KnowledgeScope = FormModel.KnowledgeScope.Trim(),
+                KnowledgePointText = FormModel.KnowledgePointText,
+                ApplicablePositionId = ParseNullableGuid(FormModel.ApplicablePositionIdText),
+                SecurityLevel = FormModel.SecurityLevel,
+                Tags = FormModel.Tags
+            });
+
+            SuccessMessage = "生成任务已完成";
+            await LoadTasksCoreAsync(task.Id);
+        });
+    }
+
+    // 重试任务。后端会清理该任务旧候选题后重新生成，调用日志仍保留审计历史。
+    private async Task RetryAsync(Guid taskId)
+    {
+        await RunBusyAsync(async () =>
+        {
+            var task = await AiQuestionGenerationAppService.RetryAsync(taskId);
+            SuccessMessage = "任务已重试";
+            await LoadTasksCoreAsync(task.Id);
+        });
+    }
+
+    // 重新加载任务列表并选中指定任务，用于生成、重试或提交审核后的页面刷新。
+    private async Task LoadTasksCoreAsync(Guid selectedTaskId)
+    {
+        var result = await AiQuestionGenerationAppService.GetListAsync(new GetAiQuestionGenerationTaskListInput
+        {
+            MaxResultCount = PageSize
+        });
+
+        TaskList.Clear();
+        TaskList.AddRange(result.Items);
+        await SelectTaskCoreAsync(selectedTaskId);
+    }
+
+    // 将可提交候选题转换为题库待审核草稿。该动作不会让题目直接进入可考试状态。
+    private async Task SubmitCandidateAsync(AiQuestionCandidateDto candidate)
+    {
+        if (!await ConfirmAsync("确定提交该 AI 候选题进入题库审核吗？"))
+        {
+            return;
+        }
+
+        await RunBusyAsync(async () =>
+        {
+            await AiQuestionGenerationAppService.SubmitCandidateForReviewAsync(candidate.Id, new SubmitAiQuestionCandidateDto
+            {
+                Comment = "AI 候选题页面提交审核"
+            });
+            SuccessMessage = "候选题已提交审核";
+            await SelectTaskCoreAsync(candidate.TaskId);
+        });
+    }
+
+    // 对已经提交审核的题库草稿执行审核通过，仍复用题库应用服务的审核规则。
+    private async Task ApproveLinkedQuestionAsync(AiQuestionCandidateDto candidate)
+    {
+        if (!candidate.LinkedQuestionId.HasValue || !await ConfirmAsync("确定审核通过该题目吗？"))
+        {
+            return;
+        }
+
+        await RunBusyAsync(async () =>
+        {
+            await QuestionAppService.ApproveAsync(candidate.LinkedQuestionId.Value, new ReviewQuestionDto { Comment = "AI 候选题页面审核通过" });
+            SuccessMessage = "题目已审核通过";
+            await SelectTaskCoreAsync(candidate.TaskId);
+        });
+    }
+
+    // 对已经提交审核的题库草稿执行驳回，候选题本身保留追溯信息。
+    private async Task RejectLinkedQuestionAsync(AiQuestionCandidateDto candidate)
+    {
+        if (!candidate.LinkedQuestionId.HasValue || !await ConfirmAsync("确定驳回该题目吗？"))
+        {
+            return;
+        }
+
+        await RunBusyAsync(async () =>
+        {
+            await QuestionAppService.RejectAsync(candidate.LinkedQuestionId.Value, new ReviewQuestionDto { Comment = "AI 候选题页面驳回" });
+            SuccessMessage = "题目已驳回";
+            await SelectTaskCoreAsync(candidate.TaskId);
+        });
+    }
+
+    // 页面异步操作统一包装：清空旧提示、设置忙碌状态、捕获友好错误并恢复 loading 标志。
+    private async Task RunBusyAsync(Func<Task> action)
+    {
+        try
+        {
+            ErrorMessage = null;
+            SuccessMessage = null;
+            IsBusy = true;
+            await action();
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = GetUserFriendlyErrorMessage(ex);
+        }
+        finally
+        {
+            IsBusy = false;
+            IsLoading = false;
+        }
+    }
+
+    // 浏览器确认框封装，避免危险动作误触。
+    private async Task<bool> ConfirmAsync(string message)
+    {
+        return await JSRuntime.InvokeAsync<bool>("confirm", message);
+    }
+
+    // 候选题只有生成成功、未提交过且没有校验错误时，才允许提交到题库审核流。
+    private bool CanSubmit(AiQuestionCandidateDto candidate)
+    {
+        return candidate.Status == AiQuestionCandidateStatus.Generated &&
+               !candidate.LinkedQuestionId.HasValue &&
+               string.IsNullOrWhiteSpace(candidate.ValidationErrors);
+    }
+
+    // 只有候选题已经关联题库草稿，并且该草稿仍处于待审核状态时，才显示审核按钮。
+    private bool CanReview(AiQuestionCandidateDto candidate)
+    {
+        return CanReviewQuestions && IsPendingLinkedQuestion(candidate);
+    }
+
+    // 获取候选题已经提交出的题库草稿；无题库查看权限时返回 null。
+    private QuestionDto? GetLinkedQuestion(AiQuestionCandidateDto candidate)
+    {
+        return candidate.LinkedQuestionId.HasValue &&
+               LinkedQuestions.TryGetValue(candidate.LinkedQuestionId.Value, out var question)
+            ? question
+            : null;
+    }
+
+    // 判断候选题关联的题库草稿是否仍处于待审核状态。
+    private bool IsPendingLinkedQuestion(AiQuestionCandidateDto candidate)
+    {
+        return GetLinkedQuestion(candidate)?.Status == QuestionStatus.PendingReview;
+    }
+
+    // 将岗位下拉的字符串值转换为可空 Guid。
+    private static Guid? ParseNullableGuid(string? value)
+    {
+        return Guid.TryParse(value, out var id) ? id : null;
+    }
+
+    // citation 页码展示文本，非分页来源保持空字符串。
+    private static string GetPageText(int? page)
+    {
+        return page.HasValue ? $"第 {page.Value} 页" : string.Empty;
+    }
+
+    // 裁剪长标题或 hash，避免任务列表和 citation 元信息撑开布局。
+    private static string Trim(string value, int maxLength)
+    {
+        return value.Length <= maxLength ? value : value[..maxLength] + "...";
+    }
+
+    // 题型枚举中文展示。
+    private static string GetTypeText(QuestionType type) => type switch
+    {
+        QuestionType.SingleChoice => "单选",
+        QuestionType.MultipleChoice => "多选",
+        QuestionType.TrueFalse => "判断",
+        QuestionType.FillBlank => "填空",
+        _ => type.ToString()
+    };
+
+    // 难度枚举中文展示。
+    private static string GetDifficultyText(QuestionDifficulty difficulty) => difficulty switch
+    {
+        QuestionDifficulty.Easy => "简单",
+        QuestionDifficulty.Normal => "普通",
+        QuestionDifficulty.Hard => "困难",
+        _ => difficulty.ToString()
+    };
+
+    // AI 出题任务状态中文展示。
+    private static string GetTaskStatusText(AiQuestionGenerationTaskStatus status) => status switch
+    {
+        AiQuestionGenerationTaskStatus.Pending => "待处理",
+        AiQuestionGenerationTaskStatus.Processing => "处理中",
+        AiQuestionGenerationTaskStatus.Generated => "已生成",
+        AiQuestionGenerationTaskStatus.Failed => "失败",
+        AiQuestionGenerationTaskStatus.Cancelled => "已取消",
+        _ => status.ToString()
+    };
+
+    // AI 出题任务状态 badge 样式。
+    private static string GetTaskStatusBadge(AiQuestionGenerationTaskStatus status) => status switch
+    {
+        AiQuestionGenerationTaskStatus.Pending => "bg-secondary",
+        AiQuestionGenerationTaskStatus.Processing => "bg-info",
+        AiQuestionGenerationTaskStatus.Generated => "bg-success",
+        AiQuestionGenerationTaskStatus.Failed => "bg-danger",
+        AiQuestionGenerationTaskStatus.Cancelled => "bg-dark",
+        _ => "bg-secondary"
+    };
+
+    // AI 候选题状态中文展示。
+    private static string GetCandidateStatusText(AiQuestionCandidateStatus status) => status switch
+    {
+        AiQuestionCandidateStatus.Generated => "可提交",
+        AiQuestionCandidateStatus.ValidationFailed => "校验失败",
+        AiQuestionCandidateStatus.SubmittedForReview => "已提交审核",
+        AiQuestionCandidateStatus.Rejected => "已驳回",
+        _ => status.ToString()
+    };
+
+    // AI 候选题状态 badge 样式。
+    private static string GetCandidateStatusBadge(AiQuestionCandidateStatus status) => status switch
+    {
+        AiQuestionCandidateStatus.Generated => "bg-success",
+        AiQuestionCandidateStatus.ValidationFailed => "bg-danger",
+        AiQuestionCandidateStatus.SubmittedForReview => "bg-info",
+        AiQuestionCandidateStatus.Rejected => "bg-warning text-dark",
+        _ => "bg-secondary"
+    };
+
+    // 候选题提交审核后对应题库草稿的状态中文展示。
+    private static string GetQuestionStatusText(QuestionStatus status) => status switch
+    {
+        QuestionStatus.Draft => "草稿",
+        QuestionStatus.PendingReview => "待审核",
+        QuestionStatus.Approved => "审核通过",
+        QuestionStatus.Rejected => "驳回",
+        QuestionStatus.ReturnedForRevision => "退回修改",
+        QuestionStatus.Disabled => "停用",
+        QuestionStatus.Archived => "归档",
+        _ => status.ToString()
+    };
+
+    // 候选题提交审核后对应题库草稿的状态 badge 样式。
+    private static string GetQuestionStatusBadge(QuestionStatus status) => status switch
+    {
+        QuestionStatus.Draft => "bg-secondary",
+        QuestionStatus.PendingReview => "bg-info",
+        QuestionStatus.Approved => "bg-success",
+        QuestionStatus.Rejected => "bg-danger",
+        QuestionStatus.ReturnedForRevision => "bg-warning text-dark",
+        QuestionStatus.Disabled => "bg-dark",
+        QuestionStatus.Archived => "bg-light text-dark",
+        _ => "bg-secondary"
+    };
+
+    // 创建任务表单模型。使用字符串保存岗位 ID，便于和 select 的空值选项绑定。
+    private class GenerationFormModel
+    {
+        // 本次生成希望得到的题型。
+        public QuestionType Type { get; set; } = QuestionType.SingleChoice;
+
+        // 本次生成希望得到的难度。
+        public QuestionDifficulty Difficulty { get; set; } = QuestionDifficulty.Normal;
+
+        // 期望候选题数量，后端仍会根据配置上限做二次截断。
+        [Range(1, 10)]
+        public int RequestedCount { get; set; } = 3;
+
+        // RAG 上下文数量上限，候选题 citation 必须来自这些上下文。
+        [Range(1, 10)]
+        public int TopK { get; set; } = 5;
+
+        // 管理员输入的知识范围，用于构造检索 query。
+        [Required]
+        [StringLength(512)]
+        public string KnowledgeScope { get; set; } = string.Empty;
+
+        // 可选知识点文本，用于增强检索 query。
+        [StringLength(512)]
+        public string? KnowledgePointText { get; set; }
+
+        // 岗位下拉绑定值，空字符串表示不限岗位。
+        public string? ApplicablePositionIdText { get; set; }
+
+        // 候选题安全等级，会随候选题提交到题库草稿。
+        [Range(0, 10)]
+        public int SecurityLevel { get; set; }
+
+        // 候选题标签文本。
+        [StringLength(512)]
+        public string? Tags { get; set; }
+    }
+}

@@ -253,6 +253,7 @@ paket-files/
 
 # KnowPulse
 .scaffold/
+.codex/
 .env
 .env.*
 !.env.example

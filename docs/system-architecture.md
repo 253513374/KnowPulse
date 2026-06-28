@@ -726,7 +726,7 @@ MVP 阶段建议目标：
 - LiteLLM 或模型不可用时，AI 问答返回服务不可用提示，不影响普通知识查看。
 - Qdrant 不可用时，知识检索降级为结构化列表检索，RAG 问答暂停。
 - DataIngestion 失败时，知识版本可保留发布状态，但显示索引失败并允许重建。
-- Agent Framework 不可用时，MVP 问答走确定性的 `RagAnswerService + IChatClient`。
+- Agent Framework 不作为 MVP-1 问答必需链路；MVP 问答走 `RagAnswerService + LiteLLM chat alias`。
 
 ### 12.3 备份恢复
 

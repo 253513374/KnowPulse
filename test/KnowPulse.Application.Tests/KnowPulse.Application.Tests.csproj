@@ -10,6 +10,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\KnowPulse.Application\KnowPulse.Application.csproj" />
+    <ProjectReference Include="..\..\src\KnowPulse.HttpApi\KnowPulse.HttpApi.csproj" />
     <ProjectReference Include="..\KnowPulse.Domain.Tests\KnowPulse.Domain.Tests.csproj" />
   </ItemGroup>
 

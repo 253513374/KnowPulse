@@ -3,6 +3,9 @@
 @inherits KnowPulseComponentBase
 @inject IKnowledgeItemAppService KnowledgeItemAppService
 @inject IKnowledgeCategoryAppService CategoryAppService
+@inject IKnowledgeIndexJobAppService IndexJobAppService
+@inject IKnowledgeFeedbackAppService FeedbackAppService
+@inject IPermissionChecker PermissionChecker
 @inject IJSRuntime JSRuntime
 
 @* 知识文档管理页：同一页面承载文档元数据、版本生命周期和版本附件管理。 *@
@@ -11,9 +14,12 @@
 <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
     <div>
         <h1 class="h4 mb-1">知识文档</h1>
-        <div class="text-muted small">KnowledgeBase / Items</div>
+        <div class="text-muted small">文档、版本、附件</div>
     </div>
-    <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="LoadAsync" disabled="@IsBusy">刷新</button>
+    <div class="d-flex flex-wrap gap-2">
+        <button class="btn btn-primary btn-sm" type="button" @onclick="StartCreateItem" disabled="@IsBusy">新建文档</button>
+        <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="LoadAsync" disabled="@IsBusy">刷新</button>
+    </div>
 </div>
 
 @if (!string.IsNullOrWhiteSpace(ErrorMessage))
@@ -24,12 +30,50 @@
     </div>
 }
 
+@if (!string.IsNullOrWhiteSpace(FeedbackSuccessMessage))
+{
+    <div class="alert alert-success" role="status">@FeedbackSuccessMessage</div>
+}
+
+<div class="knowledge-flow mb-3" aria-label="知识文档工作流">
+    <div class="knowledge-flow-step @GetFlowStepClass(SelectedItemId.HasValue)">
+        <div class="knowledge-flow-index">1</div>
+        <div>
+            <div class="knowledge-flow-title">文档</div>
+            <div class="knowledge-flow-meta">@SelectedItemTitle</div>
+        </div>
+    </div>
+    <div class="knowledge-flow-step @GetFlowStepClass(SelectedVersionId.HasValue)">
+        <div class="knowledge-flow-index">2</div>
+        <div>
+            <div class="knowledge-flow-title">版本</div>
+            <div class="knowledge-flow-meta">@SelectedVersionTitle</div>
+        </div>
+    </div>
+    <div class="knowledge-flow-step @GetFlowStepClass(AttachmentList.Count > 0)">
+        <div class="knowledge-flow-index">3</div>
+        <div>
+            <div class="knowledge-flow-title">附件</div>
+            <div class="knowledge-flow-meta">@AttachmentStepText</div>
+        </div>
+    </div>
+</div>
+
 <div class="row g-3">
     @* 左侧负责编辑知识文档和为当前选中文档创建新版本。 *@
     <div class="col-xl-4">
         <div class="card mb-3">
             <div class="card-body">
-                <h2 class="h6 mb-3">@ItemFormTitle</h2>
+                <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+                    <div>
+                        <h2 class="h6 mb-1">@ItemFormTitle</h2>
+                        <div class="text-muted small">@ItemFormSubtitle</div>
+                    </div>
+                    @if (EditingItemId.HasValue)
+                    {
+                        <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="StartCreateItem" disabled="@IsBusy">改为新建</button>
+                    }
+                </div>
                 <EditForm Model="@ItemForm" OnValidSubmit="@SaveItemAsync">
                     <DataAnnotationsValidator />
 
@@ -62,8 +106,8 @@
                         </div>
                     }
 
-                    <div class="d-flex gap-2">
-                        <button class="btn btn-primary" type="submit" disabled="@IsBusy">保存</button>
+                    <div class="d-flex flex-wrap gap-2">
+                        <button class="btn btn-primary" type="submit" disabled="@IsBusy">@ItemSubmitText</button>
                         <button class="btn btn-outline-secondary" type="button" @onclick="ResetItemForm" disabled="@IsBusy">取消</button>
                     </div>
                 </EditForm>
@@ -72,18 +116,27 @@
 
         <div class="card">
             <div class="card-body">
-                <h2 class="h6 mb-3">新版本</h2>
+                <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+                    <div>
+                        <h2 class="h6 mb-1">版本内容</h2>
+                        <div class="text-muted small">@SelectedItemTitle</div>
+                    </div>
+                </div>
+                @if (SelectedItemId == null)
+                {
+                    <div class="knowledge-empty-compact mb-3">未选择文档</div>
+                }
                 <EditForm Model="@VersionForm" OnValidSubmit="@CreateVersionAsync">
                     <DataAnnotationsValidator />
 
                     <div class="mb-3">
                         <label class="form-label" for="version-title">标题</label>
-                        <input id="version-title" class="form-control" @bind="VersionForm.Title" @bind:event="oninput" />
+                        <input id="version-title" class="form-control" @bind="VersionForm.Title" @bind:event="oninput" disabled="@(SelectedItemId == null || IsBusy)" />
                     </div>
 
                     <div class="mb-3">
                         <label class="form-label" for="version-content">正文</label>
-                        <textarea id="version-content" class="form-control" rows="6" @bind="VersionForm.ContentText" @bind:event="oninput"></textarea>
+                        <textarea id="version-content" class="form-control" rows="6" @bind="VersionForm.ContentText" @bind:event="oninput" disabled="@(SelectedItemId == null || IsBusy)"></textarea>
                     </div>
 
                     <button class="btn btn-primary" type="submit" disabled="@(IsBusy || SelectedItemId == null)">创建版本</button>
@@ -95,13 +148,25 @@
     @* 右侧负责展示知识文档列表、版本列表和附件列表。 *@
     <div class="col-xl-8">
         <div class="card mb-3">
+            <div class="card-body border-bottom">
+                <div class="d-flex flex-wrap align-items-center justify-content-between gap-2">
+                    <div>
+                        <h2 class="h6 mb-1">文档列表</h2>
+                        <div class="text-muted small">@TotalCount 条文档</div>
+                    </div>
+                    @if (SelectedItemId.HasValue)
+                    {
+                        <span class="badge bg-primary-subtle text-primary-emphasis">已打开：@SelectedItemTitle</span>
+                    }
+                </div>
+            </div>
             <div class="table-responsive">
                 <table class="table table-hover align-middle mb-0">
                     <thead>
                         <tr>
                             <th>标题</th>
                             <th>分类</th>
-                            <th>当前版本</th>
+                            <th>发布</th>
                             <th>状态</th>
                             <th class="text-end">操作</th>
                         </tr>
@@ -132,15 +197,15 @@
                                         }
                                     </td>
                                     <td>@GetCategoryName(item.CategoryId)</td>
-                                    <td>@(item.CurrentPublishedVersionId?.ToString("N") ?? "-")</td>
+                                    <td>@(item.CurrentPublishedVersionId.HasValue ? "已发布" : "未发布")</td>
                                     <td>
                                         <span class="badge @(item.IsActive ? "bg-success" : "bg-secondary")">
                                             @(item.IsActive ? "启用" : "停用")
                                         </span>
                                     </td>
                                     <td class="text-end">
-                                        <button class="btn btn-link btn-sm" type="button" @onclick="() => SelectItemAsync(item)">版本</button>
-                                        <button class="btn btn-link btn-sm" type="button" @onclick="() => EditItem(item)">编辑</button>
+                                        <button class="btn btn-link btn-sm" type="button" @onclick="() => SelectItemAsync(item)">打开</button>
+                                        <button class="btn btn-link btn-sm" type="button" @onclick="() => EditItemAsync(item)">编辑</button>
                                         <button class="btn btn-link btn-sm text-danger" type="button" @onclick="() => DeleteItemAsync(item)" disabled="@IsBusy">删除</button>
                                     </td>
                                 </tr>
@@ -154,7 +219,16 @@
 
         <div class="card">
             <div class="card-body border-bottom">
-                <h2 class="h6 mb-0">版本</h2>
+                <div class="d-flex flex-wrap align-items-center justify-content-between gap-2">
+                    <div>
+                        <h2 class="h6 mb-1">版本</h2>
+                        <div class="text-muted small">@SelectedItemTitle</div>
+                    </div>
+                    @if (SelectedVersionId.HasValue)
+                    {
+                        <span class="badge bg-secondary">@SelectedVersionTitle</span>
+                    }
+                </div>
             </div>
             <div class="table-responsive">
                 <table class="table table-hover align-middle mb-0">
@@ -163,6 +237,10 @@
                             <th>版本</th>
                             <th>标题</th>
                             <th>状态</th>
+                            @if (CanManageIndexJobs)
+                            {
+                                <th>索引</th>
+                            }
                             <th>发布时间</th>
                             <th class="text-end">操作</th>
                         </tr>
@@ -171,13 +249,17 @@
                         @if (SelectedItemId == null)
                         {
                             <tr>
-                                <td colspan="5" class="text-center py-4 text-muted">未选择知识文档</td>
+                                <td colspan="@VersionTableColumnCount" class="text-center py-4 text-muted">
+                                    <div class="knowledge-empty-state">未打开文档</div>
+                                </td>
                             </tr>
                         }
                         else if (VersionList.Count == 0)
                         {
                             <tr>
-                                <td colspan="5" class="text-center py-4 text-muted">暂无版本</td>
+                                <td colspan="@VersionTableColumnCount" class="text-center py-4 text-muted">
+                                    <div class="knowledge-empty-state">暂无版本</div>
+                                </td>
                             </tr>
                         }
                         else
@@ -192,10 +274,36 @@
                                             @GetVersionStatusText(version)
                                         </span>
                                     </td>
+                                    @if (CanManageIndexJobs)
+                                    {
+                                        var latestJob = GetLatestIndexJob(version.Id);
+                                        <td>
+                                            @if (latestJob == null)
+                                            {
+                                                <span class="text-muted small">未索引</span>
+                                            }
+                                            else
+                                            {
+                                                <div>
+                                                    <span class="badge @GetIndexStatusBadge(latestJob.Status)">@GetIndexStatusText(latestJob.Status)</span>
+                                                </div>
+                                                <div class="text-muted small">@GetIndexJobTimeText(latestJob)</div>
+                                                @if (!string.IsNullOrWhiteSpace(latestJob.FailureReason))
+                                                {
+                                                    <div class="text-danger small">@latestJob.FailureStage：@latestJob.FailureReason</div>
+                                                }
+                                            }
+                                        </td>
+                                    }
                                     <td>@(version.PublishedTime?.ToString("yyyy-MM-dd HH:mm") ?? "-")</td>
                                     <td class="text-end">
+                                        <button class="btn btn-link btn-sm" type="button" @onclick="() => PreviewVersion(version)">预览</button>
                                         <button class="btn btn-link btn-sm" type="button" @onclick="() => PublishVersionAsync(version)" disabled="@IsBusy">发布</button>
                                         <button class="btn btn-link btn-sm" type="button" @onclick="() => WithdrawVersionAsync(version)" disabled="@IsBusy">下架</button>
+                                        @if (CanManageIndexJobs)
+                                        {
+                                            <button class="btn btn-link btn-sm" type="button" @onclick="() => ReindexVersionAsync(version)" disabled="@IsBusy">重建索引</button>
+                                        }
                                         <button class="btn btn-link btn-sm text-danger" type="button" @onclick="() => ArchiveVersionAsync(version)" disabled="@IsBusy">归档</button>
                                     </td>
                                 </tr>
@@ -206,12 +314,86 @@
             </div>
         </div>
 
+        @if (PreviewedVersion != null)
+        {
+            <div class="card mt-3">
+                <div class="card-body border-bottom">
+                    <div class="d-flex flex-wrap align-items-center justify-content-between gap-2">
+                        <div>
+                            <h2 class="h6 mb-1">版本预览</h2>
+                            <div class="text-muted small">v@(PreviewedVersion.VersionNumber) - @PreviewedVersion.Title</div>
+                        </div>
+                        <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="CloseVersionPreview">关闭</button>
+                    </div>
+                </div>
+                <div class="card-body">
+                    @if (string.IsNullOrWhiteSpace(PreviewedVersion.ContentText))
+                    {
+                        <div class="text-muted">暂无正文</div>
+                    }
+                    else
+                    {
+                        <pre class="knowledge-version-preview mb-0">@PreviewedVersion.ContentText</pre>
+                    }
+                </div>
+            </div>
+        }
+
+        <div class="card mt-3">
+            <div class="card-body border-bottom">
+                <div class="d-flex flex-wrap align-items-center justify-content-between gap-2">
+                    <div>
+                        <h2 class="h6 mb-1">知识反馈</h2>
+                        <div class="text-muted small">@FeedbackSourceText</div>
+                    </div>
+                </div>
+            </div>
+            <div class="card-body">
+                @if (SelectedItemId == null)
+                {
+                    <div class="knowledge-empty-compact mb-3">未选择文档</div>
+                }
+                <EditForm Model="@FeedbackForm" OnValidSubmit="@SubmitFeedbackAsync">
+                    <DataAnnotationsValidator />
+
+                    <div class="row g-2">
+                        <div class="col-md-4">
+                            <label class="form-label" for="feedback-type">类型</label>
+                            <InputSelect id="feedback-type" class="form-select" @bind-Value="FeedbackForm.Type" disabled="@(SelectedItemId == null || IsBusy)">
+                                <option value="@KnowledgeFeedbackType.Problem">问题</option>
+                                <option value="@KnowledgeFeedbackType.Outdated">过期</option>
+                                <option value="@KnowledgeFeedbackType.Error">错误</option>
+                                <option value="@KnowledgeFeedbackType.Missing">缺失</option>
+                                <option value="@KnowledgeFeedbackType.Suggestion">建议</option>
+                            </InputSelect>
+                        </div>
+                        <div class="col-md-8">
+                            <label class="form-label" for="feedback-title">标题</label>
+                            <input id="feedback-title" class="form-control" @bind="FeedbackForm.Title" @bind:event="oninput" disabled="@(SelectedItemId == null || IsBusy)" />
+                        </div>
+                    </div>
+
+                    <div class="mt-2">
+                        <label class="form-label" for="feedback-description">说明</label>
+                        <textarea id="feedback-description" class="form-control" rows="3" @bind="FeedbackForm.Description" @bind:event="oninput" disabled="@(SelectedItemId == null || IsBusy)"></textarea>
+                    </div>
+
+                    <div class="mt-3">
+                        <button class="btn btn-outline-primary btn-sm" type="submit" disabled="@(IsBusy || SelectedItemId == null)">提交反馈</button>
+                    </div>
+                </EditForm>
+            </div>
+        </div>
+
         @* 附件绑定到具体知识版本，文件内容走 BlobStoring/MinIO，页面只展示元数据和下载入口。 *@
         <div class="card mt-3">
             <div class="card-body border-bottom">
                 <div class="d-flex flex-wrap align-items-center justify-content-between gap-2">
-                    <h2 class="h6 mb-0">版本附件</h2>
-                    <div class="text-muted small">文件元数据入库，原文件走 BlobStoring/MinIO</div>
+                    <div>
+                        <h2 class="h6 mb-1">版本附件</h2>
+                        <div class="text-muted small">@SelectedVersionTitle</div>
+                    </div>
+                    <span class="badge bg-light text-dark">@AttachmentStepText</span>
                 </div>
             </div>
             <div class="card-body">
@@ -229,6 +411,7 @@
                     <div class="col-md-5">
                         <label class="form-label" for="attachment-file">文件</label>
                         <InputFile id="attachment-file" class="form-control" OnChange="@OnAttachmentFileChanged" disabled="@(SelectedVersionId == null)" />
+                        <div class="form-text">最大 @FormatFileSize(MaxAttachmentBytes)</div>
                     </div>
                     <div class="col-md-2">
                         <button class="btn btn-primary w-100" type="button" @onclick="UploadAttachmentAsync" disabled="@(IsBusy || IsUploadingAttachment || SelectedItemId == null || SelectedVersionId == null || SelectedAttachmentFile == null)">
@@ -262,13 +445,17 @@
                         @if (SelectedVersionId == null)
                         {
                             <tr>
-                                <td colspan="4" class="text-center py-4 text-muted">未选择版本</td>
+                                <td colspan="4" class="text-center py-4 text-muted">
+                                    <div class="knowledge-empty-state">未选择版本</div>
+                                </td>
                             </tr>
                         }
                         else if (AttachmentList.Count == 0)
                         {
                             <tr>
-                                <td colspan="4" class="text-center py-4 text-muted">暂无附件</td>
+                                <td colspan="4" class="text-center py-4 text-muted">
+                                    <div class="knowledge-empty-state">暂无附件</div>
+                                </td>
                             </tr>
                         }
                         else
@@ -280,6 +467,7 @@
                                     <td>@attachment.ContentType</td>
                                     <td>@FormatFileSize(attachment.Size)</td>
                                     <td class="text-end">
+                                        <button class="btn btn-link btn-sm" type="button" @onclick="() => PreviewAttachmentAsync(attachment)" disabled="@(IsBusy || !CanPreviewAttachment(attachment))" title="@GetPreviewUnavailableText(attachment)">预览</button>
                                         <button class="btn btn-link btn-sm" type="button" @onclick="() => DownloadAttachmentAsync(attachment)" disabled="@IsBusy">下载</button>
                                         <button class="btn btn-link btn-sm text-danger" type="button" @onclick="() => DeleteAttachmentAsync(attachment)" disabled="@IsBusy">删除</button>
                                     </td>
@@ -305,8 +493,12 @@
     private readonly List<KnowledgeCategoryDto> CategoryList = new();
     private readonly List<KnowledgeVersionDto> VersionList = new();
     private readonly List<KnowledgeAttachmentDto> AttachmentList = new();
+    private readonly Dictionary<Guid, KnowledgeIndexJobDto> LatestIndexJobsByVersion = new();
     private KnowledgeItemFormModel ItemForm { get; set; } = new();
     private KnowledgeVersionFormModel VersionForm { get; set; } = new();
+    private KnowledgeFeedbackFormModel FeedbackForm { get; set; } = new();
+    private KnowledgeItemDto? SelectedItem { get; set; }
+    private KnowledgeVersionDto? PreviewedVersion { get; set; }
     private Guid? EditingItemId { get; set; }
     private Guid? SelectedItemId { get; set; }
     private Guid? SelectedVersionId { get; set; }
@@ -317,15 +509,49 @@
     private bool IsUploadingAttachment { get; set; }
     private bool IsLoading { get; set; }
     private bool IsBusy { get; set; }
+    // 索引状态和重建操作属于运维/管理员能力。没有 IndexJobs 权限时，
+    // 页面仍可管理知识版本，但不会泄露索引任务信息或显示重建入口。
+    private bool CanManageIndexJobs { get; set; }
     private string? ErrorMessage { get; set; }
-    private string ItemFormTitle => EditingItemId.HasValue ? "编辑知识文档" : "新增知识文档";
+    private string? FeedbackSuccessMessage { get; set; }
 
+    [Parameter]
+    [SupplyParameterFromQuery(Name = "itemId")]
+    public Guid? QueryItemId { get; set; }
+
+    [Parameter]
+    [SupplyParameterFromQuery(Name = "versionId")]
+    public Guid? QueryVersionId { get; set; }
+
+    private string ItemFormTitle => EditingItemId.HasValue ? "编辑知识文档" : "新增知识文档";
+    private string ItemFormSubtitle => EditingItemId.HasValue ? "文档元数据" : "新文档元数据";
+    private string ItemSubmitText => EditingItemId.HasValue ? "保存修改" : "创建并打开";
+    private KnowledgeVersionDto? SelectedVersion => SelectedVersionId.HasValue
+        ? VersionList.FirstOrDefault(x => x.Id == SelectedVersionId.Value)
+        : null;
+    private string SelectedItemTitle => SelectedItem?.Title ?? "未打开文档";
+    private string SelectedVersionTitle => SelectedVersion == null
+        ? "未选择版本"
+        : $"v{SelectedVersion.VersionNumber} - {SelectedVersion.Title}";
+    private string AttachmentStepText => SelectedVersionId.HasValue ? $"{AttachmentList.Count} 个附件" : "未选择版本";
+    private string FeedbackSourceText => SelectedItemId == null
+        ? "未选择文档"
+        : $"{SelectedItemTitle} / {SelectedVersionTitle}";
+    private int VersionTableColumnCount => CanManageIndexJobs ? 6 : 5;
+
+    /// <summary>
+    /// 初始化知识管理页权限状态，并加载首屏知识文档、分类和默认版本附件数据。
+    /// </summary>
     protected override async Task OnInitializedAsync()
     {
+        CanManageIndexJobs = await PermissionChecker.IsGrantedAsync(KnowPulsePermissions.KnowledgeIndexing.IndexJobs);
         await LoadAsync();
+        await ApplyQuerySelectionAsync();
     }
 
-    // 首次加载和刷新时同时拉取分类和知识文档；若已有选中文档，则同步刷新版本与附件。
+    /// <summary>
+    /// 首次加载和刷新时同时拉取分类和知识文档；若已有选中文档，则同步刷新版本与附件。
+    /// </summary>
     private async Task LoadAsync()
     {
         await RunBusyAsync(async () =>
@@ -346,6 +572,7 @@
 
             if (SelectedItemId.HasValue)
             {
+                SelectedItem = KnowledgeItemList.FirstOrDefault(x => x.Id == SelectedItemId.Value) ?? SelectedItem;
                 await LoadVersionsAsync(SelectedItemId.Value);
             }
 
@@ -353,21 +580,71 @@
         });
     }
 
-    // 分页只影响知识文档列表，不重置当前编辑表单和版本选择。
+    /// <summary>
+    /// 支持从学习中心携带 itemId/versionId 跳转到指定知识版本。
+    /// </summary>
+    private async Task ApplyQuerySelectionAsync()
+    {
+        if (!QueryItemId.HasValue)
+        {
+            return;
+        }
+
+        await RunBusyAsync(async () =>
+        {
+            var item = await KnowledgeItemAppService.GetAsync(QueryItemId.Value);
+            SelectedItem = item;
+            SelectedItemId = item.Id;
+            SelectedVersionId = QueryVersionId;
+            SelectedVersionIdText = QueryVersionId?.ToString();
+            SelectedAttachmentFile = null;
+            PreviewedVersion = null;
+            AttachmentList.Clear();
+
+            await LoadVersionsAsync(item.Id);
+
+            if (SelectedVersionId.HasValue)
+            {
+                var selectedVersion = VersionList.FirstOrDefault(x => x.Id == SelectedVersionId.Value);
+                if (selectedVersion != null)
+                {
+                    PreviewVersion(selectedVersion);
+                }
+            }
+        });
+    }
+
+    /// <summary>
+    /// 切换知识文档列表分页位置，不重置当前编辑表单和版本选择。
+    /// </summary>
+    /// <param name="skipCount">新分页起始偏移量。</param>
     private async Task ChangePageAsync(int skipCount)
     {
         SkipCount = skipCount;
         await LoadAsync();
     }
 
-    // 保存知识文档元数据。正文不在这里保存，而是通过版本创建单独维护。
+    /// <summary>
+    /// 进入新增知识文档模式，并清空左侧文档元数据表单。
+    /// </summary>
+    private void StartCreateItem()
+    {
+        EditingItemId = null;
+        ItemForm = new KnowledgeItemFormModel();
+    }
+
+    /// <summary>
+    /// 保存知识文档元数据。正文不在这里保存，而是通过版本创建单独维护。
+    /// </summary>
     private async Task SaveItemAsync()
     {
         await RunBusyAsync(async () =>
         {
+            var wasCreating = !EditingItemId.HasValue;
+            KnowledgeItemDto savedItem;
             if (EditingItemId.HasValue)
             {
-                await KnowledgeItemAppService.UpdateAsync(EditingItemId.Value, new UpdateKnowledgeItemDto
+                savedItem = await KnowledgeItemAppService.UpdateAsync(EditingItemId.Value, new UpdateKnowledgeItemDto
                 {
                     CategoryId = ParseNullableGuid(ItemForm.CategoryIdText),
                     Title = ItemForm.Title.Trim(),
@@ -377,7 +654,7 @@
             }
             else
             {
-                await KnowledgeItemAppService.CreateAsync(new CreateKnowledgeItemDto
+                savedItem = await KnowledgeItemAppService.CreateAsync(new CreateKnowledgeItemDto
                 {
                     CategoryId = ParseNullableGuid(ItemForm.CategoryIdText),
                     Title = ItemForm.Title.Trim(),
@@ -385,25 +662,49 @@
                 });
             }
 
+            SelectedItem = savedItem;
+            SelectedItemId = savedItem.Id;
+            if (wasCreating)
+            {
+                SelectedVersionId = null;
+                SelectedVersionIdText = null;
+                SelectedAttachmentFile = null;
+                PreviewedVersion = null;
+                VersionList.Clear();
+                AttachmentList.Clear();
+            }
+
             ResetItemForm();
             await LoadAsync();
         });
     }
 
-    // 选择知识文档后清空旧的版本附件状态，避免跨文档显示残留附件。
+    /// <summary>
+    /// 选择知识文档后清空旧的版本附件状态，避免跨文档显示残留附件。
+    /// </summary>
+    /// <param name="item">被用户选中的知识文档。</param>
     private async Task SelectItemAsync(KnowledgeItemDto item)
     {
+        FeedbackSuccessMessage = null;
+        SelectedItem = item;
         SelectedItemId = item.Id;
         SelectedVersionId = null;
         SelectedVersionIdText = null;
         SelectedAttachmentFile = null;
+        PreviewedVersion = null;
         AttachmentList.Clear();
         await RunBusyAsync(() => LoadVersionsAsync(item.Id));
     }
 
-    // 将列表行数据回填到左侧编辑表单。
-    private void EditItem(KnowledgeItemDto item)
+    /// <summary>
+    /// 将列表行数据回填到左侧编辑表单，必要时同步切换版本和附件上下文。
+    /// </summary>
+    /// <param name="item">准备编辑的知识文档。</param>
+    private async Task EditItemAsync(KnowledgeItemDto item)
     {
+        FeedbackSuccessMessage = null;
+        var itemChanged = SelectedItemId != item.Id;
+        SelectedItem = item;
         EditingItemId = item.Id;
         SelectedItemId = item.Id;
         ItemForm = new KnowledgeItemFormModel
@@ -413,9 +714,22 @@
             Summary = item.Summary,
             IsActive = item.IsActive
         };
+
+        if (itemChanged)
+        {
+            SelectedVersionId = null;
+            SelectedVersionIdText = null;
+            SelectedAttachmentFile = null;
+            PreviewedVersion = null;
+            AttachmentList.Clear();
+            await RunBusyAsync(() => LoadVersionsAsync(item.Id));
+        }
     }
 
-    // 删除文档后同步清理页面上依赖该文档的版本、附件和编辑状态。
+    /// <summary>
+    /// 删除知识文档，并同步清理页面上依赖该文档的版本、附件和编辑状态。
+    /// </summary>
+    /// <param name="item">准备删除的知识文档。</param>
     private async Task DeleteItemAsync(KnowledgeItemDto item)
     {
         if (!await ConfirmAsync($"确定删除知识文档「{item.Title}」吗？"))
@@ -437,6 +751,8 @@
                 SelectedVersionId = null;
                 SelectedVersionIdText = null;
                 SelectedAttachmentFile = null;
+                SelectedItem = null;
+                PreviewedVersion = null;
                 VersionList.Clear();
                 AttachmentList.Clear();
             }
@@ -444,7 +760,9 @@
         });
     }
 
-    // 创建版本后自动选中新版本，便于用户继续上传该版本附件。
+    /// <summary>
+    /// 创建知识版本后自动选中新版本，便于用户继续上传该版本附件。
+    /// </summary>
     private async Task CreateVersionAsync()
     {
         if (SelectedItemId == null)
@@ -463,11 +781,59 @@
             SelectedVersionId = version.Id;
             SelectedVersionIdText = version.Id.ToString();
             await LoadVersionsAsync(SelectedItemId.Value);
+            PreviewedVersion = VersionList.FirstOrDefault(x => x.Id == version.Id);
             await LoadAttachmentsAsync();
         });
     }
 
-    // 发布版本会让后端维护当前发布版本唯一性，页面只负责确认和刷新状态。
+    /// <summary>
+    /// 提交当前知识和版本的用户反馈。该操作只创建反馈记录，不修改知识版本。
+    /// </summary>
+    private async Task SubmitFeedbackAsync()
+    {
+        if (SelectedItemId == null)
+        {
+            return;
+        }
+
+        FeedbackSuccessMessage = null;
+        await RunBusyAsync(async () =>
+        {
+            await FeedbackAppService.SubmitAsync(new SubmitKnowledgeFeedbackDto
+            {
+                KnowledgeItemId = SelectedItemId.Value,
+                KnowledgeVersionId = SelectedVersionId,
+                Type = FeedbackForm.Type,
+                Title = FeedbackForm.Title.Trim(),
+                Description = FeedbackForm.Description.Trim()
+            });
+
+            FeedbackForm = new KnowledgeFeedbackFormModel();
+            FeedbackSuccessMessage = "反馈已提交，管理员处理后会关联修订版本。";
+        });
+    }
+
+    /// <summary>
+    /// 打开指定知识版本的正文预览面板。
+    /// </summary>
+    /// <param name="version">需要预览正文的知识版本。</param>
+    private void PreviewVersion(KnowledgeVersionDto version)
+    {
+        PreviewedVersion = version;
+    }
+
+    /// <summary>
+    /// 关闭当前知识版本正文预览面板。
+    /// </summary>
+    private void CloseVersionPreview()
+    {
+        PreviewedVersion = null;
+    }
+
+    /// <summary>
+    /// 发布指定知识版本，并让后端维护当前发布版本唯一性。
+    /// </summary>
+    /// <param name="version">准备发布的知识版本。</param>
     private async Task PublishVersionAsync(KnowledgeVersionDto version)
     {
         if (!await ConfirmAsync($"确定发布 v{version.VersionNumber}「{version.Title}」吗？发布后会成为当前版本。"))
@@ -478,7 +844,10 @@
         await RunVersionCommandAsync(version.Id, KnowledgeItemAppService.PublishVersionAsync);
     }
 
-    // 下架当前发布版本后，后端会同步清空 KnowledgeItem.CurrentPublishedVersionId。
+    /// <summary>
+    /// 下架指定知识版本；如果它是当前发布版本，后端会同步清空当前发布版本引用。
+    /// </summary>
+    /// <param name="version">准备下架的知识版本。</param>
     private async Task WithdrawVersionAsync(KnowledgeVersionDto version)
     {
         if (!await ConfirmAsync($"确定下架 v{version.VersionNumber}「{version.Title}」吗？当前用户将不能再按已发布版本访问它。"))
@@ -489,7 +858,10 @@
         await RunVersionCommandAsync(version.Id, KnowledgeItemAppService.WithdrawVersionAsync);
     }
 
-    // 归档用于保留历史事实，归档版本不再参与当前发布。
+    /// <summary>
+    /// 归档指定知识版本，用于保留历史事实且不再参与当前发布。
+    /// </summary>
+    /// <param name="version">准备归档的知识版本。</param>
     private async Task ArchiveVersionAsync(KnowledgeVersionDto version)
     {
         if (!await ConfirmAsync($"确定归档 v{version.VersionNumber}「{version.Title}」吗？归档版本不能再次发布。"))
@@ -500,7 +872,11 @@
         await RunVersionCommandAsync(version.Id, KnowledgeItemAppService.ArchiveVersionAsync);
     }
 
-    // 统一执行版本状态命令，减少发布、下架、归档之间的刷新逻辑重复。
+    /// <summary>
+    /// 统一执行知识版本状态命令，减少发布、下架、归档之间的刷新逻辑重复。
+    /// </summary>
+    /// <param name="versionId">要操作的知识版本标识。</param>
+    /// <param name="command">由应用服务提供的版本状态变更命令。</param>
     private async Task RunVersionCommandAsync(Guid versionId, Func<Guid, Guid, Task<KnowledgeVersionDto>> command)
     {
         if (SelectedItemId == null)
@@ -516,12 +892,21 @@
         });
     }
 
-    // 刷新版本列表时，如果当前附件版本已不存在，必须清理附件选择，避免后续上传到错误版本。
+    /// <summary>
+    /// 刷新指定知识文档的版本列表，并同步维护选中版本、预览版本和附件列表状态。
+    /// </summary>
+    /// <param name="itemId">需要加载版本列表的知识文档标识。</param>
     private async Task LoadVersionsAsync(Guid itemId)
     {
         var result = await KnowledgeItemAppService.GetVersionsAsync(itemId);
         VersionList.Clear();
+        LatestIndexJobsByVersion.Clear();
         VersionList.AddRange(result.Items.OrderByDescending(x => x.VersionNumber));
+
+        if (CanManageIndexJobs)
+        {
+            await LoadIndexJobsAsync(itemId);
+        }
 
         if (SelectedVersionId.HasValue && VersionList.All(x => x.Id != SelectedVersionId.Value))
         {
@@ -531,13 +916,75 @@
             AttachmentList.Clear();
         }
 
+        if (!SelectedVersionId.HasValue && VersionList.Count > 0)
+        {
+            var latestVersion = VersionList[0];
+            SelectedVersionId = latestVersion.Id;
+            SelectedVersionIdText = latestVersion.Id.ToString();
+            SelectedAttachmentFile = null;
+        }
+
+        if (PreviewedVersion != null)
+        {
+            PreviewedVersion = VersionList.FirstOrDefault(x => x.Id == PreviewedVersion.Id);
+        }
+
         if (SelectedVersionId.HasValue)
         {
             await LoadAttachmentsAsync();
         }
     }
 
-    // 切换附件版本后重新加载附件列表。
+    /// <summary>
+    /// 加载指定知识文档下每个版本的最近一次索引任务，用于版本表格展示索引状态。
+    /// </summary>
+    /// <param name="itemId">需要加载索引任务的知识文档标识。</param>
+    private async Task LoadIndexJobsAsync(Guid itemId)
+    {
+        // 版本列表只需要展示每个版本的最近一次索引任务。
+        // 这里拉取当前知识文档下的任务后按版本分组，避免每行单独请求后端。
+        var result = await IndexJobAppService.GetListAsync(new GetKnowledgeIndexJobListInput
+        {
+            KnowledgeItemId = itemId,
+            MaxResultCount = 100
+        });
+
+        foreach (var job in result.Items
+                     .OrderByDescending(x => x.CreationTime)
+                     .GroupBy(x => x.KnowledgeVersionId)
+                     .Select(x => x.First()))
+        {
+            LatestIndexJobsByVersion[job.KnowledgeVersionId] = job;
+        }
+    }
+
+    /// <summary>
+    /// 为指定知识版本创建手动重建索引任务，并刷新该版本所在文档的索引状态。
+    /// </summary>
+    /// <param name="version">需要重建索引的知识版本。</param>
+    private async Task ReindexVersionAsync(KnowledgeVersionDto version)
+    {
+        // 手动重建不会改知识版本状态，只是创建新的索引任务；
+        // 任务处理失败时会在索引任务页和本表格中展示失败阶段/原因。
+        if (!await ConfirmAsync($"确定为 v{version.VersionNumber}「{version.Title}」创建重建索引任务吗？"))
+        {
+            return;
+        }
+
+        await RunBusyAsync(async () =>
+        {
+            await IndexJobAppService.ReindexVersionAsync(version.Id);
+            if (SelectedItemId.HasValue)
+            {
+                await LoadVersionsAsync(SelectedItemId.Value);
+            }
+        });
+    }
+
+    /// <summary>
+    /// 响应版本下拉选择变化，切换当前附件上下文并重新加载附件列表。
+    /// </summary>
+    /// <param name="args">包含用户选择版本标识的变更事件参数。</param>
     private async Task OnSelectedVersionChangedAsync(ChangeEventArgs args)
     {
         SelectedVersionIdText = args.Value?.ToString();
@@ -546,13 +993,18 @@
         await RunBusyAsync(LoadAttachmentsAsync);
     }
 
-    // 记录浏览器文件选择结果，真正上传发生在用户点击上传按钮时。
+    /// <summary>
+    /// 记录浏览器文件选择结果，真正上传发生在用户点击上传按钮时。
+    /// </summary>
+    /// <param name="args">浏览器文件选择事件参数。</param>
     private void OnAttachmentFileChanged(InputFileChangeEventArgs args)
     {
         SelectedAttachmentFile = args.File;
     }
 
-    // 通过 RemoteStreamContent 把浏览器文件流传给后端，后端负责文件名归一化和对象存储写入。
+    /// <summary>
+    /// 通过 RemoteStreamContent 把浏览器文件流传给后端，后端负责文件名归一化和对象存储写入。
+    /// </summary>
     private async Task UploadAttachmentAsync()
     {
         if (SelectedItemId == null || SelectedVersionId == null || SelectedAttachmentFile == null)
@@ -586,7 +1038,43 @@
         });
     }
 
-    // 下载时把后端返回的远程流交给 JS helper，避免把文件内容先完整加载到页面状态里。
+    /// <summary>
+    /// 下载指定附件流并交给浏览器侧预览工具打开临时 Blob URL。
+    /// </summary>
+    /// <param name="attachment">准备在线预览的知识附件。</param>
+    private async Task PreviewAttachmentAsync(KnowledgeAttachmentDto attachment)
+    {
+        if (SelectedItemId == null || SelectedVersionId == null)
+        {
+            return;
+        }
+
+        await RunBusyAsync(async () =>
+        {
+            var content = await KnowledgeItemAppService.DownloadAttachmentAsync(
+                SelectedItemId.Value,
+                SelectedVersionId.Value,
+                attachment.Id);
+
+            await using var stream = content.GetStream();
+            using var streamReference = new DotNetStreamReference(stream);
+            await JSRuntime.InvokeVoidAsync(
+                "knowPulse.previewFileFromStream",
+                content.FileName ?? attachment.FileName,
+                content.ContentType ?? attachment.ContentType,
+                streamReference);
+
+            if (content is IDisposable disposable)
+            {
+                disposable.Dispose();
+            }
+        });
+    }
+
+    /// <summary>
+    /// 下载时把后端返回的远程流交给 JS helper，避免把文件内容先完整加载到页面状态里。
+    /// </summary>
+    /// <param name="attachment">准备下载的知识附件。</param>
     private async Task DownloadAttachmentAsync(KnowledgeAttachmentDto attachment)
     {
         if (SelectedItemId == null || SelectedVersionId == null)
@@ -616,7 +1104,10 @@
         });
     }
 
-    // 删除附件时后端会同时删除 Blob 对象和元数据，页面只刷新当前版本附件列表。
+    /// <summary>
+    /// 删除指定知识附件，后端会同时删除 Blob 对象和附件元数据。
+    /// </summary>
+    /// <param name="attachment">准备删除的知识附件。</param>
     private async Task DeleteAttachmentAsync(KnowledgeAttachmentDto attachment)
     {
         if (SelectedItemId == null || SelectedVersionId == null)
@@ -636,7 +1127,9 @@
         });
     }
 
-    // 附件列表强绑定当前选中的知识版本。
+    /// <summary>
+    /// 加载当前选中知识版本的附件列表；未选中文档或版本时清空附件状态。
+    /// </summary>
     private async Task LoadAttachmentsAsync()
     {
         AttachmentList.Clear();
@@ -649,14 +1142,20 @@
         AttachmentList.AddRange(result.Items.OrderBy(x => x.FileName));
     }
 
-    // 重置文档表单时不改变当前选中的版本和附件上下文。
+    /// <summary>
+    /// 重置知识文档表单和编辑标识，不改变当前选中的版本和附件上下文。
+    /// </summary>
     private void ResetItemForm()
     {
         EditingItemId = null;
         ItemForm = new KnowledgeItemFormModel();
     }
 
-    // 分类下拉只缓存当前页需要显示的名称，找不到时回退显示分类编号便于排查数据问题。
+    /// <summary>
+    /// 根据分类标识解析分类名称，找不到时回退显示分类编号便于排查数据问题。
+    /// </summary>
+    /// <param name="id">知识分类标识。</param>
+    /// <returns>页面可展示的分类名称或兜底文本。</returns>
     private string GetCategoryName(Guid? id)
     {
         if (id == null)
@@ -667,19 +1166,199 @@
         return CategoryList.FirstOrDefault(x => x.Id == id.Value)?.Name ?? id.Value.ToString("N");
     }
 
-    // 当前发布标记优先于枚举状态展示，避免用户只看到 Published 而不知道是否为当前版本。
+    /// <summary>
+    /// 获取版本状态展示文本，当前发布标记优先于枚举状态展示。
+    /// </summary>
+    /// <param name="version">需要展示状态的知识版本。</param>
+    /// <returns>面向用户的版本状态文本。</returns>
     private static string GetVersionStatusText(KnowledgeVersionDto version)
     {
         return version.IsCurrentPublished ? "当前发布" : version.Status.ToString();
     }
 
-    // 空白文本按 null 传给后端，减少数据库中的无意义空字符串。
+    /// <summary>
+    /// 获取指定知识版本最近一次索引任务。
+    /// </summary>
+    /// <param name="knowledgeVersionId">知识版本标识。</param>
+    /// <returns>最近一次索引任务；不存在时返回 null。</returns>
+    private KnowledgeIndexJobDto? GetLatestIndexJob(Guid knowledgeVersionId)
+    {
+        return LatestIndexJobsByVersion.GetValueOrDefault(knowledgeVersionId);
+    }
+
+    /// <summary>
+    /// 将索引任务状态枚举转换为中文展示文本。
+    /// </summary>
+    /// <param name="status">索引任务状态。</param>
+    /// <returns>面向用户的索引任务状态文本。</returns>
+    private static string GetIndexStatusText(KnowledgeIndexJobStatus status)
+    {
+        return status switch
+        {
+            KnowledgeIndexJobStatus.Pending => "待处理",
+            KnowledgeIndexJobStatus.Processing => "处理中",
+            KnowledgeIndexJobStatus.Indexed => "已索引",
+            KnowledgeIndexJobStatus.Failed => "失败",
+            KnowledgeIndexJobStatus.Outdated => "已过期",
+            KnowledgeIndexJobStatus.Deleted => "已删除",
+            _ => status.ToString()
+        };
+    }
+
+    /// <summary>
+    /// 根据索引任务状态返回 Bootstrap 徽标样式。
+    /// </summary>
+    /// <param name="status">索引任务状态。</param>
+    /// <returns>用于状态徽标的 CSS class。</returns>
+    private static string GetIndexStatusBadge(KnowledgeIndexJobStatus status)
+    {
+        return status switch
+        {
+            KnowledgeIndexJobStatus.Pending => "bg-warning text-dark",
+            KnowledgeIndexJobStatus.Processing => "bg-info text-dark",
+            KnowledgeIndexJobStatus.Indexed => "bg-success",
+            KnowledgeIndexJobStatus.Failed => "bg-danger",
+            KnowledgeIndexJobStatus.Outdated => "bg-secondary",
+            KnowledgeIndexJobStatus.Deleted => "bg-dark",
+            _ => "bg-secondary"
+        };
+    }
+
+    /// <summary>
+    /// 选择索引任务最合适的时间字段作为表格展示时间。
+    /// </summary>
+    /// <param name="job">需要展示时间的索引任务。</param>
+    /// <returns>格式化后的任务时间文本。</returns>
+    private static string GetIndexJobTimeText(KnowledgeIndexJobDto job)
+    {
+        return job.CompletedTime?.ToString("yyyy-MM-dd HH:mm")
+               ?? job.StartedTime?.ToString("yyyy-MM-dd HH:mm")
+               ?? job.CreationTime.ToString("yyyy-MM-dd HH:mm");
+    }
+
+    /// <summary>
+    /// 根据流程步骤完成状态返回对应的页面样式。
+    /// </summary>
+    /// <param name="isComplete">流程步骤是否已完成。</param>
+    /// <returns>用于流程步骤元素的 CSS class。</returns>
+    private static string GetFlowStepClass(bool isComplete)
+    {
+        return isComplete ? "is-complete" : "is-pending";
+    }
+
+    /// <summary>
+    /// 判断附件是否属于浏览器侧允许在线预览的安全类型。
+    /// </summary>
+    /// <param name="attachment">需要判断的知识附件。</param>
+    /// <returns>允许在线预览时返回 true。</returns>
+    private static bool CanPreviewAttachment(KnowledgeAttachmentDto attachment)
+    {
+        var contentType = NormalizePreviewContentType(attachment.ContentType);
+        var fileName = attachment.FileName ?? string.Empty;
+
+        return IsPreviewablePdf(fileName, contentType)
+               || IsSafeTextPreview(fileName, contentType)
+               || IsPreviewableMedia(contentType);
+    }
+
+    /// <summary>
+    /// 获取附件无法在线预览时的提示文本。
+    /// </summary>
+    /// <param name="attachment">需要判断预览能力的知识附件。</param>
+    /// <returns>不支持预览时的提示文本；支持预览时返回 null。</returns>
+    private static string? GetPreviewUnavailableText(KnowledgeAttachmentDto attachment)
+    {
+        return CanPreviewAttachment(attachment) ? null : "该类型暂不支持在线预览，请下载后查看";
+    }
+
+    /// <summary>
+    /// 判断附件是否为可由浏览器安全预览的 PDF 文件。
+    /// </summary>
+    /// <param name="fileName">附件文件名。</param>
+    /// <param name="contentType">归一化后的内容类型。</param>
+    /// <returns>附件为 PDF 时返回 true。</returns>
+    private static bool IsPreviewablePdf(string fileName, string contentType)
+    {
+        return contentType == "application/pdf" || HasExtension(fileName, ".pdf");
+    }
+
+    /// <summary>
+    /// 判断附件是否为安全文本预览类型，并排除 HTML、XML 和 SVG 等主动内容。
+    /// </summary>
+    /// <param name="fileName">附件文件名。</param>
+    /// <param name="contentType">归一化后的内容类型。</param>
+    /// <returns>附件可按文本安全预览时返回 true。</returns>
+    private static bool IsSafeTextPreview(string fileName, string contentType)
+    {
+        if (contentType == "application/json")
+        {
+            return true;
+        }
+
+        if (HasExtension(fileName, ".txt", ".md", ".markdown", ".json", ".csv", ".log", ".yaml", ".yml"))
+        {
+            return true;
+        }
+
+        return contentType.StartsWith("text/", StringComparison.OrdinalIgnoreCase)
+               && contentType != "text/html"
+               && contentType != "text/xml"
+               && contentType != "image/svg+xml";
+    }
+
+    /// <summary>
+    /// 判断附件是否为浏览器可直接预览的图片、音频或视频媒体类型。
+    /// </summary>
+    /// <param name="contentType">归一化后的内容类型。</param>
+    /// <returns>附件为可预览媒体类型时返回 true。</returns>
+    private static bool IsPreviewableMedia(string contentType)
+    {
+        if (contentType == "image/svg+xml")
+        {
+            return false;
+        }
+
+        return contentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase)
+               || contentType.StartsWith("audio/", StringComparison.OrdinalIgnoreCase)
+               || contentType.StartsWith("video/", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// 归一化内容类型，仅保留主类型并转为小写以便预览规则匹配。
+    /// </summary>
+    /// <param name="contentType">原始 Content-Type。</param>
+    /// <returns>归一化后的内容类型字符串。</returns>
+    private static string NormalizePreviewContentType(string? contentType)
+    {
+        return (contentType ?? string.Empty).Split(';', StringSplitOptions.TrimEntries)[0].ToLowerInvariant();
+    }
+
+    /// <summary>
+    /// 判断文件名是否匹配任意指定扩展名，比较时忽略大小写。
+    /// </summary>
+    /// <param name="fileName">需要判断的文件名。</param>
+    /// <param name="extensions">允许匹配的扩展名集合。</param>
+    /// <returns>文件名匹配任意扩展名时返回 true。</returns>
+    private static bool HasExtension(string fileName, params string[] extensions)
+    {
+        return extensions.Any(extension => fileName.EndsWith(extension, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
+    /// 将空白文本按 null 传给后端，减少数据库中的无意义空字符串。
+    /// </summary>
+    /// <param name="value">表单中的可选文本。</param>
+    /// <returns>去除首尾空白后的文本；空白输入返回 null。</returns>
     private static string? NormalizeOptionalText(string? value)
     {
         return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     }
 
-    // 仅用于页面展示的人类可读文件大小，不参与后端大小校验。
+    /// <summary>
+    /// 将附件字节数格式化为页面展示的人类可读大小，不参与后端大小校验。
+    /// </summary>
+    /// <param name="size">附件大小，单位为字节。</param>
+    /// <returns>格式化后的文件大小文本。</returns>
     private static string FormatFileSize(long size)
     {
         if (size < 1024)
@@ -695,19 +1374,30 @@
         return $"{size / 1024d / 1024d:0.##} MB";
     }
 
-    // 表单下拉值以字符串保存，提交前再转换为可空 Guid。
+    /// <summary>
+    /// 将表单下拉保存的字符串值转换为可空 Guid。
+    /// </summary>
+    /// <param name="value">下拉框中的字符串标识。</param>
+    /// <returns>解析成功的 Guid；空值或非法值返回 null。</returns>
     private static Guid? ParseNullableGuid(string? value)
     {
         return Guid.TryParse(value, out var id) ? id : null;
     }
 
-    // MVP-0 使用浏览器原生确认框，后续如统一设计系统可替换为对话框组件。
+    /// <summary>
+    /// 使用浏览器原生确认框请求用户确认危险操作。
+    /// </summary>
+    /// <param name="message">确认框提示文本。</param>
+    /// <returns>用户确认时返回 true。</returns>
     private async Task<bool> ConfirmAsync(string message)
     {
         return await JSRuntime.InvokeAsync<bool>("confirm", message);
     }
 
-    // 统一忙碌态和错误处理，保证页面失败后可以通过错误条重试。
+    /// <summary>
+    /// 统一页面忙碌态和错误处理，保证操作失败后可以通过错误条重试。
+    /// </summary>
+    /// <param name="action">需要在忙碌态下执行的异步页面操作。</param>
     private async Task RunBusyAsync(Func<Task> action)
     {
         try
@@ -751,5 +1441,19 @@
 
         [StringLength(8192)]
         public string? ContentText { get; set; }
+    }
+
+    // 知识反馈表单只提交问题描述，纠错处理由管理页完成。
+    private class KnowledgeFeedbackFormModel
+    {
+        public KnowledgeFeedbackType Type { get; set; } = KnowledgeFeedbackType.Problem;
+
+        [Required]
+        [StringLength(256)]
+        public string Title { get; set; } = string.Empty;
+
+        [Required]
+        [StringLength(2048)]
+        public string Description { get; set; } = string.Empty;
     }
 }
