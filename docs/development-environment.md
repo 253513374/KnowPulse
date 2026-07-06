@@ -14,7 +14,7 @@
 - 文件存储：MinIO。
 - 向量库：Qdrant，MVP-0 仅做健康检查。
 - 模型网关：LiteLLM，MVP-0 仅做健康检查。
-- LiteLLM 本地镜像默认使用 `ghcr.io/berriai/litellm:main-stable`。如需生产级固定，可在 `.env` 中替换为内部镜像摘要。
+- LiteLLM 本地镜像默认使用固定 release tag `ghcr.io/berriai/litellm:v1.89.4`。如需生产级固定，可在 `.env` 或部署 secret 中替换为内部镜像摘要。
 
 ## 2. 依赖服务
 
@@ -101,6 +101,19 @@ $env:BlobStoring__Minio__SecretKey="knowpulse-local-password"
 ```powershell
 .\ops\health-check.ps1
 .\ops\health-check.ps1 -CoreOnly
+```
+
+MVP-4 私有化部署配置基线检查：
+
+```powershell
+.\ops\verify-private-deployment-baseline.ps1
+```
+
+该脚本默认只做仓库静态检查，不启动容器或应用。它会检查 Docker 镜像 tag、端口、数据卷、环境变量覆盖入口、LiteLLM/Qdrant 密钥变量名，以及 `.env`、`appsettings.secrets.json`、`.pfx` 等本地 secret 文件是否被 Git 跟踪。演示或生产环境在注入真实 secret 后可执行：
+
+```powershell
+.\ops\verify-private-deployment-baseline.ps1 -Environment Demo
+.\ops\verify-private-deployment-baseline.ps1 -Environment Production
 ```
 
 审计日志检查：

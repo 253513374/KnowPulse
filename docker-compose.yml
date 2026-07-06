@@ -37,6 +37,8 @@ services:
     image: ${QDRANT_IMAGE:-qdrant/qdrant:v1.15.1}
     container_name: knowpulse-qdrant
     restart: unless-stopped
+    environment:
+      QDRANT__SERVICE__API_KEY: ${QDRANT__SERVICE__API_KEY:-}
     ports:
       - "${KNOWPULSE_QDRANT_HTTP_PORT:-6333}:6333"
       - "${KNOWPULSE_QDRANT_GRPC_PORT:-6334}:6334"
@@ -44,7 +46,7 @@ services:
       - knowpulse-qdrant-data:/qdrant/storage
 
   litellm:
-    image: ${LITELLM_IMAGE:-ghcr.io/berriai/litellm:main-stable}
+    image: ${LITELLM_IMAGE:-ghcr.io/berriai/litellm:v1.89.4}
     container_name: knowpulse-litellm
     restart: unless-stopped
     command: ["--config", "/app/config.yaml", "--host", "0.0.0.0", "--port", "4000"]
