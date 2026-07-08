@@ -83,6 +83,11 @@ public class KnowPulseMenus
     public const string RagAnswer = Rag + ".Answer";
 
     /// <summary>
+    /// RAG 模型管理页面菜单项名称。
+    /// </summary>
+    public const string AiModels = Rag + ".AiModels";
+
+    /// <summary>
     /// 题库菜单分组名称。
     /// </summary>
     public const string QuestionBank = Prefix + ".QuestionBank";

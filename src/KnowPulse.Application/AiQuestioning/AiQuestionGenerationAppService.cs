@@ -7,6 +7,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using KnowPulse.AiModelManagement;
 using KnowPulse.Permissions;
 using KnowPulse.QuestionBank;
 using KnowPulse.RagAI;
@@ -44,6 +45,7 @@ public class AiQuestionGenerationAppService : KnowPulseAppService, IAiQuestionGe
     private readonly IRepository<QuestionSimilarityCheck, Guid> _questionSimilarityRepository;
     private readonly IKnowledgeRetriever _knowledgeRetriever;
     private readonly IRagChatClient _chatClient;
+    private readonly IAiModelResolver _modelResolver;
     private readonly IQuestionAppService _questionAppService;
     private readonly IQuestionSimilarityService _similarityService;
     private readonly RagAiOptions _options;
@@ -61,6 +63,7 @@ public class AiQuestionGenerationAppService : KnowPulseAppService, IAiQuestionGe
         IRepository<QuestionSimilarityCheck, Guid> questionSimilarityRepository,
         IKnowledgeRetriever knowledgeRetriever,
         IRagChatClient chatClient,
+        IAiModelResolver modelResolver,
         IQuestionAppService questionAppService,
         IQuestionSimilarityService similarityService,
         IOptions<RagAiOptions> options)
@@ -73,6 +76,7 @@ public class AiQuestionGenerationAppService : KnowPulseAppService, IAiQuestionGe
         _questionSimilarityRepository = questionSimilarityRepository;
         _knowledgeRetriever = knowledgeRetriever;
         _chatClient = chatClient;
+        _modelResolver = modelResolver;
         _questionAppService = questionAppService;
         _similarityService = similarityService;
         _options = options.Value;
@@ -87,21 +91,22 @@ public class AiQuestionGenerationAppService : KnowPulseAppService, IAiQuestionGe
         await CheckMvpPermissionAsync(KnowPulsePermissions.QuestionBank.AiGeneration);
 
         var generationOptions = _options.AiQuestionGeneration;
+        var modelSelection = await _modelResolver.ResolveAsync(AiModelUsage.AiQuestionGeneration);
         return new AiQuestionModelConfigurationDto
         {
             PromptTemplateKey = ReadOption(generationOptions.PromptTemplateKey, AiQuestionPromptDefaults.TemplateKey),
             PromptVersion = ReadOption(generationOptions.PromptVersion, AiQuestionPromptDefaults.Version),
-            ModelProvider = ReadOption(generationOptions.ModelProvider, "LiteLLM"),
-            ModelName = ReadOption(generationOptions.ModelName, _options.LiteLlm.ChatModel),
-            ModelVersion = ReadOption(generationOptions.ModelVersion, "2026-06-mvp2-questioning"),
+            ModelProvider = modelSelection.Provider,
+            ModelName = modelSelection.Alias,
+            ModelVersion = modelSelection.BusinessModelVersion,
             GatewayBaseUrl = _options.LiteLlm.BaseUrl,
             ApiKeyEnvironmentVariable = _options.LiteLlm.ApiKeyEnvironmentVariable,
             MaxQuestionsPerTask = Math.Max(1, generationOptions.MaxQuestionsPerTask),
             MaxContextChunks = Math.Max(1, generationOptions.MaxContextChunks),
             MaxPromptChunkLength = Math.Max(1, generationOptions.MaxPromptChunkLength),
             MaxCitationExcerptLength = Math.Max(1, generationOptions.MaxCitationExcerptLength),
-            MaxOutputTokens = Math.Max(1, generationOptions.MaxOutputTokens),
-            Temperature = generationOptions.Temperature
+            MaxOutputTokens = Math.Max(1, modelSelection.MaxOutputTokens),
+            Temperature = modelSelection.Temperature
         };
     }
 
@@ -477,6 +482,7 @@ public class AiQuestionGenerationAppService : KnowPulseAppService, IAiQuestionGe
         }
 
         var userPrompt = BuildUserPrompt(task, template, chunks);
+        var modelSelection = await _modelResolver.ResolveAsync(AiModelUsage.AiQuestionGeneration, cancellationToken);
         RagChatClientResult chatResult;
         try
         {
@@ -486,8 +492,8 @@ public class AiQuestionGenerationAppService : KnowPulseAppService, IAiQuestionGe
                 ModelName = task.ModelName,
                 SystemPrompt = template.SystemPrompt,
                 UserPrompt = userPrompt,
-                MaxTokens = Math.Max(1, _options.AiQuestionGeneration.MaxOutputTokens),
-                Temperature = _options.AiQuestionGeneration.Temperature
+                MaxTokens = Math.Max(1, modelSelection.MaxOutputTokens),
+                Temperature = modelSelection.Temperature
             }, cancellationToken);
         }
         catch (Exception ex)

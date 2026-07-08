@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using KnowPulse.AiModelManagement;
 using KnowPulse.KnowledgeIndexing;
 using Microsoft.Extensions.Options;
 using Volo.Abp.Domain.Repositories;
@@ -20,6 +21,7 @@ public class KnowledgeEmbeddingPipeline : KnowPulseAppService, IKnowledgeEmbeddi
     private readonly IRepository<KnowledgeEmbeddingRecord, Guid> _embeddingRecordRepository;
     private readonly IRepository<KnowledgeIndexJob, Guid> _jobRepository;
     private readonly IKnowledgeEmbeddingClient _embeddingClient;
+    private readonly IAiModelResolver _modelResolver;
     private readonly RagAiOptions _options;
 
     /// <summary>
@@ -31,6 +33,7 @@ public class KnowledgeEmbeddingPipeline : KnowPulseAppService, IKnowledgeEmbeddi
         IRepository<KnowledgeEmbeddingRecord, Guid> embeddingRecordRepository,
         IRepository<KnowledgeIndexJob, Guid> jobRepository,
         IKnowledgeEmbeddingClient embeddingClient,
+        IAiModelResolver modelResolver,
         IOptions<RagAiOptions> options)
     {
         _modelVersionRepository = modelVersionRepository;
@@ -38,6 +41,7 @@ public class KnowledgeEmbeddingPipeline : KnowPulseAppService, IKnowledgeEmbeddi
         _embeddingRecordRepository = embeddingRecordRepository;
         _jobRepository = jobRepository;
         _embeddingClient = embeddingClient;
+        _modelResolver = modelResolver;
         _options = options.Value;
     }
 
@@ -182,13 +186,20 @@ public class KnowledgeEmbeddingPipeline : KnowPulseAppService, IKnowledgeEmbeddi
     /// </summary>
     private async Task<EmbeddingModelVersion> GetOrCreateDefaultModelVersionAsync(CancellationToken cancellationToken)
     {
+        var modelSelection = await _modelResolver.ResolveEmbeddingAsync(cancellationToken);
+        var provider = modelSelection.Provider;
+        var modelName = modelSelection.Alias;
+        var modelVersionValue = modelSelection.BusinessModelVersion;
+        var vectorDimension = modelSelection.EmbeddingDimension ?? _options.Embedding.VectorDimension;
+        var collectionName = modelSelection.CollectionName ?? _options.Embedding.CollectionName;
+
         var queryable = await _modelVersionRepository.GetQueryableAsync();
         var existing = await AsyncExecuter.FirstOrDefaultAsync(
-            queryable.Where(x => x.Provider == _options.Embedding.Provider &&
-                                 x.ModelName == _options.Embedding.ModelName &&
-                                 x.ModelVersion == _options.Embedding.ModelVersion &&
-                                 x.CollectionName == _options.Embedding.CollectionName &&
-                                 x.VectorDimension == _options.Embedding.VectorDimension),
+            queryable.Where(x => x.Provider == provider &&
+                                 x.ModelName == modelName &&
+                                 x.ModelVersion == modelVersionValue &&
+                                 x.CollectionName == collectionName &&
+                                 x.VectorDimension == vectorDimension),
             cancellationToken);
 
         if (existing != null)
@@ -205,13 +216,13 @@ public class KnowledgeEmbeddingPipeline : KnowPulseAppService, IKnowledgeEmbeddi
         var modelVersion = new EmbeddingModelVersion(
             GuidGenerator.Create(),
             CurrentTenant.Id,
-            _options.Embedding.Provider,
-            _options.Embedding.ModelName,
-            _options.Embedding.ModelVersion,
-            _options.Embedding.VectorDimension,
-            _options.Embedding.CollectionName,
+            provider,
+            modelName,
+            modelVersionValue,
+            vectorDimension,
+            collectionName,
             isDefault: true,
-            description: "MVP-1 default embedding model from RagAI options.");
+            description: "Default embedding model resolved from AiModelManagement usage binding.");
 
         return await _modelVersionRepository.InsertAsync(modelVersion, autoSave: true, cancellationToken: cancellationToken);
     }

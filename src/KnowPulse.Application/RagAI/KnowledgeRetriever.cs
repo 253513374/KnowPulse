@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using KnowPulse.AiModelManagement;
 using KnowPulse.KnowledgeBase;
 using KnowPulse.KnowledgeIndexing;
 using Microsoft.Extensions.Options;
@@ -30,6 +31,7 @@ public class KnowledgeRetriever : KnowPulseAppService, IKnowledgeRetriever
     private readonly IRepository<KnowledgePermissionScope, Guid> _permissionScopeRepository;
     private readonly IRepository<KnowledgeChunk, Guid> _chunkRepository;
     private readonly IRagCallLogWriter _callLogWriter;
+    private readonly IAiModelResolver _modelResolver;
     private readonly RagAiOptions _options;
 
     /// <summary>
@@ -44,6 +46,7 @@ public class KnowledgeRetriever : KnowPulseAppService, IKnowledgeRetriever
         IRepository<KnowledgePermissionScope, Guid> permissionScopeRepository,
         IRepository<KnowledgeChunk, Guid> chunkRepository,
         IRagCallLogWriter callLogWriter,
+        IAiModelResolver modelResolver,
         IOptions<RagAiOptions> options)
     {
         _embeddingClient = embeddingClient;
@@ -54,6 +57,7 @@ public class KnowledgeRetriever : KnowPulseAppService, IKnowledgeRetriever
         _permissionScopeRepository = permissionScopeRepository;
         _chunkRepository = chunkRepository;
         _callLogWriter = callLogWriter;
+        _modelResolver = modelResolver;
         _options = options.Value;
     }
 
@@ -66,6 +70,7 @@ public class KnowledgeRetriever : KnowPulseAppService, IKnowledgeRetriever
     {
         var stopwatch = Stopwatch.StartNew();
         var topK = request.TopK <= 0 ? 10 : request.TopK;
+        var modelSelection = await _modelResolver.ResolveEmbeddingAsync(cancellationToken);
 
         // 空问题不进入 embedding / Qdrant，仍写入 NoContext 日志，便于前端和审计看到调用事实。
         if (string.IsNullOrWhiteSpace(request.Query))
@@ -76,6 +81,7 @@ public class KnowledgeRetriever : KnowPulseAppService, IKnowledgeRetriever
                 RagCallStatus.NoContext,
                 retrievedChunkCount: 0,
                 citations: Array.Empty<RetrievedChunk>(),
+                modelSelection,
                 stopwatch,
                 failureStage: "input",
                 failureReason: "Empty query.",
@@ -94,6 +100,7 @@ public class KnowledgeRetriever : KnowPulseAppService, IKnowledgeRetriever
                 RagCallStatus.Denied,
                 retrievedChunkCount: 0,
                 citations: Array.Empty<RetrievedChunk>(),
+                modelSelection,
                 stopwatch,
                 failureStage: "authentication",
                 failureReason: "Authenticated user is required.",
@@ -114,6 +121,7 @@ public class KnowledgeRetriever : KnowPulseAppService, IKnowledgeRetriever
                 RagCallStatus.Denied,
                 retrievedChunkCount: 0,
                 citations: Array.Empty<RetrievedChunk>(),
+                modelSelection,
                 stopwatch,
                 failureStage: "access-check",
                 failureReason: "Requested user or tenant does not match the current principal.",
@@ -125,7 +133,7 @@ public class KnowledgeRetriever : KnowPulseAppService, IKnowledgeRetriever
         ReadOnlyMemory<float> embedding;
         try
         {
-            embedding = await GenerateQueryEmbeddingAsync(request.Query, cancellationToken);
+            embedding = await GenerateQueryEmbeddingAsync(request.Query, modelSelection, cancellationToken);
         }
         catch (Exception ex)
         {
@@ -135,6 +143,7 @@ public class KnowledgeRetriever : KnowPulseAppService, IKnowledgeRetriever
                 RagCallStatus.Failed,
                 retrievedChunkCount: 0,
                 citations: Array.Empty<RetrievedChunk>(),
+                modelSelection,
                 stopwatch,
                 failureStage: "embedding",
                 failureReason: ex.Message,
@@ -176,6 +185,7 @@ public class KnowledgeRetriever : KnowPulseAppService, IKnowledgeRetriever
                 RagCallStatus.Failed,
                 retrievedChunkCount: 0,
                 citations: Array.Empty<RetrievedChunk>(),
+                modelSelection,
                 stopwatch,
                 failureStage: "vector-store",
                 failureReason: ex.Message,
@@ -198,6 +208,7 @@ public class KnowledgeRetriever : KnowPulseAppService, IKnowledgeRetriever
                 RagCallStatus.Failed,
                 retrievedChunkCount: 0,
                 citations: Array.Empty<RetrievedChunk>(),
+                modelSelection,
                 stopwatch,
                 failureStage: "secondary-check",
                 failureReason: ex.Message,
@@ -211,6 +222,7 @@ public class KnowledgeRetriever : KnowPulseAppService, IKnowledgeRetriever
             results.Count == 0 ? RagCallStatus.NoContext : RagCallStatus.Succeeded,
             results.Count,
             results,
+            modelSelection,
             stopwatch,
             results.Count == 0 ? (vectorHits.Count == 0 ? "retrieval" : "secondary-check") : null,
             results.Count == 0
@@ -232,6 +244,7 @@ public class KnowledgeRetriever : KnowPulseAppService, IKnowledgeRetriever
         RagCallStatus status,
         int retrievedChunkCount,
         IReadOnlyList<RetrievedChunk> citations,
+        AiModelSelection modelSelection,
         Stopwatch stopwatch,
         string? failureStage,
         string? failureReason,
@@ -245,10 +258,10 @@ public class KnowledgeRetriever : KnowPulseAppService, IKnowledgeRetriever
                 CallType = RagCallType.Search,
                 Status = status,
                 Query = request.Query,
-                ModelProvider = _options.Embedding.Provider,
-                ModelName = _options.Embedding.ModelName,
-                ModelVersion = _options.Embedding.ModelVersion,
-                CollectionName = _options.Embedding.CollectionName,
+                ModelProvider = modelSelection.Provider,
+                ModelName = modelSelection.Alias,
+                ModelVersion = modelSelection.BusinessModelVersion,
+                CollectionName = modelSelection.CollectionName ?? _options.Embedding.CollectionName,
                 TopK = topK,
                 RetrievedChunkCount = retrievedChunkCount,
                 PromptTokenCount = RagCallLogWriter.EstimateTokenCount(request.Query),
@@ -269,16 +282,17 @@ public class KnowledgeRetriever : KnowPulseAppService, IKnowledgeRetriever
     /// </summary>
     private async Task<ReadOnlyMemory<float>> GenerateQueryEmbeddingAsync(
         string query,
+        AiModelSelection modelSelection,
         CancellationToken cancellationToken)
     {
         var result = await _embeddingClient.GenerateAsync(new KnowledgeEmbeddingClientRequest
         {
             Input = query,
-            Provider = _options.Embedding.Provider,
-            ModelName = _options.Embedding.ModelName,
-            ModelVersion = _options.Embedding.ModelVersion,
-            VectorDimension = _options.Embedding.VectorDimension,
-            CollectionName = _options.Embedding.CollectionName
+            Provider = modelSelection.Provider,
+            ModelName = modelSelection.Alias,
+            ModelVersion = modelSelection.BusinessModelVersion,
+            VectorDimension = modelSelection.EmbeddingDimension ?? _options.Embedding.VectorDimension,
+            CollectionName = modelSelection.CollectionName ?? _options.Embedding.CollectionName
         }, cancellationToken);
 
         if (!result.Succeeded)

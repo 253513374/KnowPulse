@@ -163,6 +163,13 @@ public class KnowPulseMenuContributor : IMenuContributor
             icon: "fas fa-message"
         ).RequirePermissions(KnowPulsePermissions.Rag.Answer));
 
+        rag.AddItem(new ApplicationMenuItem(
+            KnowPulseMenus.AiModels,
+            l["Menu:AiModels"],
+            "/rag/models",
+            icon: "fas fa-sliders"
+        ).RequirePermissions(KnowPulsePermissions.AiModels.View));
+
         context.Menu.AddItem(rag);
 
         var questionBank = new ApplicationMenuItem(

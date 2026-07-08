@@ -1,5 +1,6 @@
 ﻿using Volo.Abp.Account;
 using Volo.Abp.Mapperly;
+using KnowPulse.AiModelManagement;
 using KnowPulse.RagAI;
 using Volo.Abp.BlobStoring;
 using Volo.Abp.FeatureManagement;
@@ -36,6 +37,7 @@ public class KnowPulseApplicationModule : AbpModule
         context.Services.AddTransient<IRagChatClient, LiteLlmRagChatClient>();
         context.Services.AddTransient<IKnowledgeVectorStore, QdrantKnowledgeVectorStore>();
         context.Services.AddTransient<IKnowledgeVectorStoreMaintenance, QdrantKnowledgeVectorStore>();
+        context.Services.AddTransient<IAiModelResolver, AiModelResolver>();
         context.Services.AddTransient<IKnowledgeRetriever, KnowledgeRetriever>();
         context.Services.AddTransient<IRagAnswerService, RagAnswerService>();
         context.Services.AddMapperlyObjectMapper<KnowPulseApplicationModule>();

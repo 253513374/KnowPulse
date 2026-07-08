@@ -1,4 +1,5 @@
 ﻿using Microsoft.EntityFrameworkCore;
+using KnowPulse.AiModelManagement;
 using KnowPulse.AiQuestioning;
 using KnowPulse.Exam;
 using KnowPulse.KnowledgeIndexing;
@@ -42,6 +43,9 @@ public class KnowPulseDbContext :
     public DbSet<KnowledgeAttachment> KnowledgeAttachments { get; set; }
     public DbSet<KnowledgePermissionScope> KnowledgePermissionScopes { get; set; }
     public DbSet<KnowledgeFeedback> KnowledgeFeedbacks { get; set; }
+    public DbSet<AiModelDeployment> AiModelDeployments { get; set; }
+    public DbSet<AiModelUsageBinding> AiModelUsageBindings { get; set; }
+    public DbSet<AiModelHealthSnapshot> AiModelHealthSnapshots { get; set; }
     public DbSet<EmbeddingModelVersion> EmbeddingModelVersions { get; set; }
     public DbSet<KnowledgeIndexJob> KnowledgeIndexJobs { get; set; }
     public DbSet<KnowledgeChunk> KnowledgeChunks { get; set; }
@@ -252,6 +256,55 @@ public class KnowPulseDbContext :
             b.HasOne<KnowledgeItem>().WithMany().HasForeignKey(x => x.KnowledgeItemId).OnDelete(DeleteBehavior.Restrict);
             b.HasOne<KnowledgeVersion>().WithMany().HasForeignKey(x => x.KnowledgeVersionId).OnDelete(DeleteBehavior.Restrict);
             b.HasOne<KnowledgeVersion>().WithMany().HasForeignKey(x => x.LinkedKnowledgeVersionId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        builder.Entity<AiModelDeployment>(b =>
+        {
+            b.ToTable(KnowPulseConsts.DbTablePrefix + "AiModelDeployments", KnowPulseConsts.DbSchema);
+            b.ConfigureByConvention();
+            b.Property(x => x.Alias).IsRequired().HasMaxLength(AiModelDeployment.MaxAliasLength);
+            b.Property(x => x.ProviderType).IsRequired();
+            b.Property(x => x.Capability).IsRequired();
+            b.Property(x => x.UpstreamModelName).IsRequired().HasMaxLength(AiModelDeployment.MaxUpstreamModelNameLength);
+            b.Property(x => x.ModelVersion).IsRequired().HasMaxLength(AiModelDeployment.MaxModelVersionLength);
+            b.Property(x => x.ApiKeyEnvironmentVariable).HasMaxLength(AiModelDeployment.MaxEnvironmentVariableLength);
+            b.Property(x => x.BaseUrl).HasMaxLength(AiModelDeployment.MaxBaseUrlLength);
+            b.Property(x => x.PromptTokenPriceUsd).HasPrecision(18, 8);
+            b.Property(x => x.CompletionTokenPriceUsd).HasPrecision(18, 8);
+            b.Property(x => x.Description).HasMaxLength(AiModelDeployment.MaxDescriptionLength);
+            b.HasIndex(x => new { x.TenantId, x.Alias });
+            b.HasIndex(x => new { x.TenantId, x.Capability, x.IsActive });
+            b.HasIndex(x => new { x.ProviderType, x.IsActive });
+        });
+
+        builder.Entity<AiModelUsageBinding>(b =>
+        {
+            b.ToTable(KnowPulseConsts.DbTablePrefix + "AiModelUsageBindings", KnowPulseConsts.DbSchema);
+            b.ConfigureByConvention();
+            b.Property(x => x.Usage).IsRequired();
+            b.Property(x => x.BusinessModelVersion).IsRequired().HasMaxLength(AiModelUsageBinding.MaxBusinessModelVersionLength);
+            b.Property(x => x.FallbackAliasesJson).HasMaxLength(AiModelUsageBinding.MaxFallbackAliasesJsonLength);
+            b.HasIndex(x => new { x.TenantId, x.Usage, x.IsActive });
+            b.HasIndex(x => x.DeploymentId);
+            b.HasOne<AiModelDeployment>()
+                .WithMany()
+                .HasForeignKey(x => x.DeploymentId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        builder.Entity<AiModelHealthSnapshot>(b =>
+        {
+            b.ToTable(KnowPulseConsts.DbTablePrefix + "AiModelHealthSnapshots", KnowPulseConsts.DbSchema);
+            b.ConfigureByConvention();
+            b.Property(x => x.Status).IsRequired();
+            b.Property(x => x.FailureReason).HasMaxLength(AiModelHealthSnapshot.MaxFailureReasonLength);
+            b.Property(x => x.GatewayModelInfoJson).HasMaxLength(AiModelHealthSnapshot.MaxGatewayModelInfoJsonLength);
+            b.HasIndex(x => new { x.DeploymentId, x.CheckedTime });
+            b.HasIndex(x => new { x.TenantId, x.Status, x.CheckedTime });
+            b.HasOne<AiModelDeployment>()
+                .WithMany()
+                .HasForeignKey(x => x.DeploymentId)
+                .OnDelete(DeleteBehavior.Restrict);
         });
 
         builder.Entity<EmbeddingModelVersion>(b =>

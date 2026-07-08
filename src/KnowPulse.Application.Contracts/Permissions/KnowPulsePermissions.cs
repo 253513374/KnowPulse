@@ -136,6 +136,37 @@ public static class KnowPulsePermissions
     }
 
     /// <summary>
+    /// AI 模型接入管理权限集合，控制模型目录、健康检查和业务用途默认模型切换。
+    /// </summary>
+    public static class AiModels
+    {
+        /// <summary>
+        /// 模型管理根权限，用于 RAG 菜单下的模型管理入口。
+        /// </summary>
+        public const string Default = GroupName + ".AiModels";
+
+        /// <summary>
+        /// 查看模型目录和用途绑定。
+        /// </summary>
+        public const string View = Default + ".View";
+
+        /// <summary>
+        /// 新增、编辑、启停模型目录记录。
+        /// </summary>
+        public const string Manage = Default + ".Manage";
+
+        /// <summary>
+        /// 执行模型健康检查。
+        /// </summary>
+        public const string Test = Default + ".Test";
+
+        /// <summary>
+        /// 切换业务用途的默认模型。
+        /// </summary>
+        public const string SwitchDefaults = Default + ".SwitchDefaults";
+    }
+
+    /// <summary>
     /// 题库权限集合，控制题目管理和审核入口。
     /// </summary>
     public static class QuestionBank

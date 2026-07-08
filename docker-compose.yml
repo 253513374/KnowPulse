@@ -51,6 +51,7 @@ services:
     restart: unless-stopped
     command: ["--config", "/app/config.yaml", "--host", "0.0.0.0", "--port", "4000"]
     environment:
+      DATABASE_URL: ${LITELLM_DATABASE_URL:-postgresql://root:myPassword@postgres:5432/LiteLLM}
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-local-dev-only}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}

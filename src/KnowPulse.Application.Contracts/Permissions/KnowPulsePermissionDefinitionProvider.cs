@@ -42,6 +42,12 @@ public class KnowPulsePermissionDefinitionProvider : PermissionDefinitionProvide
         rag.AddChild(KnowPulsePermissions.Rag.AuditLogs, L("Permission:Rag.AuditLogs"));
         rag.AddChild(KnowPulsePermissions.Rag.Evaluations, L("Permission:Rag.Evaluations"));
 
+        var aiModels = myGroup.AddPermission(KnowPulsePermissions.AiModels.Default, L("Permission:AiModels"));
+        aiModels.AddChild(KnowPulsePermissions.AiModels.View, L("Permission:AiModels.View"));
+        aiModels.AddChild(KnowPulsePermissions.AiModels.Manage, L("Permission:AiModels.Manage"));
+        aiModels.AddChild(KnowPulsePermissions.AiModels.Test, L("Permission:AiModels.Test"));
+        aiModels.AddChild(KnowPulsePermissions.AiModels.SwitchDefaults, L("Permission:AiModels.SwitchDefaults"));
+
         var questionBank = myGroup.AddPermission(KnowPulsePermissions.QuestionBank.Default, L("Permission:QuestionBank"));
         questionBank.AddChild(KnowPulsePermissions.QuestionBank.Questions, L("Permission:QuestionBank.Questions"));
         questionBank.AddChild(KnowPulsePermissions.QuestionBank.Reviews, L("Permission:QuestionBank.Reviews"));

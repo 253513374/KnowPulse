@@ -120,4 +120,12 @@ public static class KnowPulseDomainErrorCodes
     public const string LearningPathContentRequired = "KnowPulse:04003";
 
     public const string RagEvaluationNoCases = "KnowPulse:05001";
+
+    public const string AiModelDeploymentInactive = "KnowPulse:06001";
+
+    public const string AiModelDeploymentCapabilityMismatch = "KnowPulse:06002";
+
+    public const string AiModelEmbeddingSwitchRequiresRebuild = "KnowPulse:06003";
+
+    public const string AiModelUsageBindingMissing = "KnowPulse:06004";
 }

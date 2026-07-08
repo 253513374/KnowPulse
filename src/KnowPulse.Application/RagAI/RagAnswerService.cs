@@ -5,6 +5,7 @@ using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using KnowPulse.AiModelManagement;
 using KnowPulse.Permissions;
 using Microsoft.Extensions.Options;
 
@@ -35,6 +36,7 @@ public class RagAnswerService : KnowPulseAppService, IRagAnswerService
     private readonly IKnowledgeRetriever _knowledgeRetriever;
     private readonly IRagChatClient _chatClient;
     private readonly IRagCallLogWriter _callLogWriter;
+    private readonly IAiModelResolver _modelResolver;
     private readonly RagAiOptions _options;
 
     /// <summary>
@@ -44,11 +46,13 @@ public class RagAnswerService : KnowPulseAppService, IRagAnswerService
         IKnowledgeRetriever knowledgeRetriever,
         IRagChatClient chatClient,
         IRagCallLogWriter callLogWriter,
+        IAiModelResolver modelResolver,
         IOptions<RagAiOptions> options)
     {
         _knowledgeRetriever = knowledgeRetriever;
         _chatClient = chatClient;
         _callLogWriter = callLogWriter;
+        _modelResolver = modelResolver;
         _options = options.Value;
     }
 
@@ -62,6 +66,7 @@ public class RagAnswerService : KnowPulseAppService, IRagAnswerService
         await CheckMvpPermissionAsync(KnowPulsePermissions.Rag.Answer);
         var stopwatch = Stopwatch.StartNew();
         var topK = request.TopK <= 0 ? MaxContextChunks : Math.Min(request.TopK, MaxContextChunks);
+        var modelSelection = await _modelResolver.ResolveAsync(AiModelUsage.RagAnswerChat, cancellationToken);
 
         // 空问题直接拒答，但仍写入 Answer 日志，方便运营侧区分“无输入”和“检索无结果”。
         if (string.IsNullOrWhiteSpace(request.Question))
@@ -73,6 +78,7 @@ public class RagAnswerService : KnowPulseAppService, IRagAnswerService
                 RagCallStatus.NoContext,
                 Array.Empty<RetrievedChunk>(),
                 insufficient,
+                modelSelection,
                 chatResult: null,
                 stopwatch,
                 failureStage: "input",
@@ -104,6 +110,7 @@ public class RagAnswerService : KnowPulseAppService, IRagAnswerService
                 RagCallStatus.Failed,
                 Array.Empty<RetrievedChunk>(),
                 failed,
+                modelSelection,
                 chatResult: null,
                 stopwatch,
                 failureStage: "search",
@@ -123,6 +130,7 @@ public class RagAnswerService : KnowPulseAppService, IRagAnswerService
                 RagCallStatus.NoContext,
                 chunks,
                 insufficient,
+                modelSelection,
                 chatResult: null,
                 stopwatch,
                 failureStage: "retrieval",
@@ -134,11 +142,11 @@ public class RagAnswerService : KnowPulseAppService, IRagAnswerService
 
         var chatResult = await _chatClient.GenerateAsync(new RagChatClientRequest
         {
-            ModelName = _options.LiteLlm.ChatModel,
+            ModelName = modelSelection.Alias,
             SystemPrompt = SystemPrompt,
             UserPrompt = BuildUserPrompt(request.Question, chunks),
-            MaxTokens = _options.LiteLlm.ChatMaxTokens,
-            Temperature = _options.LiteLlm.ChatTemperature
+            MaxTokens = Math.Max(1, modelSelection.MaxOutputTokens),
+            Temperature = modelSelection.Temperature
         }, cancellationToken);
 
         var answer = new RagAnswerResult
@@ -157,6 +165,7 @@ public class RagAnswerService : KnowPulseAppService, IRagAnswerService
             chatResult.Succeeded ? RagCallStatus.Succeeded : RagCallStatus.Failed,
             chunks,
             answer,
+            modelSelection,
             chatResult,
             stopwatch,
             failureStage: chatResult.Succeeded ? null : chatResult.FailureStage,
@@ -175,6 +184,7 @@ public class RagAnswerService : KnowPulseAppService, IRagAnswerService
         RagCallStatus status,
         IReadOnlyList<RetrievedChunk> citations,
         RagAnswerResult result,
+        AiModelSelection modelSelection,
         RagChatClientResult? chatResult,
         Stopwatch stopwatch,
         string? failureStage,
@@ -198,9 +208,9 @@ public class RagAnswerService : KnowPulseAppService, IRagAnswerService
                 CallType = RagCallType.Answer,
                 Status = status,
                 Query = request.Question,
-                ModelProvider = "LiteLLM",
-                ModelName = _options.LiteLlm.ChatModel,
-                ModelVersion = _options.Embedding.ModelVersion,
+                ModelProvider = modelSelection.Provider,
+                ModelName = modelSelection.Alias,
+                ModelVersion = modelSelection.BusinessModelVersion,
                 CollectionName = _options.Embedding.CollectionName,
                 TopK = topK,
                 RetrievedChunkCount = citations.Count,

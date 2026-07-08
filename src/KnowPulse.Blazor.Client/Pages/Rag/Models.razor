@@ -1,0 +1,644 @@
+@page "/rag/models"
+@attribute [Authorize(KnowPulsePermissions.AiModels.View)]
+@inherits KnowPulseComponentBase
+@inject IAiModelCatalogAppService AiModelCatalogAppService
+@inject IPermissionChecker PermissionChecker
+
+<PageTitle>模型管理</PageTitle>
+
+<div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+    <div>
+        <h1 class="h4 mb-1">模型管理</h1>
+        <div class="text-muted small">RAG / Models</div>
+    </div>
+    <div class="d-flex flex-wrap gap-2">
+        @if (!string.IsNullOrWhiteSpace(Overview?.LiteLlmAdminUrl))
+        {
+            <a class="btn btn-outline-secondary" href="@Overview.LiteLlmAdminUrl" target="_blank" rel="noopener">LiteLLM Admin UI</a>
+        }
+        @if (CanTest)
+        {
+            <button class="btn btn-outline-primary" type="button" @onclick="TestAllAsync" disabled="@IsBusy">批量健康检查</button>
+        }
+        <button class="btn btn-primary" type="button" @onclick="ReloadAsync" disabled="@IsBusy">刷新</button>
+    </div>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(ErrorMessage))
+{
+    <div class="alert alert-danger" role="alert">@ErrorMessage</div>
+}
+
+@if (!string.IsNullOrWhiteSpace(SuccessMessage))
+{
+    <div class="alert alert-success" role="alert">@SuccessMessage</div>
+}
+
+@if (Overview == null)
+{
+    <div class="text-muted py-4">加载中</div>
+}
+else
+{
+    <div class="row g-3 mb-3">
+        <div class="col-lg-3 col-6">
+            <div class="card h-100">
+                <div class="card-body">
+                    <div class="text-muted small">模型总数</div>
+                    <div class="h4 mb-0">@Overview.Deployments.Count</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-3 col-6">
+            <div class="card h-100">
+                <div class="card-body">
+                    <div class="text-muted small">启用模型</div>
+                    <div class="h4 mb-0">@Overview.Deployments.Count(x => x.IsActive)</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-3 col-6">
+            <div class="card h-100">
+                <div class="card-body">
+                    <div class="text-muted small">用途绑定</div>
+                    <div class="h4 mb-0">@Overview.Bindings.Count</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-3 col-6">
+            <div class="card h-100">
+                <div class="card-body">
+                    <div class="text-muted small">健康模型</div>
+                    <div class="h4 mb-0">@Overview.Deployments.Count(x => x.HealthStatus == AiModelHealthStatus.Healthy)</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-3">
+        <div class="col-xl-8">
+            <div class="card">
+                <div class="card-body border-bottom">
+                    <div class="d-flex flex-wrap align-items-center justify-content-between gap-2">
+                        <h2 class="h6 mb-0">模型目录</h2>
+                        @if (CanManage)
+                        {
+                            <button class="btn btn-sm btn-primary" type="button" @onclick="NewModelAsync">新增模型</button>
+                        }
+                    </div>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead>
+                            <tr>
+                                <th>Alias</th>
+                                <th>能力</th>
+                                <th>供应商</th>
+                                <th>上游模型</th>
+                                <th>状态</th>
+                                <th>健康</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @if (Overview.Deployments.Count == 0)
+                            {
+                                <tr>
+                                    <td colspan="7" class="text-center py-4 text-muted">暂无模型</td>
+                                </tr>
+                            }
+                            else
+                            {
+                                @foreach (var model in Overview.Deployments)
+                                {
+                                    <tr>
+                                        <td>
+                                            <div class="fw-semibold">@model.Alias</div>
+                                            <div class="text-muted small">@model.ModelVersion</div>
+                                        </td>
+                                        <td>@GetCapabilityText(model.Capability)</td>
+                                        <td>@model.ProviderType</td>
+                                        <td>
+                                            <div>@model.UpstreamModelName</div>
+                                            @if (!string.IsNullOrWhiteSpace(model.ApiKeyEnvironmentVariable))
+                                            {
+                                                <div class="text-muted small">@model.ApiKeyEnvironmentVariable</div>
+                                            }
+                                        </td>
+                                        <td>
+                                            <span class="badge @(model.IsActive ? "bg-success" : "bg-secondary")">
+                                                @(model.IsActive ? "启用" : "停用")
+                                            </span>
+                                        </td>
+                                        <td>
+                                            <span class="badge @GetHealthBadge(model.HealthStatus)">@GetHealthText(model.HealthStatus)</span>
+                                            @if (model.LastCheckedTime.HasValue)
+                                            {
+                                                <div class="text-muted small">@model.LastCheckedTime.Value.ToLocalTime().ToString("MM-dd HH:mm")</div>
+                                            }
+                                        </td>
+                                        <td>
+                                            <div class="d-flex flex-wrap gap-2">
+                                                @if (CanManage)
+                                                {
+                                                    <button class="btn btn-sm btn-outline-secondary" type="button" @onclick="() => EditModelAsync(model)">编辑</button>
+                                                    <button class="btn btn-sm btn-outline-secondary" type="button" @onclick="() => ToggleModelAsync(model)" disabled="@IsBusy">
+                                                        @(model.IsActive ? "停用" : "启用")
+                                                    </button>
+                                                }
+                                                @if (CanTest)
+                                                {
+                                                    <button class="btn btn-sm btn-outline-primary" type="button" @onclick="() => TestModelAsync(model.Id)" disabled="@IsBusy">测试</button>
+                                                }
+                                            </div>
+                                        </td>
+                                    </tr>
+                                }
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-xl-4">
+            <div class="card">
+                <div class="card-body">
+                    <h2 class="h6 mb-3">@(ModelForm.IsEditing ? "编辑模型" : "新增模型")</h2>
+                    <EditForm Model="@ModelForm" OnValidSubmit="@SaveModelAsync">
+                        <DataAnnotationsValidator />
+
+                        <div class="mb-3">
+                            <label class="form-label" for="model-alias">Alias</label>
+                            <InputText id="model-alias" class="form-control" @bind-Value="ModelForm.Alias" disabled="@(!CanManage)" />
+                            <ValidationMessage For="@(() => ModelForm.Alias)" />
+                        </div>
+
+                        <div class="row g-2">
+                            <div class="col-6 mb-3">
+                                <label class="form-label" for="model-capability">能力</label>
+                                <InputSelect id="model-capability" class="form-select" @bind-Value="ModelForm.Capability" disabled="@(!CanManage)">
+                                    @foreach (var value in Enum.GetValues<AiModelCapability>())
+                                    {
+                                        <option value="@value">@GetCapabilityText(value)</option>
+                                    }
+                                </InputSelect>
+                            </div>
+                            <div class="col-6 mb-3">
+                                <label class="form-label" for="model-provider">供应商</label>
+                                <InputSelect id="model-provider" class="form-select" @bind-Value="ModelForm.ProviderType" disabled="@(!CanManage)">
+                                    @foreach (var value in Enum.GetValues<AiModelProviderType>())
+                                    {
+                                        <option value="@value">@value</option>
+                                    }
+                                </InputSelect>
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label" for="model-upstream">上游模型</label>
+                            <InputText id="model-upstream" class="form-control" @bind-Value="ModelForm.UpstreamModelName" disabled="@(!CanManage)" />
+                            <ValidationMessage For="@(() => ModelForm.UpstreamModelName)" />
+                        </div>
+
+                        <div class="row g-2">
+                            <div class="col-6 mb-3">
+                                <label class="form-label" for="model-version">业务版本</label>
+                                <InputText id="model-version" class="form-control" @bind-Value="ModelForm.ModelVersion" disabled="@(!CanManage)" />
+                            </div>
+                            <div class="col-6 mb-3">
+                                <label class="form-label" for="model-env">Key 环境变量</label>
+                                <InputText id="model-env" class="form-control" @bind-Value="ModelForm.ApiKeyEnvironmentVariable" disabled="@(!CanManage)" />
+                            </div>
+                        </div>
+
+                        <div class="row g-2">
+                            <div class="col-6 mb-3">
+                                <label class="form-label" for="model-output">输出 token</label>
+                                <InputNumber id="model-output" class="form-control" @bind-Value="ModelForm.MaxOutputTokens" disabled="@(!CanManage)" />
+                            </div>
+                            <div class="col-6 mb-3">
+                                <label class="form-label" for="model-dimension">向量维度</label>
+                                <InputNumber id="model-dimension" class="form-control" @bind-Value="ModelForm.EmbeddingDimension" disabled="@(!CanManage)" />
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label" for="model-base-url">Base URL</label>
+                            <InputText id="model-base-url" class="form-control" @bind-Value="ModelForm.BaseUrl" disabled="@(!CanManage)" />
+                        </div>
+
+                        <div class="form-check form-switch mb-3">
+                            <InputCheckbox id="model-active" class="form-check-input" @bind-Value="ModelForm.IsActive" disabled="@(!CanManage)" />
+                            <label class="form-check-label" for="model-active">启用</label>
+                        </div>
+
+                        <div class="d-flex gap-2">
+                            <button class="btn btn-primary" type="submit" disabled="@(!CanManage || IsBusy)">保存</button>
+                            <button class="btn btn-outline-secondary" type="button" @onclick="NewModelAsync" disabled="@IsBusy">重置</button>
+                        </div>
+                    </EditForm>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card mt-3">
+        <div class="card-body border-bottom">
+            <h2 class="h6 mb-0">用途绑定</h2>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th>用途</th>
+                        <th>默认模型</th>
+                        <th>业务版本</th>
+                        <th>输出 token</th>
+                        <th>Temperature</th>
+                        <th>Fallback alias</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var binding in BindingForms)
+                    {
+                        <tr>
+                            <td>@GetUsageText(binding.Usage)</td>
+                            <td>
+                                <InputSelect class="form-select" @bind-Value="binding.DeploymentId" disabled="@(!CanSwitchDefaults)">
+                                    @foreach (var model in GetDeploymentsForUsage(binding.Usage))
+                                    {
+                                        <option value="@model.Id">@model.Alias</option>
+                                    }
+                                </InputSelect>
+                            </td>
+                            <td>
+                                <InputText class="form-control" @bind-Value="binding.BusinessModelVersion" disabled="@(!CanSwitchDefaults)" />
+                            </td>
+                            <td>
+                                <InputNumber class="form-control" @bind-Value="binding.MaxOutputTokens" disabled="@(!CanSwitchDefaults)" />
+                            </td>
+                            <td>
+                                <InputNumber class="form-control" @bind-Value="binding.Temperature" disabled="@(!CanSwitchDefaults)" />
+                            </td>
+                            <td>
+                                <InputText class="form-control" @bind-Value="binding.FallbackAliasesText" disabled="@(!CanSwitchDefaults)" />
+                            </td>
+                            <td>
+                                <button class="btn btn-sm btn-primary" type="button" @onclick="() => SaveBindingAsync(binding)" disabled="@(!CanSwitchDefaults || IsBusy)">
+                                    保存
+                                </button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="card mt-3">
+        <div class="card-body">
+            <h2 class="h6 mb-3">最近健康检查</h2>
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th>模型</th>
+                            <th>状态</th>
+                            <th>延迟</th>
+                            <th>检查时间</th>
+                            <th>错误摘要</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (Overview.HealthSnapshots.Count == 0)
+                        {
+                            <tr>
+                                <td colspan="5" class="text-center py-4 text-muted">暂无健康检查记录</td>
+                            </tr>
+                        }
+                        else
+                        {
+                            @foreach (var health in Overview.HealthSnapshots.OrderByDescending(x => x.CheckedTime))
+                            {
+                                <tr>
+                                    <td>@health.DeploymentAlias</td>
+                                    <td><span class="badge @GetHealthBadge(health.Status)">@GetHealthText(health.Status)</span></td>
+                                    <td>@(health.LatencyMs.HasValue ? $"{health.LatencyMs.Value} ms" : "-")</td>
+                                    <td>@health.CheckedTime.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")</td>
+                                    <td>@health.FailureReason</td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private AiModelCatalogOverviewDto? Overview { get; set; }
+    private ModelFormModel ModelForm { get; set; } = new();
+    private List<BindingFormModel> BindingForms { get; set; } = new();
+    private bool CanManage { get; set; }
+    private bool CanTest { get; set; }
+    private bool CanSwitchDefaults { get; set; }
+    private bool IsBusy { get; set; }
+    private string? ErrorMessage { get; set; }
+    private string? SuccessMessage { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        CanManage = await PermissionChecker.IsGrantedAsync(KnowPulsePermissions.AiModels.Manage);
+        CanTest = await PermissionChecker.IsGrantedAsync(KnowPulsePermissions.AiModels.Test);
+        CanSwitchDefaults = await PermissionChecker.IsGrantedAsync(KnowPulsePermissions.AiModels.SwitchDefaults);
+        await ReloadAsync();
+    }
+
+    private async Task ReloadAsync()
+    {
+        await RunBusyAsync(async () =>
+        {
+            Overview = await AiModelCatalogAppService.GetOverviewAsync();
+            BindingForms = CreateBindingForms(Overview);
+        }, successMessage: null);
+    }
+
+    private Task NewModelAsync()
+    {
+        ModelForm = new ModelFormModel();
+        SuccessMessage = null;
+        ErrorMessage = null;
+        return Task.CompletedTask;
+    }
+
+    private Task EditModelAsync(AiModelDeploymentDto model)
+    {
+        ModelForm = new ModelFormModel
+        {
+            Id = model.Id,
+            IsEditing = true,
+            Alias = model.Alias,
+            ProviderType = model.ProviderType,
+            Capability = model.Capability,
+            UpstreamModelName = model.UpstreamModelName,
+            ModelVersion = model.ModelVersion,
+            ApiKeyEnvironmentVariable = model.ApiKeyEnvironmentVariable,
+            BaseUrl = model.BaseUrl,
+            ContextWindowTokens = model.ContextWindowTokens,
+            MaxOutputTokens = model.MaxOutputTokens,
+            EmbeddingDimension = model.EmbeddingDimension,
+            PromptTokenPriceUsd = model.PromptTokenPriceUsd,
+            CompletionTokenPriceUsd = model.CompletionTokenPriceUsd,
+            IsActive = model.IsActive,
+            Description = model.Description
+        };
+        return Task.CompletedTask;
+    }
+
+    private async Task SaveModelAsync()
+    {
+        await RunBusyAsync(async () =>
+        {
+            var input = ModelForm.ToDto();
+            if (ModelForm.IsEditing && ModelForm.Id.HasValue)
+            {
+                await AiModelCatalogAppService.UpdateDeploymentAsync(ModelForm.Id.Value, input);
+            }
+            else
+            {
+                await AiModelCatalogAppService.CreateDeploymentAsync(input);
+            }
+
+            Overview = await AiModelCatalogAppService.GetOverviewAsync();
+            BindingForms = CreateBindingForms(Overview);
+            ModelForm = new ModelFormModel();
+        }, "模型已保存");
+    }
+
+    private async Task ToggleModelAsync(AiModelDeploymentDto model)
+    {
+        await RunBusyAsync(async () =>
+        {
+            await AiModelCatalogAppService.SetDeploymentActiveAsync(model.Id, !model.IsActive);
+            Overview = await AiModelCatalogAppService.GetOverviewAsync();
+            BindingForms = CreateBindingForms(Overview);
+        }, model.IsActive ? "模型已停用" : "模型已启用");
+    }
+
+    private async Task TestModelAsync(Guid modelId)
+    {
+        await RunBusyAsync(async () =>
+        {
+            await AiModelCatalogAppService.TestDeploymentAsync(modelId);
+            Overview = await AiModelCatalogAppService.GetOverviewAsync();
+        }, "健康检查已完成");
+    }
+
+    private async Task TestAllAsync()
+    {
+        await RunBusyAsync(async () =>
+        {
+            await AiModelCatalogAppService.TestAllAsync();
+            Overview = await AiModelCatalogAppService.GetOverviewAsync();
+        }, "批量健康检查已完成");
+    }
+
+    private async Task SaveBindingAsync(BindingFormModel binding)
+    {
+        await RunBusyAsync(async () =>
+        {
+            await AiModelCatalogAppService.SetUsageBindingAsync(new SetAiModelUsageBindingDto
+            {
+                Usage = binding.Usage,
+                DeploymentId = binding.DeploymentId,
+                BusinessModelVersion = binding.BusinessModelVersion,
+                MaxOutputTokens = binding.MaxOutputTokens,
+                Temperature = binding.Temperature,
+                FallbackAliases = binding.FallbackAliasesText
+                    .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                    .ToList()
+            });
+            Overview = await AiModelCatalogAppService.GetOverviewAsync();
+            BindingForms = CreateBindingForms(Overview);
+        }, "用途绑定已保存");
+    }
+
+    private IReadOnlyList<AiModelDeploymentDto> GetDeploymentsForUsage(AiModelUsage usage)
+    {
+        if (Overview == null)
+        {
+            return Array.Empty<AiModelDeploymentDto>();
+        }
+
+        var capability = usage == AiModelUsage.KnowledgeEmbedding
+            ? AiModelCapability.Embedding
+            : AiModelCapability.Chat;
+
+        return Overview.Deployments
+            .Where(x => x.IsActive && x.Capability == capability)
+            .OrderBy(x => x.Alias)
+            .ToList();
+    }
+
+    private async Task RunBusyAsync(Func<Task> action, string? successMessage)
+    {
+        try
+        {
+            ErrorMessage = null;
+            SuccessMessage = null;
+            IsBusy = true;
+            await action();
+            SuccessMessage = successMessage;
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = GetUserFriendlyErrorMessage(ex);
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    private static List<BindingFormModel> CreateBindingForms(AiModelCatalogOverviewDto overview)
+    {
+        return Enum.GetValues<AiModelUsage>()
+            .Where(x => x != AiModelUsage.SubjectiveScoring)
+            .Select(usage =>
+            {
+                var existing = overview.Bindings.FirstOrDefault(x => x.Usage == usage);
+                var firstDeployment = overview.Deployments.FirstOrDefault(x =>
+                    x.IsActive &&
+                    x.Capability == (usage == AiModelUsage.KnowledgeEmbedding ? AiModelCapability.Embedding : AiModelCapability.Chat));
+
+                return new BindingFormModel
+                {
+                    Usage = usage,
+                    DeploymentId = existing?.DeploymentId ?? firstDeployment?.Id ?? Guid.Empty,
+                    BusinessModelVersion = existing?.BusinessModelVersion ?? string.Empty,
+                    MaxOutputTokens = existing?.MaxOutputTokens ?? (usage == AiModelUsage.KnowledgeEmbedding ? 0 : 800),
+                    Temperature = existing?.Temperature ?? 0.2,
+                    FallbackAliasesText = existing == null ? string.Empty : string.Join(", ", existing.FallbackAliases)
+                };
+            })
+            .ToList();
+    }
+
+    private static string GetUsageText(AiModelUsage usage) => usage switch
+    {
+        AiModelUsage.RagAnswerChat => "RAG 问答",
+        AiModelUsage.AiQuestionGeneration => "AI 出题",
+        AiModelUsage.KnowledgeEmbedding => "知识 Embedding",
+        AiModelUsage.SubjectiveScoring => "主观题评分",
+        _ => usage.ToString()
+    };
+
+    private static string GetCapabilityText(AiModelCapability capability) => capability switch
+    {
+        AiModelCapability.Chat => "Chat",
+        AiModelCapability.Embedding => "Embedding",
+        _ => capability.ToString()
+    };
+
+    private static string GetHealthText(AiModelHealthStatus status) => status switch
+    {
+        AiModelHealthStatus.Unknown => "未知",
+        AiModelHealthStatus.Healthy => "正常",
+        AiModelHealthStatus.Failed => "失败",
+        AiModelHealthStatus.MissingKey => "缺 key",
+        AiModelHealthStatus.Disabled => "停用",
+        _ => status.ToString()
+    };
+
+    private static string GetHealthBadge(AiModelHealthStatus status) => status switch
+    {
+        AiModelHealthStatus.Healthy => "bg-success",
+        AiModelHealthStatus.MissingKey => "bg-warning text-dark",
+        AiModelHealthStatus.Failed => "bg-danger",
+        AiModelHealthStatus.Disabled => "bg-secondary",
+        _ => "bg-light text-dark"
+    };
+
+    private class ModelFormModel
+    {
+        public Guid? Id { get; set; }
+
+        public bool IsEditing { get; set; }
+
+        [Required]
+        [StringLength(AiModelConsts.MaxAliasLength)]
+        public string Alias { get; set; } = string.Empty;
+
+        public AiModelProviderType ProviderType { get; set; } = AiModelProviderType.LiteLLM;
+
+        public AiModelCapability Capability { get; set; } = AiModelCapability.Chat;
+
+        [Required]
+        [StringLength(AiModelConsts.MaxUpstreamModelNameLength)]
+        public string UpstreamModelName { get; set; } = string.Empty;
+
+        [Required]
+        [StringLength(AiModelConsts.MaxModelVersionLength)]
+        public string ModelVersion { get; set; } = string.Empty;
+
+        [StringLength(AiModelConsts.MaxEnvironmentVariableLength)]
+        public string? ApiKeyEnvironmentVariable { get; set; }
+
+        [StringLength(AiModelConsts.MaxBaseUrlLength)]
+        public string? BaseUrl { get; set; }
+
+        public int? ContextWindowTokens { get; set; }
+
+        public int? MaxOutputTokens { get; set; }
+
+        public int? EmbeddingDimension { get; set; }
+
+        public decimal? PromptTokenPriceUsd { get; set; }
+
+        public decimal? CompletionTokenPriceUsd { get; set; }
+
+        public bool IsActive { get; set; } = true;
+
+        [StringLength(AiModelConsts.MaxDescriptionLength)]
+        public string? Description { get; set; }
+
+        public CreateUpdateAiModelDeploymentDto ToDto()
+        {
+            return new CreateUpdateAiModelDeploymentDto
+            {
+                Alias = Alias,
+                ProviderType = ProviderType,
+                Capability = Capability,
+                UpstreamModelName = UpstreamModelName,
+                ModelVersion = ModelVersion,
+                ApiKeyEnvironmentVariable = ApiKeyEnvironmentVariable,
+                BaseUrl = BaseUrl,
+                ContextWindowTokens = ContextWindowTokens,
+                MaxOutputTokens = MaxOutputTokens,
+                EmbeddingDimension = EmbeddingDimension,
+                PromptTokenPriceUsd = PromptTokenPriceUsd,
+                CompletionTokenPriceUsd = CompletionTokenPriceUsd,
+                IsActive = IsActive,
+                Description = Description
+            };
+        }
+    }
+
+    private class BindingFormModel
+    {
+        public AiModelUsage Usage { get; set; }
+
+        public Guid DeploymentId { get; set; }
+
+        public string BusinessModelVersion { get; set; } = string.Empty;
+
+        public int MaxOutputTokens { get; set; }
+
+        public double Temperature { get; set; }
+
+        public string FallbackAliasesText { get; set; } = string.Empty;
+    }
+}
