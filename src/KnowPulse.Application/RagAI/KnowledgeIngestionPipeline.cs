@@ -14,8 +14,8 @@ using Volo.Abp.Domain.Repositories;
 namespace KnowPulse.RagAI;
 
 /// <summary>
-/// MVP-1 知识摄取管道。当前实现先覆盖知识正文和 UTF-8 文本/Markdown 附件，
-/// 并把外部 reader/chunker 预览依赖隔离在项目接口之后，后续可替换为 DataIngestion provider。
+/// 知识摄取管道。稳定文本读取由本类直接处理，复杂附件通过项目内转换器隔离 MarkItDown reader，
+/// 避免 DataIngestion preview 类型泄漏到业务契约和领域模型。
 /// </summary>
 public class KnowledgeIngestionPipeline : KnowPulseAppService, IKnowledgeIngestionPipeline
 {
@@ -24,8 +24,7 @@ public class KnowledgeIngestionPipeline : KnowPulseAppService, IKnowledgeIngesti
     private const int TargetChunkLength = 1200;
     private const int ChunkOverlapLength = 120;
 
-    // 文档类型先收窄到纯文本/Markdown，保证本阶段失败定位可控。
-    // PDF/Word/OCR 等 reader 应在后续阶段按“reader 失败可定位”的规则增量接入。
+    // 直接文本读取保持简单可控；复杂格式由 MarkItDown 转换器负责。
     private static readonly HashSet<string> SupportedAttachmentExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
         ".txt",
@@ -47,6 +46,7 @@ public class KnowledgeIngestionPipeline : KnowPulseAppService, IKnowledgeIngesti
     private readonly IRepository<KnowledgeIndexJob, Guid> _jobRepository;
     private readonly IRepository<KnowledgeChunk, Guid> _chunkRepository;
     private readonly IBlobContainer<KnowledgeAttachmentBlobContainer> _attachmentContainer;
+    private readonly IKnowledgeDocumentMarkdownConverter _documentMarkdownConverter;
 
     /// <summary>
     /// 创建知识摄取管道。
@@ -57,7 +57,8 @@ public class KnowledgeIngestionPipeline : KnowPulseAppService, IKnowledgeIngesti
         IRepository<KnowledgeAttachment, Guid> attachmentRepository,
         IRepository<KnowledgeIndexJob, Guid> jobRepository,
         IRepository<KnowledgeChunk, Guid> chunkRepository,
-        IBlobContainer<KnowledgeAttachmentBlobContainer> attachmentContainer)
+        IBlobContainer<KnowledgeAttachmentBlobContainer> attachmentContainer,
+        IKnowledgeDocumentMarkdownConverter documentMarkdownConverter)
     {
         _itemRepository = itemRepository;
         _versionRepository = versionRepository;
@@ -65,6 +66,7 @@ public class KnowledgeIngestionPipeline : KnowPulseAppService, IKnowledgeIngesti
         _jobRepository = jobRepository;
         _chunkRepository = chunkRepository;
         _attachmentContainer = attachmentContainer;
+        _documentMarkdownConverter = documentMarkdownConverter;
     }
 
     /// <summary>
@@ -194,8 +196,19 @@ public class KnowledgeIngestionPipeline : KnowPulseAppService, IKnowledgeIngesti
 
         foreach (var attachment in attachments)
         {
-            EnsureSupportedAttachment(attachment);
-            documents.Add(await ReadAttachmentAsync(attachment, cancellationToken));
+            if (IsDirectTextAttachment(attachment))
+            {
+                documents.Add(await ReadTextAttachmentAsync(attachment, cancellationToken));
+                continue;
+            }
+
+            if (_documentMarkdownConverter.CanConvert(attachment))
+            {
+                documents.AddRange(await ReadConvertibleAttachmentAsync(attachment, cancellationToken));
+                continue;
+            }
+
+            ThrowUnsupportedAttachment(attachment);
         }
 
         if (documents.Count == 0)
@@ -209,7 +222,7 @@ public class KnowledgeIngestionPipeline : KnowPulseAppService, IKnowledgeIngesti
     /// <summary>
     /// 从 blob 存储读取文本附件内容。
     /// </summary>
-    private async Task<IngestionDocument> ReadAttachmentAsync(KnowledgeAttachment attachment, CancellationToken cancellationToken)
+    private async Task<IngestionDocument> ReadTextAttachmentAsync(KnowledgeAttachment attachment, CancellationToken cancellationToken)
     {
         try
         {
@@ -229,16 +242,51 @@ public class KnowledgeIngestionPipeline : KnowPulseAppService, IKnowledgeIngesti
     }
 
     /// <summary>
-    /// 校验附件类型是否属于 MVP-1 支持的文本或 Markdown 类型。
+    /// 从 blob 存储读取复杂附件，并通过 MarkItDown 转换为 Markdown。
     /// </summary>
-    private static void EnsureSupportedAttachment(KnowledgeAttachment attachment)
+    private async Task<List<IngestionDocument>> ReadConvertibleAttachmentAsync(
+        KnowledgeAttachment attachment,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using var stream = await _attachmentContainer.GetAsync(attachment.BlobName, cancellationToken);
+            var convertedDocuments = await _documentMarkdownConverter.ConvertAsync(attachment, stream, cancellationToken);
+            return convertedDocuments
+                .Select(x => new IngestionDocument(
+                    attachment.FileName,
+                    x.SourcePage,
+                    x.Content,
+                    IsMarkdown: true))
+                .ToList();
+        }
+        catch (KnowledgeDocumentConversionException ex)
+        {
+            throw new KnowledgeIngestionStageException("reader", ex.Message);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            throw new KnowledgeIngestionStageException("reader", $"Failed to read attachment '{attachment.FileName}'.");
+        }
+    }
+
+    /// <summary>
+    /// 判断附件是否属于可直接读取的文本或 Markdown 类型。
+    /// </summary>
+    private static bool IsDirectTextAttachment(KnowledgeAttachment attachment)
     {
         var extension = Path.GetExtension(attachment.FileName);
         var contentType = attachment.ContentType.Split(';', 2)[0].Trim();
-        if (!SupportedAttachmentExtensions.Contains(extension) && !SupportedTextContentTypes.Contains(contentType))
-        {
-            throw new KnowledgeIngestionStageException("reader", $"Unsupported attachment type '{extension}' for '{attachment.FileName}'.");
-        }
+        return SupportedAttachmentExtensions.Contains(extension) || SupportedTextContentTypes.Contains(contentType);
+    }
+
+    /// <summary>
+    /// 抛出不支持附件的 reader 阶段错误，错误中只包含文件名和类型，不包含附件内容。
+    /// </summary>
+    private static void ThrowUnsupportedAttachment(KnowledgeAttachment attachment)
+    {
+        var extension = Path.GetExtension(attachment.FileName);
+        throw new KnowledgeIngestionStageException("reader", $"Unsupported attachment type '{extension}' for '{attachment.FileName}'.");
     }
 
     /// <summary>

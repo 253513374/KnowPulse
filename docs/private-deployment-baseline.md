@@ -132,7 +132,17 @@ MVP-4 当前基线仍是模块化单体应用加独立基础设施：
 
 `deploy/litellm/config.example.yaml` 只能保存模型 alias 和 `os.environ/...` 引用，不保存真实供应商 key。
 
-### 7.5 API Host
+### 7.5 文档转换
+
+| 配置 | 开发默认 | 演示/生产 |
+| --- | --- | --- |
+| `RagAI__Ingestion__EnableMarkItDown` | `true` | 按是否安装 MarkItDown 决定 |
+| `RagAI__Ingestion__MarkItDownExecutablePath` | 空，按 PATH 查找 | 显式配置到受控安装路径 |
+| `RagAI__Ingestion__MaxConvertedMarkdownLength` | `262144` | 按资源预算调整 |
+
+MarkItDown 只作为知识摄取 reader 阶段的转换器。生产环境需要显式安装、固定版本并纳入镜像或主机基线；转换失败必须显示为索引任务 reader 阶段失败，不能把完整附件内容写入日志或失败原因。
+
+### 7.6 API Host
 
 | 配置 | 开发默认 | 演示/生产 |
 | --- | --- | --- |

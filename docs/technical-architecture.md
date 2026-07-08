@@ -625,7 +625,8 @@ MVP-1 初始文档类型：
 - 知识版本正文 `KnowledgeVersion.ContentText`，按 Markdown 文本处理。
 - UTF-8 `.txt` 附件，读取后包装为 Markdown 文档。
 - UTF-8 `.md` / `.markdown` 附件，按 Markdown 文档处理。
-- PDF、Word、PPT、HTML 和表格文档先进入 reader failure，不在 MVP-1 初始 pipeline 中静默跳过。
+- PDF、Word、PPT、Excel、HTML、CSV、JSON 和 XML 通过项目内 `IKnowledgeDocumentMarkdownConverter` 适配 MarkItDown reader，转换为 Markdown 后进入 chunk pipeline。
+- 图片 OCR、音视频转写、压缩包递归解析和扫描件质量控制仍进入后续增强，不在当前默认 pipeline 中静默跳过。
 
 需要保存的 chunk 元数据：
 

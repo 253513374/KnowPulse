@@ -24,6 +24,11 @@ public class RagAiOptions
     public RagVectorStoreOptions VectorStore { get; set; } = new();
 
     /// <summary>
+    /// 知识摄取读取、文档转换和 Markdown 化配置。
+    /// </summary>
+    public KnowledgeIngestionOptions Ingestion { get; set; } = new();
+
+    /// <summary>
     /// LiteLLM 网关地址、alias 和调用参数配置。
     /// </summary>
     public LiteLlmGatewayOptions LiteLlm { get; set; } = new();
@@ -116,6 +121,52 @@ public class RagVectorStoreOptions
     /// Qdrant API key 所在环境变量名。为空时按本地无认证模式访问。
     /// </summary>
     public string? ApiKeyEnvironmentVariable { get; set; }
+}
+
+/// <summary>
+/// 知识摄取配置。
+/// 外部 reader 仍属于可替换实现细节，不能泄漏到应用服务契约和领域模型。
+/// </summary>
+public class KnowledgeIngestionOptions
+{
+    /// <summary>
+    /// 是否允许非文本附件通过 MarkItDown 转换为 Markdown 后进入 RAG。
+    /// </summary>
+    public bool EnableMarkItDown { get; set; } = true;
+
+    /// <summary>
+    /// MarkItDown 可执行程序路径。为空时按 PATH 查找 markitdown、markitdown.exe、markitdown.cmd 或 markitdown.bat。
+    /// </summary>
+    public string? MarkItDownExecutablePath { get; set; }
+
+    /// <summary>
+    /// 是否让 MarkItDown 提取图片二进制内容。默认关闭，避免把图片内容写入内存和日志链路。
+    /// </summary>
+    public bool ExtractImages { get; set; }
+
+    /// <summary>
+    /// 单个附件转换后的 Markdown 最大字符数，避免异常大文档压垮 chunk 和 embedding 流程。
+    /// </summary>
+    public int MaxConvertedMarkdownLength { get; set; } = 256 * 1024;
+
+    /// <summary>
+    /// 允许进入 MarkItDown 转换的附件扩展名。图片、音频、视频暂不默认启用。
+    /// </summary>
+    public List<string> MarkItDownExtensions { get; set; } =
+    [
+        ".pdf",
+        ".doc",
+        ".docx",
+        ".ppt",
+        ".pptx",
+        ".xls",
+        ".xlsx",
+        ".html",
+        ".htm",
+        ".csv",
+        ".json",
+        ".xml"
+    ];
 }
 
 /// <summary>

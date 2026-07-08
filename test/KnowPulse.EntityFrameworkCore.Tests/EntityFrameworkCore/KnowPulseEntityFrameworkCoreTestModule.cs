@@ -80,6 +80,9 @@ public class KnowPulseEntityFrameworkCoreTestModule : AbpModule
         services.AddSingleton<TestRagChatClient>();
         services.Replace(ServiceDescriptor.Singleton<IRagChatClient>(
             serviceProvider => serviceProvider.GetRequiredService<TestRagChatClient>()));
+        services.AddSingleton<TestKnowledgeDocumentMarkdownConverter>();
+        services.Replace(ServiceDescriptor.Singleton<IKnowledgeDocumentMarkdownConverter>(
+            serviceProvider => serviceProvider.GetRequiredService<TestKnowledgeDocumentMarkdownConverter>()));
     }
 
     /// <summary>
@@ -281,5 +284,61 @@ public class TestRagChatClient : IRagChatClient
             promptTokenCount: 120,
             completionTokenCount: 30,
             totalTokenCount: 150));
+    }
+}
+
+public class TestKnowledgeDocumentMarkdownConverter : IKnowledgeDocumentMarkdownConverter
+{
+    private static readonly HashSet<string> ConvertibleExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".pdf",
+        ".doc",
+        ".docx",
+        ".ppt",
+        ".pptx",
+        ".xls",
+        ".xlsx",
+        ".html",
+        ".htm",
+        ".csv",
+        ".json",
+        ".xml"
+    };
+
+    public List<string> ConvertedFileNames { get; } = [];
+
+    /// <summary>
+    /// 重置转换器测试替身状态。
+    /// </summary>
+    public void Reset()
+    {
+        ConvertedFileNames.Clear();
+    }
+
+    /// <summary>
+    /// 测试环境中模拟 MarkItDown 支持的第一批转换格式。
+    /// </summary>
+    public bool CanConvert(KnowledgeAttachment attachment)
+    {
+        return ConvertibleExtensions.Contains(Path.GetExtension(attachment.FileName));
+    }
+
+    /// <summary>
+    /// 生成确定性 Markdown，避免集成测试依赖本机 markitdown 可执行程序。
+    /// </summary>
+    public Task<IReadOnlyList<ConvertedMarkdownDocument>> ConvertAsync(
+        KnowledgeAttachment attachment,
+        Stream stream,
+        CancellationToken cancellationToken = default)
+    {
+        ConvertedFileNames.Add(attachment.FileName);
+        IReadOnlyList<ConvertedMarkdownDocument> documents =
+        [
+            new ConvertedMarkdownDocument(
+                $"# Converted {attachment.FileName}\n\n转换后的 {Path.GetExtension(attachment.FileName)} 内容。",
+                SourcePage: 1)
+        ];
+
+        return Task.FromResult(documents);
     }
 }

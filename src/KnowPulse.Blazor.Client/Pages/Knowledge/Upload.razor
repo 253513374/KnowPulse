@@ -1,0 +1,1396 @@
+@page "/knowledge/upload"
+@attribute [Authorize(KnowPulsePermissions.KnowledgeBase.Items)]
+@inherits KnowPulseComponentBase
+@using System.IO
+@inject IKnowledgeItemAppService KnowledgeItemAppService
+@inject IKnowledgeCategoryAppService CategoryAppService
+@inject IKnowledgeIndexJobAppService IndexJobAppService
+@inject IDepartmentAppService DepartmentAppService
+@inject IPositionAppService PositionAppService
+@inject IIdentityRoleAppService IdentityRoleAppService
+@inject IIdentityUserAppService IdentityUserAppService
+@inject IPermissionChecker PermissionChecker
+@inject NavigationManager NavigationManager
+
+@* 知识上传引导页：面向运营人员完成从内容选择、可见范围确认到发布索引的主流程。 *@
+<PageTitle>上传知识</PageTitle>
+
+<div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+    <div>
+        <h1 class="h4 mb-1">上传知识</h1>
+        <div class="text-muted small">KnowledgeBase / Upload</div>
+    </div>
+    <div class="d-flex flex-wrap gap-2">
+        <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="ViewAdvanced" disabled="@IsBusy">知识管理</button>
+        <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="ResetWizard" disabled="@IsBusy">重新开始</button>
+    </div>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(ErrorMessage))
+{
+    <div class="alert alert-danger d-flex flex-wrap align-items-center justify-content-between gap-2" role="alert">
+        <span>@ErrorMessage</span>
+        <button class="btn btn-sm btn-outline-danger" type="button" @onclick="ClearError" disabled="@IsBusy">知道了</button>
+    </div>
+}
+
+@if (!string.IsNullOrWhiteSpace(LookupWarningMessage))
+{
+    <div class="alert alert-warning" role="status">@LookupWarningMessage</div>
+}
+
+@if (!HasRequiredWritePermissions)
+{
+    <div class="alert alert-warning" role="status">
+        当前账号缺少知识版本权限，页面可以预览流程，但无法保存草稿或发布知识。
+    </div>
+}
+
+<div class="knowledge-upload-flow mb-3" aria-label="知识上传流程">
+    <div class="knowledge-flow-step @GetStepClass(UploadStep.Content)">
+        <div class="knowledge-flow-index">1</div>
+        <div>
+            <div class="knowledge-flow-title">内容来源</div>
+            <div class="knowledge-flow-meta">@ContentStepSummary</div>
+        </div>
+    </div>
+    <div class="knowledge-flow-step @GetStepClass(UploadStep.Info)">
+        <div class="knowledge-flow-index">2</div>
+        <div>
+            <div class="knowledge-flow-title">基础信息</div>
+            <div class="knowledge-flow-meta">@InfoStepSummary</div>
+        </div>
+    </div>
+    <div class="knowledge-flow-step @GetStepClass(UploadStep.Visibility)">
+        <div class="knowledge-flow-index">3</div>
+        <div>
+            <div class="knowledge-flow-title">可见范围</div>
+            <div class="knowledge-flow-meta">@VisibilityStepSummary</div>
+        </div>
+    </div>
+    <div class="knowledge-flow-step @GetStepClass(UploadStep.Publish)">
+        <div class="knowledge-flow-index">4</div>
+        <div>
+            <div class="knowledge-flow-title">发布确认</div>
+            <div class="knowledge-flow-meta">@PublishStepSummary</div>
+        </div>
+    </div>
+    <div class="knowledge-flow-step @GetStepClass(UploadStep.Result)">
+        <div class="knowledge-flow-index">5</div>
+        <div>
+            <div class="knowledge-flow-title">结果处理</div>
+            <div class="knowledge-flow-meta">@ResultStepSummary</div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-3">
+    <div class="col-xl-8">
+        <div class="card">
+            <div class="card-body">
+                @if (IsLoading)
+                {
+                    <div class="text-center py-5 text-muted">加载中</div>
+                }
+                else if (CurrentStep == UploadStep.Content)
+                {
+                    <div class="d-flex flex-wrap align-items-start justify-content-between gap-2 mb-3">
+                        <div>
+                            <h2 class="h5 mb-1">选择内容来源</h2>
+                            <div class="text-muted small">正文、文本和可转换文档会进入 RAG；图片、音视频等高级解析文件先作为附件保存。</div>
+                        </div>
+                    </div>
+
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-3">
+                            <label class="@GetChoiceCss(UploadSourceMode.BodyText)" for="source-body">
+                                <div class="form-check">
+                                    <input id="source-body" class="form-check-input" type="radio" name="source-mode" checked="@(SourceMode == UploadSourceMode.BodyText)" @onchange="() => SelectSourceMode(UploadSourceMode.BodyText)" />
+                                    <span class="form-check-label fw-semibold">正文输入</span>
+                                </div>
+                                <div class="text-muted small mt-2">直接粘贴制度、流程、FAQ 或说明文本。</div>
+                                <span class="badge bg-success mt-3">可索引内容</span>
+                            </label>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="@GetChoiceCss(UploadSourceMode.IndexableFile)" for="source-indexable">
+                                <div class="form-check">
+                                    <input id="source-indexable" class="form-check-input" type="radio" name="source-mode" checked="@(SourceMode == UploadSourceMode.IndexableFile)" @onchange="() => SelectSourceMode(UploadSourceMode.IndexableFile)" />
+                                    <span class="form-check-label fw-semibold">文本或 Markdown</span>
+                                </div>
+                                <div class="text-muted small mt-2">支持 .txt、.md、.markdown，由后端读取附件内容。</div>
+                                <span class="badge bg-success mt-3">直接索引</span>
+                            </label>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="@GetChoiceCss(UploadSourceMode.ConvertibleFile)" for="source-convertible">
+                                <div class="form-check">
+                                    <input id="source-convertible" class="form-check-input" type="radio" name="source-mode" checked="@(SourceMode == UploadSourceMode.ConvertibleFile)" @onchange="() => SelectSourceMode(UploadSourceMode.ConvertibleFile)" />
+                                    <span class="form-check-label fw-semibold">文档转换</span>
+                                </div>
+                                <div class="text-muted small mt-2">支持 PDF、Word、PPT、Excel、HTML、CSV、JSON、XML。</div>
+                                <span class="badge bg-info text-dark mt-3">转换后索引</span>
+                            </label>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="@GetChoiceCss(UploadSourceMode.AttachmentOnly)" for="source-attachment">
+                                <div class="form-check">
+                                    <input id="source-attachment" class="form-check-input" type="radio" name="source-mode" checked="@(SourceMode == UploadSourceMode.AttachmentOnly)" @onchange="() => SelectSourceMode(UploadSourceMode.AttachmentOnly)" />
+                                    <span class="form-check-label fw-semibold">附件留存</span>
+                                </div>
+                                <div class="text-muted small mt-2">图片、音视频、压缩包和其他文件仅保存为附件。</div>
+                                <span class="badge bg-warning text-dark mt-3">仅附件内容</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    @if (SourceMode == UploadSourceMode.BodyText)
+                    {
+                        <div class="mb-3">
+                            <label class="form-label" for="upload-body">正文内容</label>
+                            <textarea id="upload-body" class="form-control" rows="12" maxlength="@MaxContentTextLength" @bind="Form.ContentText" @bind:event="oninput" disabled="@IsBusy"></textarea>
+                            <div class="form-text">@GetTextLengthText(Form.ContentText, MaxContentTextLength)</div>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="mb-3">
+                            <label class="form-label" for="upload-file">选择文件</label>
+                            <InputFile id="upload-file" class="form-control" OnChange="@OnFileSelected" disabled="@IsBusy" />
+                            <div class="form-text">@FileHelpText</div>
+                        </div>
+
+                        @if (SourceMode == UploadSourceMode.IndexableFile)
+                        {
+                            <div class="alert alert-info mb-0" role="status">
+                                文本或 Markdown 文件会作为附件保存，并在索引阶段直接读取为 Markdown 内容。
+                            </div>
+                        }
+                        else if (SourceMode == UploadSourceMode.ConvertibleFile)
+                        {
+                            <div class="alert alert-info mb-0" role="status">
+                                该文件会作为附件保存，并在索引阶段通过 MarkItDown 转换为 Markdown。若服务端未配置 markitdown，可在结果页看到 reader 阶段失败原因。
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="alert alert-warning mb-0" role="status">
+                                该模式不会把附件内容写入知识正文，也不会参与 RAG 检索。发布后用户只能在知识管理中查看附件。
+                            </div>
+                        }
+                    }
+
+                    <div class="d-flex flex-wrap justify-content-end gap-2 mt-4">
+                        <button class="btn btn-primary" type="button" @onclick="GoNext" disabled="@IsBusy">下一步</button>
+                    </div>
+                }
+                else if (CurrentStep == UploadStep.Info)
+                {
+                    <div class="mb-3">
+                        <h2 class="h5 mb-1">填写基础信息</h2>
+                        <div class="text-muted small">标题用于列表和问答引用，版本标题用于本次内容变更记录。</div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label" for="upload-title">知识标题</label>
+                        <input id="upload-title" class="form-control" maxlength="@MaxTitleLength" @bind="Form.Title" @bind:event="oninput" disabled="@IsBusy" />
+                        <div class="form-text">@GetTextLengthText(Form.Title, MaxTitleLength)</div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label" for="upload-category">分类</label>
+                        <select id="upload-category" class="form-select" @bind="Form.CategoryIdText" disabled="@(IsBusy || CategoryList.Count == 0)">
+                            <option value="">未分类</option>
+                            @foreach (var category in CategoryList)
+                            {
+                                <option value="@category.Id">@category.Name</option>
+                            }
+                        </select>
+                        @if (CategoryList.Count == 0)
+                        {
+                            <div class="form-text">当前没有可选择分类，上传后会保存为未分类。</div>
+                        }
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label" for="upload-summary">摘要</label>
+                        <textarea id="upload-summary" class="form-control" rows="4" maxlength="@MaxSummaryLength" @bind="Form.Summary" @bind:event="oninput" disabled="@IsBusy"></textarea>
+                        <div class="form-text">@GetTextLengthText(Form.Summary, MaxSummaryLength)</div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label" for="upload-version-title">版本标题</label>
+                        <input id="upload-version-title" class="form-control" maxlength="@MaxTitleLength" @bind="Form.VersionTitle" @bind:event="oninput" disabled="@IsBusy" />
+                    </div>
+
+                    <div class="d-flex flex-wrap justify-content-between gap-2 mt-4">
+                        <button class="btn btn-outline-secondary" type="button" @onclick="GoBack" disabled="@IsBusy">上一步</button>
+                        <button class="btn btn-primary" type="button" @onclick="GoNext" disabled="@IsBusy">下一步</button>
+                    </div>
+                }
+                else if (CurrentStep == UploadStep.Visibility)
+                {
+                    <div class="mb-3">
+                        <h2 class="h5 mb-1">确认可见范围</h2>
+                        <div class="text-muted small">默认全员可见。限制范围需要权限范围管理能力。</div>
+                    </div>
+
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-6">
+                            <label class="@GetVisibilityChoiceCss(KnowledgePermissionScopeType.All)" for="visibility-all">
+                                <div class="form-check">
+                                    <input id="visibility-all" class="form-check-input" type="radio" name="visibility-mode" checked="@(CurrentScopeType == KnowledgePermissionScopeType.All)" @onchange="() => SelectVisibility(KnowledgePermissionScopeType.All)" />
+                                    <span class="form-check-label fw-semibold">全员可见</span>
+                                </div>
+                                <div class="text-muted small mt-2">不创建权限范围，按后端默认规则面向全员。</div>
+                            </label>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="@GetRestrictedChoiceCss()" for="visibility-restricted">
+                                <div class="form-check">
+                                    <input id="visibility-restricted" class="form-check-input" type="radio" name="visibility-mode" checked="@(CurrentScopeType != KnowledgePermissionScopeType.All)" disabled="@(!CanUseRestrictedScopes)" @onchange="() => SelectVisibility(KnowledgePermissionScopeType.Department)" />
+                                    <span class="form-check-label fw-semibold">限制范围</span>
+                                </div>
+                                <div class="text-muted small mt-2">发布前创建部门、岗位、角色或用户范围。</div>
+                            </label>
+                        </div>
+                    </div>
+
+                    @if (CurrentScopeType == KnowledgePermissionScopeType.All)
+                    {
+                        <div class="alert alert-warning" role="status">
+                            发布后该知识默认全员可见。请确认内容不包含只允许部分岗位或部门查看的信息。
+                        </div>
+                    }
+                    else if (!CanUseRestrictedScopes)
+                    {
+                        <div class="alert alert-warning" role="status">
+                            当前无法加载或配置限制范围，请改为全员可见，或到知识管理中由管理员补充权限范围。
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label" for="upload-scope-type">范围类型</label>
+                                <select id="upload-scope-type" class="form-select" value="@Form.ScopeTypeText" @onchange="OnScopeTypeChanged" disabled="@IsBusy">
+                                    <option value="@KnowledgePermissionScopeType.Department">部门</option>
+                                    <option value="@KnowledgePermissionScopeType.Position">岗位</option>
+                                    <option value="@KnowledgePermissionScopeType.Role">角色</option>
+                                    <option value="@KnowledgePermissionScopeType.User">指定用户</option>
+                                </select>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label" for="upload-min-security">最低安全等级</label>
+                                <input id="upload-min-security" type="number" min="0" class="form-control" @bind="Form.MinimumSecurityLevel" disabled="@IsBusy" />
+                            </div>
+                        </div>
+
+                        @if (CurrentScopeType == KnowledgePermissionScopeType.Department)
+                        {
+                            <div class="mt-3">
+                                <label class="form-label" for="upload-scope-department">部门</label>
+                                <select id="upload-scope-department" class="form-select" @bind="Form.TargetIdText" disabled="@IsBusy">
+                                    <option value="">选择部门</option>
+                                    @foreach (var department in DepartmentList)
+                                    {
+                                        <option value="@department.Id">@department.Name</option>
+                                    }
+                                </select>
+                            </div>
+                        }
+                        else if (CurrentScopeType == KnowledgePermissionScopeType.Position)
+                        {
+                            <div class="mt-3">
+                                <label class="form-label" for="upload-scope-position">岗位</label>
+                                <select id="upload-scope-position" class="form-select" @bind="Form.TargetIdText" disabled="@IsBusy">
+                                    <option value="">选择岗位</option>
+                                    @foreach (var position in PositionList)
+                                    {
+                                        <option value="@position.Id">@position.Name</option>
+                                    }
+                                </select>
+                            </div>
+                        }
+                        else if (CurrentScopeType == KnowledgePermissionScopeType.Role)
+                        {
+                            <div class="mt-3">
+                                <label class="form-label" for="upload-scope-role">角色</label>
+                                <select id="upload-scope-role" class="form-select" @bind="Form.TargetIdText" disabled="@IsBusy">
+                                    <option value="">选择角色</option>
+                                    @foreach (var role in RoleList)
+                                    {
+                                        <option value="@role.Id">@role.Name</option>
+                                    }
+                                </select>
+                            </div>
+                        }
+                        else if (CurrentScopeType == KnowledgePermissionScopeType.User)
+                        {
+                            <div class="mt-3">
+                                <label class="form-label" for="upload-user-filter">用户搜索</label>
+                                <div class="input-group">
+                                    <input id="upload-user-filter" class="form-control" @bind="UserFilterText" @bind:event="oninput" disabled="@IsBusy" />
+                                    <button class="btn btn-outline-secondary" type="button" @onclick="LoadUsersAsync" disabled="@IsBusy">搜索</button>
+                                </div>
+                            </div>
+                            <div class="mt-3">
+                                <label class="form-label" for="upload-scope-user">用户</label>
+                                <select id="upload-scope-user" class="form-select" @bind="Form.TargetIdText" disabled="@IsBusy">
+                                    <option value="">选择用户</option>
+                                    @foreach (var user in UserList)
+                                    {
+                                        <option value="@user.Id">@GetUserDisplayName(user)</option>
+                                    }
+                                </select>
+                            </div>
+                        }
+                    }
+
+                    <div class="d-flex flex-wrap justify-content-between gap-2 mt-4">
+                        <button class="btn btn-outline-secondary" type="button" @onclick="GoBack" disabled="@IsBusy">上一步</button>
+                        <button class="btn btn-primary" type="button" @onclick="GoNext" disabled="@IsBusy">下一步</button>
+                    </div>
+                }
+                else if (CurrentStep == UploadStep.Publish)
+                {
+                    <div class="mb-3">
+                        <h2 class="h5 mb-1">发布确认</h2>
+                        <div class="text-muted small">保存草稿不会发布版本，发布会创建索引任务。</div>
+                    </div>
+
+                    <div class="knowledge-upload-summary mb-4">
+                        <div class="knowledge-upload-summary-item">
+                            <span class="text-muted">知识标题</span>
+                            <span class="knowledge-upload-summary-value">@Form.Title</span>
+                        </div>
+                        <div class="knowledge-upload-summary-item">
+                            <span class="text-muted">内容来源</span>
+                            <span class="knowledge-upload-summary-value">@ContentStepSummary</span>
+                        </div>
+                        <div class="knowledge-upload-summary-item">
+                            <span class="text-muted">RAG 状态</span>
+                            <span class="knowledge-upload-summary-value">@RagCoverageText</span>
+                        </div>
+                        <div class="knowledge-upload-summary-item">
+                            <span class="text-muted">可见范围</span>
+                            <span class="knowledge-upload-summary-value">@VisibilityStepSummary</span>
+                        </div>
+                        <div class="knowledge-upload-summary-item">
+                            <span class="text-muted">分类</span>
+                            <span class="knowledge-upload-summary-value">@CategorySummaryText</span>
+                        </div>
+                    </div>
+
+                    @if (CurrentScopeType == KnowledgePermissionScopeType.All)
+                    {
+                        <div class="alert alert-warning" role="status">
+                            本次发布将默认全员可见。确认无敏感内容后再发布。
+                        </div>
+                    }
+
+                    @if (SourceMode == UploadSourceMode.AttachmentOnly)
+                    {
+                        <div class="alert alert-warning" role="status">
+                            当前文件仅作为附件保存，不会进入 RAG 问答。若希望被问答检索，请改用正文输入、文本/Markdown 文件或文档转换模式。
+                        </div>
+                    }
+
+                    @if (SourceMode == UploadSourceMode.ConvertibleFile)
+                    {
+                        <div class="alert alert-info" role="status">
+                            发布后索引任务会调用 MarkItDown 转换附件。若服务端没有安装或配置 markitdown，结果页会显示 reader 阶段失败。
+                        </div>
+                    }
+
+                    <div class="d-flex flex-wrap justify-content-between gap-2 mt-4">
+                        <button class="btn btn-outline-secondary" type="button" @onclick="GoBack" disabled="@IsBusy">上一步</button>
+                        <div class="d-flex flex-wrap gap-2">
+                            <button class="btn btn-outline-primary" type="button" @onclick="SaveDraftAsync" disabled="@(IsBusy || !HasRequiredWritePermissions)">保存草稿</button>
+                            <button class="btn btn-primary" type="button" @onclick="PublishAsync" disabled="@(IsBusy || !HasRequiredWritePermissions)">发布并创建索引</button>
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    <div class="mb-3">
+                        <h2 class="h5 mb-1">@ResultTitle</h2>
+                        <div class="text-muted small">@ResultDescription</div>
+                    </div>
+
+                    @if (ResultKind == UploadResultKind.Failed)
+                    {
+                        <div class="alert alert-danger" role="alert">
+                            <div class="fw-semibold">失败阶段：@FailureStageText</div>
+                            <div class="mt-1">@FailureReasonText</div>
+                        </div>
+                    }
+                    else if (HasIndexFailure)
+                    {
+                        <div class="alert alert-danger" role="alert">
+                            <div class="fw-semibold">索引失败：@LatestIndexJob?.FailureStage</div>
+                            <div class="mt-1">@LatestIndexJob?.FailureReason</div>
+                        </div>
+                    }
+                    else if (ResultKind == UploadResultKind.DraftSaved)
+                    {
+                        <div class="alert alert-info" role="status">草稿已保存，可以稍后到知识管理中继续发布。</div>
+                    }
+                    else
+                    {
+                        <div class="alert alert-success" role="status">知识已发布。索引处理完成后即可在问答中验证。</div>
+                    }
+
+                    @if (LatestIndexJob != null)
+                    {
+                        <div class="knowledge-upload-summary mb-4">
+                            <div class="knowledge-upload-summary-item">
+                                <span class="text-muted">索引状态</span>
+                                <span class="knowledge-upload-summary-value">
+                                    <span class="badge @GetIndexStatusBadge(LatestIndexJob.Status)">@GetIndexStatusText(LatestIndexJob.Status)</span>
+                                </span>
+                            </div>
+                            <div class="knowledge-upload-summary-item">
+                                <span class="text-muted">索引时间</span>
+                                <span class="knowledge-upload-summary-value">@GetIndexJobTimeText(LatestIndexJob)</span>
+                            </div>
+                        </div>
+                    }
+
+                    <div class="d-flex flex-wrap gap-2">
+                        @if (ResultKind == UploadResultKind.Failed || HasIndexFailure)
+                        {
+                            @if (HasIndexFailure && CanManageIndexJobs)
+                            {
+                                <button class="btn btn-primary" type="button" @onclick="RetryIndexAsync" disabled="@IsBusy">重试索引</button>
+                            }
+                            <button class="btn btn-outline-secondary" type="button" @onclick="ReturnToEdit" disabled="@IsBusy">返回修改内容</button>
+                            @if (CanManageIndexJobs)
+                            {
+                                <button class="btn btn-outline-secondary" type="button" @onclick="ViewIndexJobs" disabled="@IsBusy">查看索引任务</button>
+                            }
+                        }
+                        else
+                        {
+                            <button class="btn btn-primary" type="button" @onclick="GoToRag" disabled="@IsBusy">去问答验证</button>
+                            <button class="btn btn-outline-primary" type="button" @onclick="ResetWizard" disabled="@IsBusy">继续上传下一份</button>
+                            <button class="btn btn-outline-secondary" type="button" @onclick="ViewAdvanced" disabled="@IsBusy">查看高级管理</button>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+
+    <div class="col-xl-4">
+        <div class="card mb-3">
+            <div class="card-body">
+                <h2 class="h6 mb-3">当前状态</h2>
+                <div class="knowledge-upload-summary">
+                    <div class="knowledge-upload-summary-item">
+                        <span class="text-muted">步骤</span>
+                        <span class="knowledge-upload-summary-value">@GetStepText(CurrentStep)</span>
+                    </div>
+                    <div class="knowledge-upload-summary-item">
+                        <span class="text-muted">内容</span>
+                        <span class="knowledge-upload-summary-value">@ContentStepSummary</span>
+                    </div>
+                    <div class="knowledge-upload-summary-item">
+                        <span class="text-muted">RAG</span>
+                        <span class="knowledge-upload-summary-value">@RagCoverageText</span>
+                    </div>
+                    <div class="knowledge-upload-summary-item">
+                        <span class="text-muted">可见范围</span>
+                        <span class="knowledge-upload-summary-value">@VisibilityStepSummary</span>
+                    </div>
+                    <div class="knowledge-upload-summary-item">
+                        <span class="text-muted">附件权限</span>
+                        <span class="knowledge-upload-summary-value">@(CanUploadAttachment ? "可上传" : "不可上传")</span>
+                    </div>
+                    <div class="knowledge-upload-summary-item">
+                        <span class="text-muted">索引任务</span>
+                        <span class="knowledge-upload-summary-value">@IndexSummaryText</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-body">
+                <h2 class="h6 mb-3">文件规则</h2>
+                <div class="small text-muted">
+                    <div class="mb-2">直接索引：正文、.txt、.md、.markdown。</div>
+                    <div class="mb-2">转换后索引：PDF、Word、PPT、Excel、HTML、CSV、JSON、XML。</div>
+                    <div class="mb-2">仅附件：图片、音频、视频、压缩包和其他二进制文件。</div>
+                    <div>单个附件最大 @FormatFileSize(MaxAttachmentBytes)。</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private const int MaxTitleLength = 256;
+    private const int MaxSummaryLength = 1024;
+    private const int MaxContentTextLength = 8192;
+    private const long MaxAttachmentBytes = 20 * 1024 * 1024;
+    private const long MaxIndexableTextBytes = 128 * 1024;
+
+    private readonly List<KnowledgeCategoryDto> CategoryList = new();
+    private readonly List<DepartmentDto> DepartmentList = new();
+    private readonly List<PositionDto> PositionList = new();
+    private readonly List<IdentityRoleDto> RoleList = new();
+    private readonly List<IdentityUserDto> UserList = new();
+
+    private UploadFormModel Form { get; set; } = new();
+    private UploadStep CurrentStep { get; set; } = UploadStep.Content;
+    private UploadSourceMode SourceMode { get; set; } = UploadSourceMode.BodyText;
+    private UploadResultKind? ResultKind { get; set; }
+    private IBrowserFile? SelectedFile { get; set; }
+    private KnowledgeIndexJobDto? LatestIndexJob { get; set; }
+    private Guid? CreatedItemId { get; set; }
+    private Guid? CreatedVersionId { get; set; }
+    private bool IsLoading { get; set; }
+    private bool IsBusy { get; set; }
+    private bool CanManageCategories { get; set; }
+    private bool CanCreateVersion { get; set; }
+    private bool CanUploadAttachment { get; set; }
+    private bool CanManagePermissionScopes { get; set; }
+    private bool CanManageIndexJobs { get; set; }
+    private bool ScopeTargetsLoadFailed { get; set; }
+    private string? UserFilterText { get; set; }
+    private string? ErrorMessage { get; set; }
+    private string? LookupWarningMessage { get; set; }
+    private string? FailureStageText { get; set; }
+    private string? FailureReasonText { get; set; }
+
+    private bool HasRequiredWritePermissions => CanCreateVersion;
+    private bool CanUseRestrictedScopes => CanManagePermissionScopes && !ScopeTargetsLoadFailed;
+    private bool HasIndexFailure => LatestIndexJob?.Status == KnowledgeIndexJobStatus.Failed;
+    private KnowledgePermissionScopeType CurrentScopeType => ParseScopeType(Form.ScopeTypeText);
+    private string ContentStepSummary => SourceMode switch
+    {
+        UploadSourceMode.BodyText => string.IsNullOrWhiteSpace(Form.ContentText) ? "正文输入" : $"正文 {Form.ContentText.Length} 字",
+        UploadSourceMode.IndexableFile => SelectedFile == null ? "文本或 Markdown" : SelectedFile.Name,
+        UploadSourceMode.ConvertibleFile => SelectedFile == null ? "文档转换" : SelectedFile.Name,
+        UploadSourceMode.AttachmentOnly => SelectedFile == null ? "附件留存" : SelectedFile.Name,
+        _ => "未选择"
+    };
+    private string InfoStepSummary => string.IsNullOrWhiteSpace(Form.Title) ? "未填写标题" : Form.Title;
+    private string VisibilityStepSummary => CurrentScopeType == KnowledgePermissionScopeType.All
+        ? "全员可见"
+        : $"{GetScopeTypeText(CurrentScopeType)}：{GetSelectedScopeTargetText()}";
+    private string PublishStepSummary => ResultKind == null ? "等待确认" : ResultStepSummary;
+    private string ResultStepSummary => ResultKind switch
+    {
+        UploadResultKind.DraftSaved => "草稿已保存",
+        UploadResultKind.Published when HasIndexFailure => "索引失败",
+        UploadResultKind.Published => "已发布",
+        UploadResultKind.Failed => "处理失败",
+        _ => "未完成"
+    };
+    private string RagCoverageText => SourceMode switch
+    {
+        UploadSourceMode.AttachmentOnly => "不参与 RAG",
+        UploadSourceMode.ConvertibleFile => "转换后参与 RAG",
+        _ => "可参与 RAG"
+    };
+    private string FileHelpText => SelectedFile == null
+        ? $"未选择文件，最大 {FormatFileSize(MaxAttachmentBytes)}"
+        : $"{SelectedFile.Name} / {FormatFileSize(SelectedFile.Size)}";
+    private string CategorySummaryText => ParseNullableGuid(Form.CategoryIdText) is { } categoryId
+        ? CategoryList.FirstOrDefault(x => x.Id == categoryId)?.Name ?? categoryId.ToString("N")
+        : "未分类";
+    private string IndexSummaryText => LatestIndexJob == null
+        ? (CanManageIndexJobs ? "未创建" : "无索引权限")
+        : GetIndexStatusText(LatestIndexJob.Status);
+    private string ResultTitle => ResultKind switch
+    {
+        UploadResultKind.DraftSaved => "草稿已保存",
+        UploadResultKind.Published when HasIndexFailure => "发布成功，索引失败",
+        UploadResultKind.Published => "上传完成",
+        UploadResultKind.Failed => "处理失败",
+        _ => "等待结果"
+    };
+    private string ResultDescription => ResultKind switch
+    {
+        UploadResultKind.DraftSaved => "草稿不会进入问答检索，发布后才会创建索引任务。",
+        UploadResultKind.Published when LatestIndexJob?.Status == KnowledgeIndexJobStatus.Indexed => "索引已完成，可以直接去问答验证。",
+        UploadResultKind.Published => "发布已经完成，索引任务会继续处理。",
+        UploadResultKind.Failed => "本次处理没有完成，请按失败阶段返回修正或重试。",
+        _ => ""
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        IsLoading = true;
+        try
+        {
+            CanManageCategories = await PermissionChecker.IsGrantedAsync(KnowPulsePermissions.KnowledgeBase.Categories);
+            CanCreateVersion = await PermissionChecker.IsGrantedAsync(KnowPulsePermissions.KnowledgeBase.Versions);
+            CanUploadAttachment = await PermissionChecker.IsGrantedAsync(KnowPulsePermissions.KnowledgeBase.Attachments);
+            CanManagePermissionScopes = await PermissionChecker.IsGrantedAsync(KnowPulsePermissions.KnowledgeBase.PermissionScopes);
+            CanManageIndexJobs = await PermissionChecker.IsGrantedAsync(KnowPulsePermissions.KnowledgeIndexing.IndexJobs);
+
+            await LoadCategoriesAsync();
+            await LoadScopeTargetsAsync();
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = GetUserFriendlyErrorMessage(ex);
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+
+    private async Task LoadCategoriesAsync()
+    {
+        if (!CanManageCategories)
+        {
+            return;
+        }
+
+        try
+        {
+            var categories = await CategoryAppService.GetListAsync(new PagedAndSortedResultRequestDto { MaxResultCount = 100 });
+            CategoryList.Clear();
+            CategoryList.AddRange(categories.Items.Where(x => x.IsActive).OrderBy(x => x.Code));
+        }
+        catch (Exception ex)
+        {
+            AppendLookupWarning($"分类加载失败，上传时将使用未分类：{GetUserFriendlyErrorMessage(ex)}");
+        }
+    }
+
+    private async Task LoadScopeTargetsAsync()
+    {
+        if (!CanManagePermissionScopes)
+        {
+            return;
+        }
+
+        try
+        {
+            var departments = await DepartmentAppService.GetListAsync(new PagedAndSortedResultRequestDto { MaxResultCount = 100 });
+            var positions = await PositionAppService.GetListAsync(new PagedAndSortedResultRequestDto { MaxResultCount = 100 });
+            var roles = await IdentityRoleAppService.GetListAsync(new GetIdentityRolesInput { MaxResultCount = 100 });
+
+            DepartmentList.Clear();
+            DepartmentList.AddRange(departments.Items.OrderBy(x => x.Code));
+            PositionList.Clear();
+            PositionList.AddRange(positions.Items.OrderBy(x => x.Code));
+            RoleList.Clear();
+            RoleList.AddRange(roles.Items.OrderBy(x => x.Name));
+            await LoadUsersCoreAsync();
+        }
+        catch (Exception ex)
+        {
+            ScopeTargetsLoadFailed = true;
+            AppendLookupWarning($"限制范围候选项加载失败，本次只能按全员可见上传：{GetUserFriendlyErrorMessage(ex)}");
+            SelectVisibility(KnowledgePermissionScopeType.All);
+        }
+    }
+
+    private async Task LoadUsersAsync()
+    {
+        await RunBusyAsync(LoadUsersCoreAsync);
+    }
+
+    private async Task LoadUsersCoreAsync()
+    {
+        var users = await IdentityUserAppService.GetListAsync(new GetIdentityUsersInput
+        {
+            MaxResultCount = 100,
+            Filter = UserFilterText
+        });
+
+        UserList.Clear();
+        UserList.AddRange(users.Items.OrderBy(x => x.UserName));
+    }
+
+    private void SelectSourceMode(UploadSourceMode sourceMode)
+    {
+        SourceMode = sourceMode;
+        ErrorMessage = null;
+        if (sourceMode == UploadSourceMode.BodyText)
+        {
+            SelectedFile = null;
+        }
+    }
+
+    private void SelectVisibility(KnowledgePermissionScopeType scopeType)
+    {
+        if (scopeType != KnowledgePermissionScopeType.All && !CanUseRestrictedScopes)
+        {
+            return;
+        }
+
+        Form.ScopeTypeText = scopeType.ToString();
+        Form.TargetIdText = null;
+    }
+
+    private void OnScopeTypeChanged(ChangeEventArgs args)
+    {
+        Form.ScopeTypeText = args.Value?.ToString() ?? KnowledgePermissionScopeType.Department.ToString();
+        Form.TargetIdText = null;
+    }
+
+    private void OnFileSelected(InputFileChangeEventArgs args)
+    {
+        SelectedFile = args.File;
+        if (SelectedFile == null)
+        {
+            return;
+        }
+
+        var fileTitle = Path.GetFileNameWithoutExtension(SelectedFile.Name);
+        if (string.IsNullOrWhiteSpace(Form.Title))
+        {
+            Form.Title = fileTitle;
+        }
+
+        if (string.IsNullOrWhiteSpace(Form.VersionTitle))
+        {
+            Form.VersionTitle = "初始版本";
+        }
+    }
+
+    private void GoNext()
+    {
+        ErrorMessage = null;
+        if (CurrentStep == UploadStep.Content && !ValidateContentStep())
+        {
+            return;
+        }
+
+        if (CurrentStep == UploadStep.Info && !ValidateInfoStep())
+        {
+            return;
+        }
+
+        if (CurrentStep == UploadStep.Visibility && !ValidateVisibilityStep())
+        {
+            return;
+        }
+
+        if (CurrentStep < UploadStep.Result)
+        {
+            CurrentStep = (UploadStep)((int)CurrentStep + 1);
+        }
+    }
+
+    private void GoBack()
+    {
+        ErrorMessage = null;
+        if (CurrentStep > UploadStep.Content)
+        {
+            CurrentStep = (UploadStep)((int)CurrentStep - 1);
+        }
+    }
+
+    private async Task SaveDraftAsync()
+    {
+        await ExecuteCreationAsync(publish: false);
+    }
+
+    private async Task PublishAsync()
+    {
+        await ExecuteCreationAsync(publish: true);
+    }
+
+    private async Task ExecuteCreationAsync(bool publish)
+    {
+        ErrorMessage = null;
+        ResultKind = null;
+        FailureStageText = null;
+        FailureReasonText = null;
+        LatestIndexJob = null;
+
+        if (!ValidateAllSteps())
+        {
+            return;
+        }
+
+        string? contentText;
+        try
+        {
+            FailureStageText = "读取可索引正文";
+            contentText = await ResolveContentTextAsync();
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = GetUserFriendlyErrorMessage(ex);
+            CurrentStep = UploadStep.Content;
+            return;
+        }
+
+        IsBusy = true;
+        try
+        {
+            var title = Form.Title?.Trim() ?? string.Empty;
+            var versionTitle = Form.VersionTitle.Trim();
+
+            FailureStageText = "创建知识文档";
+            var item = await KnowledgeItemAppService.CreateAsync(new CreateKnowledgeItemDto
+            {
+                CategoryId = ParseNullableGuid(Form.CategoryIdText),
+                Title = title,
+                Summary = NormalizeOptionalText(Form.Summary)
+            });
+
+            CreatedItemId = item.Id;
+
+            FailureStageText = "创建知识版本";
+            var version = await KnowledgeItemAppService.CreateVersionAsync(item.Id, new CreateKnowledgeVersionDto
+            {
+                Title = versionTitle,
+                ContentText = contentText
+            });
+
+            CreatedVersionId = version.Id;
+
+            if (SourceMode != UploadSourceMode.BodyText)
+            {
+                FailureStageText = "上传附件";
+                await UploadSelectedFileAsync(item.Id, version.Id);
+            }
+
+            if (CurrentScopeType != KnowledgePermissionScopeType.All)
+            {
+                FailureStageText = "配置可见范围";
+                await KnowledgeItemAppService.CreatePermissionScopeAsync(item.Id, new CreateKnowledgePermissionScopeDto
+                {
+                    ScopeType = CurrentScopeType,
+                    TargetId = ParseNullableGuid(Form.TargetIdText),
+                    MinimumSecurityLevel = Form.MinimumSecurityLevel
+                });
+            }
+
+            if (publish)
+            {
+                FailureStageText = "发布并创建索引";
+                await KnowledgeItemAppService.PublishVersionAsync(item.Id, version.Id);
+                ResultKind = UploadResultKind.Published;
+                await LoadLatestIndexJobAsync(version.Id);
+            }
+            else
+            {
+                ResultKind = UploadResultKind.DraftSaved;
+            }
+
+            CurrentStep = UploadStep.Result;
+        }
+        catch (Exception ex)
+        {
+            ResultKind = UploadResultKind.Failed;
+            FailureReasonText = GetUserFriendlyErrorMessage(ex);
+            CurrentStep = UploadStep.Result;
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    private async Task<string?> ResolveContentTextAsync()
+    {
+        if (SourceMode == UploadSourceMode.BodyText)
+        {
+            return NormalizeOptionalText(Form.ContentText);
+        }
+
+        if (SourceMode is UploadSourceMode.IndexableFile or UploadSourceMode.ConvertibleFile or UploadSourceMode.AttachmentOnly)
+        {
+            return null;
+        }
+
+        await Task.CompletedTask;
+        return null;
+    }
+
+    private async Task UploadSelectedFileAsync(Guid itemId, Guid versionId)
+    {
+        if (SelectedFile == null)
+        {
+            return;
+        }
+
+        var stream = SelectedFile.OpenReadStream(MaxAttachmentBytes);
+        using var content = new RemoteStreamContent(
+            stream,
+            SelectedFile.Name,
+            string.IsNullOrWhiteSpace(SelectedFile.ContentType) ? "application/octet-stream" : SelectedFile.ContentType,
+            SelectedFile.Size,
+            disposeStream: true);
+
+        await KnowledgeItemAppService.UploadAttachmentAsync(itemId, versionId, content);
+    }
+
+    private async Task LoadLatestIndexJobAsync(Guid versionId)
+    {
+        if (!CanManageIndexJobs)
+        {
+            return;
+        }
+
+        var result = await IndexJobAppService.GetListAsync(new GetKnowledgeIndexJobListInput
+        {
+            KnowledgeVersionId = versionId,
+            MaxResultCount = 20
+        });
+
+        LatestIndexJob = result.Items.OrderByDescending(x => x.CreationTime).FirstOrDefault();
+    }
+
+    private async Task RetryIndexAsync()
+    {
+        if (LatestIndexJob == null || !CanManageIndexJobs)
+        {
+            return;
+        }
+
+        await RunBusyAsync(async () =>
+        {
+            LatestIndexJob = await IndexJobAppService.RetryAsync(LatestIndexJob.Id);
+            await LoadLatestIndexJobAsync(LatestIndexJob.KnowledgeVersionId);
+        });
+    }
+
+    private bool ValidateAllSteps()
+    {
+        if (!ValidateContentStep())
+        {
+            CurrentStep = UploadStep.Content;
+            return false;
+        }
+
+        if (!ValidateInfoStep())
+        {
+            CurrentStep = UploadStep.Info;
+            return false;
+        }
+
+        if (!ValidateVisibilityStep())
+        {
+            CurrentStep = UploadStep.Visibility;
+            return false;
+        }
+
+        if (!CanCreateVersion)
+        {
+            ErrorMessage = "缺少知识版本权限，无法创建版本或发布知识。";
+            return false;
+        }
+
+        if (SourceMode != UploadSourceMode.BodyText && !CanUploadAttachment)
+        {
+            CurrentStep = UploadStep.Content;
+            ErrorMessage = "缺少附件上传权限，无法上传文件。";
+            return false;
+        }
+
+        return true;
+    }
+
+    private bool ValidateContentStep()
+    {
+        if (SourceMode == UploadSourceMode.BodyText)
+        {
+            if (string.IsNullOrWhiteSpace(Form.ContentText))
+            {
+                ErrorMessage = "请填写正文内容。";
+                return false;
+            }
+
+            if (Form.ContentText.Length > MaxContentTextLength)
+            {
+                ErrorMessage = $"正文不能超过 {MaxContentTextLength} 个字符。";
+                return false;
+            }
+
+            return true;
+        }
+
+        if (SelectedFile == null)
+        {
+            ErrorMessage = "请选择要上传的文件。";
+            return false;
+        }
+
+        if (SelectedFile.Size > MaxAttachmentBytes)
+        {
+            ErrorMessage = $"文件不能超过 {FormatFileSize(MaxAttachmentBytes)}。";
+            return false;
+        }
+
+        if (!CanUploadAttachment)
+        {
+            ErrorMessage = "缺少附件上传权限，无法上传文件。";
+            return false;
+        }
+
+        if (SourceMode == UploadSourceMode.IndexableFile)
+        {
+            if (!IsSupportedIndexableFile(SelectedFile.Name))
+            {
+                ErrorMessage = "直接索引文件仅支持 .txt、.md、.markdown。";
+                return false;
+            }
+
+            if (SelectedFile.Size > MaxIndexableTextBytes)
+            {
+                ErrorMessage = $"文本文件过大，当前可读取上限为 {FormatFileSize(MaxIndexableTextBytes)}。";
+                return false;
+            }
+        }
+        else if (SourceMode == UploadSourceMode.ConvertibleFile && !IsSupportedConvertibleFile(SelectedFile.Name))
+        {
+            ErrorMessage = "可转换文档仅支持 PDF、Word、PPT、Excel、HTML、CSV、JSON、XML。";
+            return false;
+        }
+
+        return true;
+    }
+
+    private bool ValidateInfoStep()
+    {
+        if (string.IsNullOrWhiteSpace(Form.Title))
+        {
+            ErrorMessage = "请填写知识标题。";
+            return false;
+        }
+
+        if (Form.Title.Length > MaxTitleLength)
+        {
+            ErrorMessage = $"知识标题不能超过 {MaxTitleLength} 个字符。";
+            return false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(Form.Summary) && Form.Summary.Length > MaxSummaryLength)
+        {
+            ErrorMessage = $"摘要不能超过 {MaxSummaryLength} 个字符。";
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(Form.VersionTitle))
+        {
+            ErrorMessage = "请填写版本标题。";
+            return false;
+        }
+
+        if (Form.VersionTitle.Length > MaxTitleLength)
+        {
+            ErrorMessage = $"版本标题不能超过 {MaxTitleLength} 个字符。";
+            return false;
+        }
+
+        return true;
+    }
+
+    private bool ValidateVisibilityStep()
+    {
+        if (CurrentScopeType == KnowledgePermissionScopeType.All)
+        {
+            return true;
+        }
+
+        if (!CanUseRestrictedScopes)
+        {
+            ErrorMessage = "当前无法配置限制范围，请选择全员可见。";
+            return false;
+        }
+
+        if (ParseNullableGuid(Form.TargetIdText) == null)
+        {
+            ErrorMessage = "请选择可见范围目标。";
+            return false;
+        }
+
+        return true;
+    }
+
+    private void ReturnToEdit()
+    {
+        ErrorMessage = null;
+        ResultKind = null;
+        LatestIndexJob = null;
+        CurrentStep = UploadStep.Publish;
+    }
+
+    private void ResetWizard()
+    {
+        Form = new UploadFormModel();
+        CurrentStep = UploadStep.Content;
+        SourceMode = UploadSourceMode.BodyText;
+        ResultKind = null;
+        SelectedFile = null;
+        LatestIndexJob = null;
+        CreatedItemId = null;
+        CreatedVersionId = null;
+        ErrorMessage = null;
+        FailureStageText = null;
+        FailureReasonText = null;
+    }
+
+    private void ViewAdvanced()
+    {
+        if (CreatedItemId.HasValue && CreatedVersionId.HasValue)
+        {
+            NavigationManager.NavigateTo($"/knowledge/items?itemId={CreatedItemId.Value}&versionId={CreatedVersionId.Value}");
+            return;
+        }
+
+        NavigationManager.NavigateTo("/knowledge/items");
+    }
+
+    private void GoToRag()
+    {
+        NavigationManager.NavigateTo("/rag/answer");
+    }
+
+    private void ViewIndexJobs()
+    {
+        NavigationManager.NavigateTo("/knowledge/index-jobs");
+    }
+
+    private void ClearError()
+    {
+        ErrorMessage = null;
+    }
+
+    private async Task RunBusyAsync(Func<Task> action)
+    {
+        try
+        {
+            ErrorMessage = null;
+            IsBusy = true;
+            await action();
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = GetUserFriendlyErrorMessage(ex);
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    private void AppendLookupWarning(string message)
+    {
+        LookupWarningMessage = string.IsNullOrWhiteSpace(LookupWarningMessage)
+            ? message
+            : $"{LookupWarningMessage} {message}";
+    }
+
+    private string GetStepClass(UploadStep step)
+    {
+        if (step == CurrentStep)
+        {
+            return "is-current";
+        }
+
+        return step < CurrentStep ? "is-complete" : "";
+    }
+
+    private string GetChoiceCss(UploadSourceMode sourceMode)
+    {
+        return SourceMode == sourceMode ? "knowledge-upload-choice is-selected" : "knowledge-upload-choice";
+    }
+
+    private string GetVisibilityChoiceCss(KnowledgePermissionScopeType scopeType)
+    {
+        return CurrentScopeType == scopeType ? "knowledge-upload-choice is-selected" : "knowledge-upload-choice";
+    }
+
+    private string GetRestrictedChoiceCss()
+    {
+        var css = CurrentScopeType == KnowledgePermissionScopeType.All
+            ? "knowledge-upload-choice"
+            : "knowledge-upload-choice is-selected";
+
+        return CanUseRestrictedScopes ? css : $"{css} text-muted";
+    }
+
+    private string GetSelectedScopeTargetText()
+    {
+        var targetId = ParseNullableGuid(Form.TargetIdText);
+        if (targetId == null)
+        {
+            return "未选择";
+        }
+
+        return CurrentScopeType switch
+        {
+            KnowledgePermissionScopeType.Department => DepartmentList.FirstOrDefault(x => x.Id == targetId.Value)?.Name ?? targetId.Value.ToString("N"),
+            KnowledgePermissionScopeType.Position => PositionList.FirstOrDefault(x => x.Id == targetId.Value)?.Name ?? targetId.Value.ToString("N"),
+            KnowledgePermissionScopeType.Role => RoleList.FirstOrDefault(x => x.Id == targetId.Value)?.Name ?? $"角色 {targetId.Value:N}",
+            KnowledgePermissionScopeType.User => UserList.FirstOrDefault(x => x.Id == targetId.Value) is { } user ? GetUserDisplayName(user) : $"用户 {targetId.Value:N}",
+            _ => targetId.Value.ToString("N")
+        };
+    }
+
+    private static string GetUserDisplayName(IdentityUserDto user)
+    {
+        var displayName = string.Join(" ", new[] { user.Name, user.Surname }.Where(x => !string.IsNullOrWhiteSpace(x)));
+        return string.IsNullOrWhiteSpace(displayName)
+            ? $"{user.UserName} ({user.Email})"
+            : $"{displayName} / {user.UserName} ({user.Email})";
+    }
+
+    private static string GetScopeTypeText(KnowledgePermissionScopeType scopeType)
+    {
+        return scopeType switch
+        {
+            KnowledgePermissionScopeType.All => "全员",
+            KnowledgePermissionScopeType.Department => "部门",
+            KnowledgePermissionScopeType.Position => "岗位",
+            KnowledgePermissionScopeType.Role => "角色",
+            KnowledgePermissionScopeType.User => "指定用户",
+            _ => scopeType.ToString()
+        };
+    }
+
+    private static string GetStepText(UploadStep step)
+    {
+        return step switch
+        {
+            UploadStep.Content => "1 / 内容来源",
+            UploadStep.Info => "2 / 基础信息",
+            UploadStep.Visibility => "3 / 可见范围",
+            UploadStep.Publish => "4 / 发布确认",
+            UploadStep.Result => "5 / 结果处理",
+            _ => step.ToString()
+        };
+    }
+
+    private static string GetIndexStatusText(KnowledgeIndexJobStatus status)
+    {
+        return status switch
+        {
+            KnowledgeIndexJobStatus.Pending => "待处理",
+            KnowledgeIndexJobStatus.Processing => "处理中",
+            KnowledgeIndexJobStatus.Indexed => "已索引",
+            KnowledgeIndexJobStatus.Failed => "失败",
+            KnowledgeIndexJobStatus.Outdated => "已过期",
+            KnowledgeIndexJobStatus.Deleted => "已删除",
+            _ => status.ToString()
+        };
+    }
+
+    private static string GetIndexStatusBadge(KnowledgeIndexJobStatus status)
+    {
+        return status switch
+        {
+            KnowledgeIndexJobStatus.Pending => "bg-warning text-dark",
+            KnowledgeIndexJobStatus.Processing => "bg-info text-dark",
+            KnowledgeIndexJobStatus.Indexed => "bg-success",
+            KnowledgeIndexJobStatus.Failed => "bg-danger",
+            KnowledgeIndexJobStatus.Outdated => "bg-secondary",
+            KnowledgeIndexJobStatus.Deleted => "bg-dark",
+            _ => "bg-secondary"
+        };
+    }
+
+    private static string GetIndexJobTimeText(KnowledgeIndexJobDto job)
+    {
+        if (job.CompletedTime.HasValue)
+        {
+            return $"完成于 {job.CompletedTime.Value:yyyy-MM-dd HH:mm}";
+        }
+
+        if (job.StartedTime.HasValue)
+        {
+            return $"开始于 {job.StartedTime.Value:yyyy-MM-dd HH:mm}";
+        }
+
+        return $"创建于 {job.CreationTime:yyyy-MM-dd HH:mm}";
+    }
+
+    private static string GetTextLengthText(string? value, int maxLength)
+    {
+        return $"{(value?.Length ?? 0)} / {maxLength}";
+    }
+
+    private static string FormatFileSize(long bytes)
+    {
+        if (bytes >= 1024 * 1024)
+        {
+            return $"{bytes / 1024d / 1024d:0.#} MB";
+        }
+
+        if (bytes >= 1024)
+        {
+            return $"{bytes / 1024d:0.#} KB";
+        }
+
+        return $"{bytes} B";
+    }
+
+    private static bool IsSupportedIndexableFile(string fileName)
+    {
+        var extension = Path.GetExtension(fileName).ToLowerInvariant();
+        return extension is ".txt" or ".md" or ".markdown";
+    }
+
+    private static bool IsSupportedConvertibleFile(string fileName)
+    {
+        var extension = Path.GetExtension(fileName).ToLowerInvariant();
+        return extension is ".pdf" or ".doc" or ".docx" or ".ppt" or ".pptx" or ".xls" or ".xlsx" or ".html" or ".htm" or ".csv" or ".json" or ".xml";
+    }
+
+    private static KnowledgePermissionScopeType ParseScopeType(string? value)
+    {
+        return Enum.TryParse<KnowledgePermissionScopeType>(value, out var scopeType)
+            ? scopeType
+            : KnowledgePermissionScopeType.All;
+    }
+
+    private static Guid? ParseNullableGuid(string? value)
+    {
+        return Guid.TryParse(value, out var id) ? id : null;
+    }
+
+    private static string? NormalizeOptionalText(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    }
+
+    private enum UploadStep
+    {
+        Content = 1,
+        Info = 2,
+        Visibility = 3,
+        Publish = 4,
+        Result = 5
+    }
+
+    private enum UploadSourceMode
+    {
+        BodyText,
+        IndexableFile,
+        ConvertibleFile,
+        AttachmentOnly
+    }
+
+    private enum UploadResultKind
+    {
+        DraftSaved,
+        Published,
+        Failed
+    }
+
+    private class UploadFormModel
+    {
+        public string? Title { get; set; }
+        public string? CategoryIdText { get; set; }
+        public string? Summary { get; set; }
+        public string VersionTitle { get; set; } = "初始版本";
+        public string? ContentText { get; set; }
+        public string ScopeTypeText { get; set; } = KnowledgePermissionScopeType.All.ToString();
+        public string? TargetIdText { get; set; }
+        public int? MinimumSecurityLevel { get; set; }
+    }
+}

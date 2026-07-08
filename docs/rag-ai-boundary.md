@@ -40,7 +40,7 @@ public interface IKnowledgeRetriever
 
 - 禁止业务 Application Service 直接引用模型 SDK。
 - 禁止业务 Application Service 直接引用 Qdrant SDK。
-- 禁止把 DataIngestion preview provider 放入核心业务链路。
+- 禁止把 DataIngestion preview provider 放入核心业务链路；允许在 Application 实现层通过项目自有接口适配 MarkItDown reader。
 - 禁止把 VectorData preview provider 作为唯一抽象。
 - 禁止绕过 KnowledgeBase 权限模型直接检索文件或 chunk。
 - 禁止在审计日志保存完整文档原文或完整模型 prompt。
@@ -51,7 +51,7 @@ MVP-1 开始前必须评审：
 
 | 风险 | 评审问题 | 降级方案 |
 | --- | --- | --- |
-| DataIngestion preview | 是否满足文档解析、错误恢复和可观测性要求 | 自研 ingestion worker |
+| DataIngestion preview | 是否满足文档解析、错误恢复和可观测性要求 | 自研 ingestion worker 和 `IKnowledgeDocumentMarkdownConverter` 隔离层 |
 | VectorData/Qdrant provider preview | payload filter、批量写入和删除能力是否稳定 | 直接使用 Qdrant SDK 并包一层自研接口 |
 | 权限过滤不足 | 部门、岗位、角色、用户、安全等级是否能完整表达 | Qdrant 粗过滤 + .NET 二次校验 |
 | 权限越权测试不足 | 是否覆盖跨部门、跨岗位、跨角色、指定用户和安全等级边界 | 先补权限矩阵测试，未通过不开放问答 |

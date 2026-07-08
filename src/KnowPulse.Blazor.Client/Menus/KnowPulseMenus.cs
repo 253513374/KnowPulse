@@ -43,6 +43,11 @@ public class KnowPulseMenus
     public const string KnowledgeBase = Prefix + ".KnowledgeBase";
 
     /// <summary>
+    /// 知识上传引导页面菜单项名称。
+    /// </summary>
+    public const string KnowledgeUpload = KnowledgeBase + ".Upload";
+
+    /// <summary>
     /// 知识文档管理页面菜单项名称。
     /// </summary>
     public const string KnowledgeItems = KnowledgeBase + ".Items";

@@ -42,7 +42,7 @@ MVP-1 验收目标是权限化 RAG 问答闭环：
 | KP-MVP1-BE-002 实现索引任务应用服务与手动重建入口 | `KnowledgeIndexJobAppService`、`KnowledgeIndexJobsController`、`/knowledge/index-jobs` 页面和 EF Core 集成测试 | 自动化和页面入口已具备 | 页面级筛选/重试仍需普通浏览器手工抽验 |
 | KP-MVP1-BE-003 发布、下架、归档和权限变更触发索引状态更新 | `KnowledgeItemAppService` 生命周期联动、索引任务和 chunk 状态测试 | 自动化覆盖已具备 | 权限范围变化后的页面提示可在 MVP-1 FE 补验中继续观察 |
 | KP-MVP1-AI-001 固定 embedding 模型、维度和 collection 策略 | `docs/rag-ai-boundary.md`、`RagAiOptions`、Host/DbMigrator appsettings、LiteLLM 模板和 `.env.example` | 配置和文档已固化 | 生产环境真实供应商 key 只允许通过安全配置源注入 |
-| KP-MVP1-AI-002 实现文档读取、Markdown 化和 chunk pipeline | `KnowledgeIngestionPipeline`、正文/文本附件/空内容/失败阶段测试 | 自动化覆盖已具备 | 非文本附件、OCR、视频解析不进入 MVP-1 |
+| KP-MVP1-AI-002 实现文档读取、Markdown 化和 chunk pipeline | `KnowledgeIngestionPipeline`、正文/文本附件/MarkItDown 可转换附件/空内容/失败阶段测试 | 自动化覆盖已具备 | 图片 OCR、音频、视频解析仍不进入当前默认范围 |
 | KP-MVP1-AI-003 实现 embedding 生成和模型版本记录 | `LiteLlmKnowledgeEmbeddingClient`、`KnowledgeEmbeddingPipeline`、模型 key 缺失失败测试 | 自动化覆盖已具备 | 真实模型 key 缺失时按 embedding 阶段失败处理 |
 | KP-MVP1-AI-004 实现 `IKnowledgeVectorStore` Qdrant 适配层 | `QdrantKnowledgeVectorStore` REST 适配、`QdrantKnowledgeVectorStoreTests`、`verify-rag-provider-boundaries.ps1` | 边界和请求结构已具备 | 禁止后续业务服务直接引用 provider/SDK 类型 |
 | KP-MVP1-AI-005 创建 Qdrant collection 和 payload index | `verify-qdrant-knowledge-collection.ps1`、`knowledge_chunks_1536_mvp1`、必需 payload index 清单 | 验证入口已固化 | 本地 collection 缺失时执行 `-Ensure` 幂等创建 |

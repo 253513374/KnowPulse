@@ -29,6 +29,7 @@ public class Mvp1KnowledgeIndexingAppServiceTests : KnowPulseEntityFrameworkCore
     private readonly IKnowledgeIngestionPipeline _ingestionPipeline;
     private readonly IKnowledgeEmbeddingPipeline _embeddingPipeline;
     private readonly TestKnowledgeEmbeddingClient _embeddingClient;
+    private readonly TestKnowledgeDocumentMarkdownConverter _markdownConverter;
     private readonly IRepository<KnowledgeChunk, Guid> _chunkRepository;
     private readonly IRepository<KnowledgeEmbeddingRecord, Guid> _embeddingRecordRepository;
     private readonly IRepository<EmbeddingModelVersion, Guid> _modelVersionRepository;
@@ -44,10 +45,12 @@ public class Mvp1KnowledgeIndexingAppServiceTests : KnowPulseEntityFrameworkCore
         _ingestionPipeline = GetRequiredService<IKnowledgeIngestionPipeline>();
         _embeddingPipeline = GetRequiredService<IKnowledgeEmbeddingPipeline>();
         _embeddingClient = GetRequiredService<TestKnowledgeEmbeddingClient>();
+        _markdownConverter = GetRequiredService<TestKnowledgeDocumentMarkdownConverter>();
         _chunkRepository = GetRequiredService<IRepository<KnowledgeChunk, Guid>>();
         _embeddingRecordRepository = GetRequiredService<IRepository<KnowledgeEmbeddingRecord, Guid>>();
         _modelVersionRepository = GetRequiredService<IRepository<EmbeddingModelVersion, Guid>>();
         _embeddingClient.Reset();
+        _markdownConverter.Reset();
     }
 
     /// <summary>
@@ -269,6 +272,32 @@ public class Mvp1KnowledgeIndexingAppServiceTests : KnowPulseEntityFrameworkCore
     }
 
     /// <summary>
+    /// 验证 MarkItDown 支持的非文本附件可转换为 Markdown 后参与摄取。
+    /// </summary>
+    [Fact]
+    public async Task IngestAsync_Should_Read_MarkItDown_Convertible_Attachments()
+    {
+        // PDF/Office 等附件不再直接判定为仅附件；它们通过转换器进入 Markdown 文档流。
+        var (item, version) = await CreateKnowledgeVersionAsync(contentText: null);
+        await UploadAttachmentAsync(item.Id, version.Id, "manual.pdf", "application/pdf", "SECRET-PDF-CONTENT");
+        await UploadAttachmentAsync(item.Id, version.Id, "guide.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "SECRET-DOCX-CONTENT");
+        await _itemAppService.PublishVersionAsync(item.Id, version.Id);
+
+        var result = await _ingestionPipeline.IngestAsync(version.Id);
+
+        result.Succeeded.ShouldBeTrue();
+        _markdownConverter.ConvertedFileNames.ShouldContain("manual.pdf");
+        _markdownConverter.ConvertedFileNames.ShouldContain("guide.docx");
+        var chunks = await GetChunksAsync(version.Id);
+        chunks.Select(x => x.SourceTitle).ShouldContain("manual.pdf");
+        chunks.Select(x => x.SourceTitle).ShouldContain("guide.docx");
+        chunks.Select(x => x.SourcePage).ShouldContain(1);
+        chunks.ShouldContain(x => x.Content.Contains("转换后的 .pdf 内容。"));
+        chunks.ShouldContain(x => x.Content.Contains("转换后的 .docx 内容。"));
+        chunks.ShouldAllBe(x => !x.Content.Contains("SECRET-"));
+    }
+
+    /// <summary>
     /// 验证空知识内容会让摄取任务在 reader 阶段失败。
     /// </summary>
     [Fact]
@@ -326,7 +355,7 @@ public class Mvp1KnowledgeIndexingAppServiceTests : KnowPulseEntityFrameworkCore
     {
         // 不支持的附件只能写入类型错误，不能把文件内容泄漏到 FailureReason。
         var (item, version) = await CreateKnowledgeVersionAsync(contentText: null);
-        await UploadAttachmentAsync(item.Id, version.Id, "manual.pdf", "application/pdf", "SECRET-PDF-CONTENT");
+        await UploadAttachmentAsync(item.Id, version.Id, "manual.exe", "application/octet-stream", "SECRET-BINARY-CONTENT");
         await _itemAppService.PublishVersionAsync(item.Id, version.Id);
 
         var result = await _ingestionPipeline.IngestAsync(version.Id);
@@ -335,12 +364,12 @@ public class Mvp1KnowledgeIndexingAppServiceTests : KnowPulseEntityFrameworkCore
         result.FailureStage.ShouldBe("reader");
         result.FailureReason.ShouldNotBeNull();
         result.FailureReason!.ShouldContain("Unsupported attachment type");
-        result.FailureReason.ShouldNotContain("SECRET-PDF-CONTENT");
+        result.FailureReason.ShouldNotContain("SECRET-BINARY-CONTENT");
 
         var job = await GetSingleJobAsync(version.Id, KnowledgeIndexJobTriggerType.Publish);
         job.Status.ShouldBe(KnowledgeIndexJobStatus.Failed);
         job.FailureReason.ShouldNotBeNull();
-        job.FailureReason!.ShouldNotContain("SECRET-PDF-CONTENT");
+        job.FailureReason!.ShouldNotContain("SECRET-BINARY-CONTENT");
     }
 
     /// <summary>

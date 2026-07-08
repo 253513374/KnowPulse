@@ -37,6 +37,7 @@ public class KnowPulseApplicationModule : AbpModule
         context.Services.AddTransient<IRagChatClient, LiteLlmRagChatClient>();
         context.Services.AddTransient<IKnowledgeVectorStore, QdrantKnowledgeVectorStore>();
         context.Services.AddTransient<IKnowledgeVectorStoreMaintenance, QdrantKnowledgeVectorStore>();
+        context.Services.AddTransient<IKnowledgeDocumentMarkdownConverter, MarkItDownKnowledgeDocumentMarkdownConverter>();
         context.Services.AddTransient<IAiModelResolver, AiModelResolver>();
         context.Services.AddTransient<IKnowledgeRetriever, KnowledgeRetriever>();
         context.Services.AddTransient<IRagAnswerService, RagAnswerService>();
