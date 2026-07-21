@@ -74,6 +74,53 @@ public class KnowledgeIndexingDomainTests
     }
 
     /// <summary>
+    /// 验证任务进度单调递增，并用心跳识别卡住任务。
+    /// </summary>
+    [Fact]
+    public void Index_Job_Should_Track_Monotonic_Progress_And_Heartbeat()
+    {
+        var now = DateTime.UtcNow;
+        var job = new KnowledgeIndexJob(
+            Guid.NewGuid(),
+            null,
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            KnowledgeIndexJobTriggerType.Publish);
+
+        job.Start(now);
+        job.ReportProgress("reader", 20, now.AddMinutes(1));
+        job.ReportProgress("processor", 10, now.AddMinutes(2));
+
+        job.ProcessingStage.ShouldBe("processor");
+        job.ProgressPercent.ShouldBe(20);
+        job.LastHeartbeatTime.ShouldBe(now.AddMinutes(2));
+        job.IsStale(now.AddMinutes(20), TimeSpan.FromMinutes(15)).ShouldBeTrue();
+    }
+
+    /// <summary>
+    /// 验证失败任务只有在重试额度内才能安排下一次执行。
+    /// </summary>
+    [Fact]
+    public void Index_Job_Should_Reject_Retry_Schedule_When_Budget_Is_Exhausted()
+    {
+        var now = DateTime.UtcNow;
+        var job = new KnowledgeIndexJob(
+            Guid.NewGuid(),
+            null,
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            KnowledgeIndexJobTriggerType.Publish,
+            maxRetryCount: 0);
+
+        job.Start(now);
+        job.MarkFailed("reader", "No content", now.AddMinutes(1));
+
+        job.CanRetry.ShouldBeFalse();
+        Should.Throw<Volo.Abp.BusinessException>(() => job.ScheduleRetry(now.AddMinutes(2)))
+            .Code.ShouldBe(KnowPulseDomainErrorCodes.KnowledgeIndexJobRetryExhausted);
+    }
+
+    /// <summary>
     /// 验证 chunk 会拒绝非法序号和非法页码。
     /// </summary>
     [Fact]

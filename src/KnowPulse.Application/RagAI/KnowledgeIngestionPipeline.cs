@@ -8,6 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using KnowPulse.KnowledgeBase;
 using KnowPulse.KnowledgeIndexing;
+using Volo.Abp;
 using Volo.Abp.BlobStoring;
 using Volo.Abp.Domain.Repositories;
 
@@ -72,12 +73,21 @@ public class KnowledgeIngestionPipeline : KnowPulseAppService, IKnowledgeIngesti
     /// <summary>
     /// 摄取指定知识版本，生成可检索 chunk 并更新索引任务状态。
     /// </summary>
-    public virtual async Task<KnowledgeIngestionResult> IngestAsync(Guid knowledgeVersionId, CancellationToken cancellationToken = default)
+    public virtual async Task<KnowledgeIngestionResult> IngestAsync(
+        Guid knowledgeVersionId,
+        Guid? knowledgeIndexJobId = null,
+        bool completeIndexJob = true,
+        CancellationToken cancellationToken = default)
     {
         var version = await _versionRepository.GetAsync(knowledgeVersionId, cancellationToken: cancellationToken);
         var item = await _itemRepository.GetAsync(version.KnowledgeItemId, cancellationToken: cancellationToken);
-        var job = await GetOrCreateIndexJobAsync(version, cancellationToken);
-        job.Start(DateTime.UtcNow);
+        var job = await GetOrCreateIndexJobAsync(version, knowledgeIndexJobId, cancellationToken);
+        if (job.Status != KnowledgeIndexJobStatus.Processing)
+        {
+            job.Start(DateTime.UtcNow);
+        }
+
+        job.ReportProgress("reader", 5, DateTime.UtcNow);
         await _jobRepository.UpdateAsync(job, autoSave: true, cancellationToken: cancellationToken);
 
         try
@@ -85,12 +95,16 @@ public class KnowledgeIngestionPipeline : KnowPulseAppService, IKnowledgeIngesti
             // 摄取流程分成 reader -> processor -> chunker -> persistence。
             // 每个阶段抛出的 KnowledgeIngestionStageException 都会落到索引任务上，方便页面展示失败定位。
             var documents = await ReadDocumentsAsync(version, cancellationToken);
+            await ReportJobProgressAsync(job, "reader", 15, cancellationToken);
             var processedDocuments = ProcessDocuments(documents);
+            await ReportJobProgressAsync(job, "processor", 25, cancellationToken);
             var chunkDrafts = CreateChunkDrafts(processedDocuments);
+            await ReportJobProgressAsync(job, "chunker", 35, cancellationToken);
 
             // 重新索引同一版本时不覆盖历史 chunk，而是把旧 chunk 标记为过期。
             // 这样审计、引用和回放仍能解释旧回答当时引用了什么内容。
             await MarkExistingChunksOutdatedAsync(version.Id, cancellationToken);
+            await ReportJobProgressAsync(job, "persistence", 40, cancellationToken);
             var records = new List<KnowledgeChunkVectorRecord>();
             for (var index = 0; index < chunkDrafts.Count; index++)
             {
@@ -113,7 +127,15 @@ public class KnowledgeIngestionPipeline : KnowPulseAppService, IKnowledgeIngesti
                 records.Add(MapToVectorRecord(insertedChunk, item, version));
             }
 
-            job.MarkIndexed(DateTime.UtcNow);
+            if (completeIndexJob)
+            {
+                job.MarkIndexed(DateTime.UtcNow);
+            }
+            else
+            {
+                job.ReportProgress("embedding", 60, DateTime.UtcNow);
+            }
+
             await _jobRepository.UpdateAsync(job, autoSave: true, cancellationToken: cancellationToken);
 
             return new KnowledgeIngestionResult
@@ -150,8 +172,24 @@ public class KnowledgeIngestionPipeline : KnowPulseAppService, IKnowledgeIngesti
     /// <summary>
     /// 获取当前知识版本可复用的待处理任务，必要时创建新的手动重建任务。
     /// </summary>
-    private async Task<KnowledgeIndexJob> GetOrCreateIndexJobAsync(KnowledgeVersion version, CancellationToken cancellationToken)
+    private async Task<KnowledgeIndexJob> GetOrCreateIndexJobAsync(
+        KnowledgeVersion version,
+        Guid? knowledgeIndexJobId,
+        CancellationToken cancellationToken)
     {
+        if (knowledgeIndexJobId.HasValue)
+        {
+            var requestedJob = await _jobRepository.GetAsync(
+                knowledgeIndexJobId.Value,
+                cancellationToken: cancellationToken);
+            if (requestedJob.KnowledgeVersionId != version.Id)
+            {
+                throw new BusinessException(KnowPulseDomainErrorCodes.KnowledgeIndexJobVersionMismatch);
+            }
+
+            return requestedJob;
+        }
+
         var queryable = await _jobRepository.GetQueryableAsync();
         // 如果已经有待处理/处理中的任务，摄取流程复用它，避免重复点击或后台重试生成多条并行任务。
         var reusableJob = await AsyncExecuter.FirstOrDefaultAsync(
@@ -454,6 +492,16 @@ public class KnowledgeIngestionPipeline : KnowPulseAppService, IKnowledgeIngesti
     private async Task MarkJobFailedAsync(KnowledgeIndexJob job, string stage, string reason, CancellationToken cancellationToken)
     {
         job.MarkFailed(stage, reason, DateTime.UtcNow);
+        await _jobRepository.UpdateAsync(job, autoSave: true, cancellationToken: cancellationToken);
+    }
+
+    private async Task ReportJobProgressAsync(
+        KnowledgeIndexJob job,
+        string stage,
+        int progressPercent,
+        CancellationToken cancellationToken)
+    {
+        job.ReportProgress(stage, progressPercent, DateTime.UtcNow);
         await _jobRepository.UpdateAsync(job, autoSave: true, cancellationToken: cancellationToken);
     }
 

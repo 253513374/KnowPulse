@@ -69,6 +69,10 @@
     "KnowPulse:00009": "Publishing or maintaining published knowledge requires at least one explicit access rule.",
     "KnowPulse:00010": "An all-users rule cannot be combined with department, position, role, or user rules.",
     "KnowPulse:00011": "The same access target cannot be configured more than once.",
-    "KnowPulse:00012": "Department, position, role, and user access rules require a target."
+    "KnowPulse:00012": "Department, position, role, and user access rules require a target.",
+    "KnowPulse:00013": "The index job cannot start or continue from its current status.",
+    "KnowPulse:00014": "The index job has exhausted its automatic retries. Fix the cause and create a new rebuild job.",
+    "KnowPulse:00015": "Only a processing index job can be recovered.",
+    "KnowPulse:00016": "The index job does not belong to the knowledge version being processed."
   }
 }

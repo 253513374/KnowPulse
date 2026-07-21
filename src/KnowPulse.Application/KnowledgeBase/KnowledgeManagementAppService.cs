@@ -582,6 +582,7 @@ public class KnowledgeManagementAppService : KnowPulseAppService, IKnowledgeMana
             KnowledgeVersionId = job.KnowledgeVersionId,
             EmbeddingModelVersionId = job.EmbeddingModelVersionId,
             RequestedByUserId = job.RequestedByUserId,
+            RetryOfJobId = job.RetryOfJobId,
             TriggerType = job.TriggerType,
             Status = job.Status,
             RetryCount = job.RetryCount,
@@ -590,7 +591,12 @@ public class KnowledgeManagementAppService : KnowPulseAppService, IKnowledgeMana
             FailureReason = job.FailureReason,
             StartedTime = job.StartedTime,
             CompletedTime = job.CompletedTime,
-            NextRetryTime = job.NextRetryTime
+            NextRetryTime = job.NextRetryTime,
+            ProcessingStage = job.ProcessingStage,
+            ProgressPercent = job.ProgressPercent,
+            LastHeartbeatTime = job.LastHeartbeatTime,
+            CanRetry = job.CanRetry,
+            IsStale = job.IsStale(DateTime.UtcNow, TimeSpan.FromMinutes(15))
         };
     }
 

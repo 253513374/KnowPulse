@@ -45,6 +45,15 @@ public class KnowledgeIndexJobsController : KnowPulseController
     }
 
     /// <summary>
+    /// 获取索引队列运维摘要。
+    /// </summary>
+    [HttpGet("index-jobs/operational-summary")]
+    public Task<KnowledgeIndexJobOperationalSummaryDto> GetOperationalSummaryAsync()
+    {
+        return _indexJobAppService.GetOperationalSummaryAsync();
+    }
+
+    /// <summary>
     /// 查询指定知识版本的索引任务。
     /// </summary>
     [HttpGet("versions/{knowledgeVersionId:guid}/index-jobs")]
@@ -88,6 +97,24 @@ public class KnowledgeIndexJobsController : KnowPulseController
     public Task<KnowledgeIndexJobDto> RetryAsync(Guid id)
     {
         return _indexJobAppService.RetryAsync(id);
+    }
+
+    /// <summary>
+    /// 立即执行索引任务。
+    /// </summary>
+    [HttpPost("index-jobs/{id:guid}/execute")]
+    public Task<KnowledgeIndexJobDto> ExecuteAsync(Guid id)
+    {
+        return _indexJobAppService.ExecuteAsync(id);
+    }
+
+    /// <summary>
+    /// 从卡住的处理中任务创建恢复任务。
+    /// </summary>
+    [HttpPost("index-jobs/{id:guid}/recover")]
+    public Task<KnowledgeIndexJobDto> RecoverAsync(Guid id)
+    {
+        return _indexJobAppService.RecoverAsync(id);
     }
 
     /// <summary>

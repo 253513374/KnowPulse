@@ -2469,6 +2469,9 @@ namespace KnowPulse.Migrations
                     b.Property<Guid>("KnowledgeVersionId")
                         .HasColumnType("uuid");
 
+                    b.Property<DateTime?>("LastHeartbeatTime")
+                        .HasColumnType("timestamp without time zone");
+
                     b.Property<DateTime?>("LastModificationTime")
                         .HasColumnType("timestamp without time zone")
                         .HasColumnName("LastModificationTime");
@@ -2483,11 +2486,21 @@ namespace KnowPulse.Migrations
                     b.Property<DateTime?>("NextRetryTime")
                         .HasColumnType("timestamp without time zone");
 
+                    b.Property<string>("ProcessingStage")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<int>("ProgressPercent")
+                        .HasColumnType("integer");
+
                     b.Property<Guid?>("RequestedByUserId")
                         .HasColumnType("uuid");
 
                     b.Property<int>("RetryCount")
                         .HasColumnType("integer");
+
+                    b.Property<Guid?>("RetryOfJobId")
+                        .HasColumnType("uuid");
 
                     b.Property<DateTime?>("StartedTime")
                         .HasColumnType("timestamp without time zone");
@@ -2508,7 +2521,11 @@ namespace KnowPulse.Migrations
 
                     b.HasIndex("NextRetryTime");
 
+                    b.HasIndex("RetryOfJobId");
+
                     b.HasIndex("KnowledgeItemId", "Status");
+
+                    b.HasIndex("Status", "LastHeartbeatTime");
 
                     b.HasIndex("TenantId", "KnowledgeVersionId", "Status");
 

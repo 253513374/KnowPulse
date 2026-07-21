@@ -31,6 +31,11 @@ public class KnowledgeIndexJobDto : FullAuditedEntityDto<Guid>
     public Guid? RequestedByUserId { get; set; }
 
     /// <summary>
+    /// 如果本任务由失败或卡住任务恢复而来，记录原任务编号。
+    /// </summary>
+    public Guid? RetryOfJobId { get; set; }
+
+    /// <summary>
     /// 任务触发来源。
     /// </summary>
     public KnowledgeIndexJobTriggerType TriggerType { get; set; }
@@ -74,4 +79,29 @@ public class KnowledgeIndexJobDto : FullAuditedEntityDto<Guid>
     /// 下一次可重试时间。超过最大重试次数后为空。
     /// </summary>
     public DateTime? NextRetryTime { get; set; }
+
+    /// <summary>
+    /// 当前处理阶段，例如 reader、chunker、embedding 或 vector-store。
+    /// </summary>
+    public string? ProcessingStage { get; set; }
+
+    /// <summary>
+    /// 当前任务进度百分比，范围 0-100。
+    /// </summary>
+    public int ProgressPercent { get; set; }
+
+    /// <summary>
+    /// 后台执行器最近一次持久化心跳时间。
+    /// </summary>
+    public DateTime? LastHeartbeatTime { get; set; }
+
+    /// <summary>
+    /// 当前失败任务是否仍有自动或人工重试额度。
+    /// </summary>
+    public bool CanRetry { get; set; }
+
+    /// <summary>
+    /// 处理中任务是否已经超过默认心跳超时。
+    /// </summary>
+    public bool IsStale { get; set; }
 }

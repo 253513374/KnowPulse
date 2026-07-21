@@ -18,9 +18,12 @@ namespace KnowPulse.KnowledgeIndexing;
 [Authorize(KnowPulsePermissions.KnowledgeIndexing.IndexJobs)]
 public class KnowledgeIndexJobAppService : KnowPulseAppService, IKnowledgeIndexJobAppService
 {
+    private static readonly TimeSpan StaleJobTimeout = TimeSpan.FromMinutes(15);
+
     private readonly IRepository<KnowledgeIndexJob, Guid> _jobRepository;
     private readonly IRepository<KnowledgeItem, Guid> _itemRepository;
     private readonly IRepository<KnowledgeVersion, Guid> _versionRepository;
+    private readonly IKnowledgeIndexJobProcessor _jobProcessor;
 
     /// <summary>
     /// 创建知识索引任务应用服务。
@@ -28,11 +31,13 @@ public class KnowledgeIndexJobAppService : KnowPulseAppService, IKnowledgeIndexJ
     public KnowledgeIndexJobAppService(
         IRepository<KnowledgeIndexJob, Guid> jobRepository,
         IRepository<KnowledgeItem, Guid> itemRepository,
-        IRepository<KnowledgeVersion, Guid> versionRepository)
+        IRepository<KnowledgeVersion, Guid> versionRepository,
+        IKnowledgeIndexJobProcessor jobProcessor)
     {
         _jobRepository = jobRepository;
         _itemRepository = itemRepository;
         _versionRepository = versionRepository;
+        _jobProcessor = jobProcessor;
     }
 
     /// <summary>
@@ -79,6 +84,41 @@ public class KnowledgeIndexJobAppService : KnowPulseAppService, IKnowledgeIndexJ
     }
 
     /// <summary>
+    /// 获取索引任务队列的可操作摘要。
+    /// </summary>
+    public virtual async Task<KnowledgeIndexJobOperationalSummaryDto> GetOperationalSummaryAsync()
+    {
+        await CheckMvpPermissionAsync(KnowPulsePermissions.KnowledgeIndexing.IndexJobs);
+
+        var now = DateTime.UtcNow;
+        var staleBoundary = now.Subtract(StaleJobTimeout);
+        var query = await _jobRepository.GetQueryableAsync();
+        var lastIndexedTime = await AsyncExecuter.FirstOrDefaultAsync(
+            query
+                .Where(x => x.Status == KnowledgeIndexJobStatus.Indexed && x.CompletedTime.HasValue)
+                .OrderByDescending(x => x.CompletedTime)
+                .Select(x => x.CompletedTime));
+
+        return new KnowledgeIndexJobOperationalSummaryDto
+        {
+            PendingCount = await AsyncExecuter.LongCountAsync(query.Where(x => x.Status == KnowledgeIndexJobStatus.Pending)),
+            ProcessingCount = await AsyncExecuter.LongCountAsync(query.Where(x => x.Status == KnowledgeIndexJobStatus.Processing)),
+            FailedCount = await AsyncExecuter.LongCountAsync(query.Where(x => x.Status == KnowledgeIndexJobStatus.Failed)),
+            RetryDueCount = await AsyncExecuter.LongCountAsync(query.Where(x =>
+                x.Status == KnowledgeIndexJobStatus.Failed &&
+                x.RetryCount <= x.MaxRetryCount &&
+                (!x.NextRetryTime.HasValue || x.NextRetryTime <= now))),
+            ExhaustedCount = await AsyncExecuter.LongCountAsync(query.Where(x =>
+                x.Status == KnowledgeIndexJobStatus.Failed && x.RetryCount > x.MaxRetryCount)),
+            StaleCount = await AsyncExecuter.LongCountAsync(query.Where(x =>
+                x.Status == KnowledgeIndexJobStatus.Processing &&
+                x.LastHeartbeatTime.HasValue &&
+                x.LastHeartbeatTime <= staleBoundary)),
+            LastIndexedTime = lastIndexedTime
+        };
+    }
+
+    /// <summary>
     /// 创建知识索引任务，并校验知识版本确实属于指定知识条目。
     /// </summary>
     public virtual async Task<KnowledgeIndexJobDto> CreateAsync(CreateKnowledgeIndexJobDto input)
@@ -103,6 +143,12 @@ public class KnowledgeIndexJobAppService : KnowPulseAppService, IKnowledgeIndexJ
         var version = await _versionRepository.GetAsync(knowledgeVersionId);
         await _itemRepository.GetAsync(version.KnowledgeItemId);
 
+        var activeJob = await FindActiveJobAsync(version.Id);
+        if (activeJob != null)
+        {
+            return MapToDto(activeJob);
+        }
+
         // 手动重建总是创建新任务，不复写旧任务。旧任务是历史事实，页面需要能展示每次失败/成功记录。
         return MapToDto(await InsertJobAsync(
             version.KnowledgeItemId,
@@ -124,13 +170,57 @@ public class KnowledgeIndexJobAppService : KnowPulseAppService, IKnowledgeIndexJ
             throw new BusinessException(KnowPulseDomainErrorCodes.KnowledgeIndexJobRetryRequiresFailedStatus);
         }
 
+        var activeJob = await FindActiveJobAsync(failedJob.KnowledgeVersionId);
+        if (activeJob != null)
+        {
+            return MapToDto(activeJob);
+        }
+
         // 重试也创建新任务，保留原失败任务的 FailureStage/FailureReason，便于排障和统计失败率。
         return MapToDto(await InsertJobAsync(
             failedJob.KnowledgeItemId,
             failedJob.KnowledgeVersionId,
             failedJob.TriggerType,
             failedJob.EmbeddingModelVersionId,
-            failedJob.MaxRetryCount));
+            failedJob.MaxRetryCount,
+            retryOfJobId: failedJob.Id));
+    }
+
+    /// <summary>
+    /// 立即运行真实索引 pipeline，而不是只把任务标记为处理中。
+    /// </summary>
+    public virtual async Task<KnowledgeIndexJobDto> ExecuteAsync(Guid id)
+    {
+        await CheckMvpPermissionAsync(KnowPulsePermissions.KnowledgeIndexing.IndexJobs);
+        await _jobProcessor.ProcessAsync(id, ignoreRetrySchedule: true);
+        return MapToDto(await _jobRepository.GetAsync(id));
+    }
+
+    /// <summary>
+    /// 终止卡住的处理中任务并创建一条具有来源关系的恢复任务。
+    /// </summary>
+    public virtual async Task<KnowledgeIndexJobDto> RecoverAsync(Guid id)
+    {
+        await CheckMvpPermissionAsync(KnowPulsePermissions.KnowledgeIndexing.IndexJobs);
+        var stuckJob = await _jobRepository.GetAsync(id);
+        if (stuckJob.Status != KnowledgeIndexJobStatus.Processing)
+        {
+            throw new BusinessException(KnowPulseDomainErrorCodes.KnowledgeIndexJobRecoveryRequiresProcessingStatus);
+        }
+
+        stuckJob.MarkFailed(
+            "recovery",
+            "The processing job was stopped by an administrator and replaced with a recovery job.",
+            DateTime.UtcNow);
+        await _jobRepository.UpdateAsync(stuckJob, autoSave: true);
+
+        return MapToDto(await InsertJobAsync(
+            stuckJob.KnowledgeItemId,
+            stuckJob.KnowledgeVersionId,
+            KnowledgeIndexJobTriggerType.ManualRebuild,
+            stuckJob.EmbeddingModelVersionId,
+            stuckJob.MaxRetryCount,
+            retryOfJobId: stuckJob.Id));
     }
 
     /// <summary>
@@ -191,7 +281,8 @@ public class KnowledgeIndexJobAppService : KnowPulseAppService, IKnowledgeIndexJ
         Guid knowledgeVersionId,
         KnowledgeIndexJobTriggerType triggerType,
         Guid? embeddingModelVersionId,
-        int maxRetryCount)
+        int maxRetryCount,
+        Guid? retryOfJobId = null)
     {
         var job = new KnowledgeIndexJob(
             GuidGenerator.Create(),
@@ -201,7 +292,8 @@ public class KnowledgeIndexJobAppService : KnowPulseAppService, IKnowledgeIndexJ
             triggerType,
             embeddingModelVersionId,
             CurrentUser.Id,
-            maxRetryCount);
+            maxRetryCount,
+            retryOfJobId);
 
         return _jobRepository.InsertAsync(job, autoSave: true);
     }
@@ -225,6 +317,7 @@ public class KnowledgeIndexJobAppService : KnowPulseAppService, IKnowledgeIndexJ
             KnowledgeVersionId = job.KnowledgeVersionId,
             EmbeddingModelVersionId = job.EmbeddingModelVersionId,
             RequestedByUserId = job.RequestedByUserId,
+            RetryOfJobId = job.RetryOfJobId,
             TriggerType = job.TriggerType,
             Status = job.Status,
             RetryCount = job.RetryCount,
@@ -233,7 +326,23 @@ public class KnowledgeIndexJobAppService : KnowPulseAppService, IKnowledgeIndexJ
             FailureReason = job.FailureReason,
             StartedTime = job.StartedTime,
             CompletedTime = job.CompletedTime,
-            NextRetryTime = job.NextRetryTime
+            NextRetryTime = job.NextRetryTime,
+            ProcessingStage = job.ProcessingStage,
+            ProgressPercent = job.ProgressPercent,
+            LastHeartbeatTime = job.LastHeartbeatTime,
+            CanRetry = job.CanRetry,
+            IsStale = job.IsStale(DateTime.UtcNow, StaleJobTimeout)
         };
+    }
+
+    private async Task<KnowledgeIndexJob?> FindActiveJobAsync(Guid knowledgeVersionId)
+    {
+        var query = await _jobRepository.GetQueryableAsync();
+        return await AsyncExecuter.FirstOrDefaultAsync(
+            query
+                .Where(x => x.KnowledgeVersionId == knowledgeVersionId)
+                .Where(x => x.Status == KnowledgeIndexJobStatus.Pending ||
+                            x.Status == KnowledgeIndexJobStatus.Processing)
+                .OrderByDescending(x => x.CreationTime));
     }
 }

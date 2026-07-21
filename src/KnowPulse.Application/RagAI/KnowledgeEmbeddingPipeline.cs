@@ -4,8 +4,10 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using KnowPulse.AiModelManagement;
+using KnowPulse.KnowledgeBase;
 using KnowPulse.KnowledgeIndexing;
 using Microsoft.Extensions.Options;
+using Volo.Abp;
 using Volo.Abp.Domain.Repositories;
 
 namespace KnowPulse.RagAI;
@@ -20,7 +22,12 @@ public class KnowledgeEmbeddingPipeline : KnowPulseAppService, IKnowledgeEmbeddi
     private readonly IRepository<KnowledgeChunk, Guid> _chunkRepository;
     private readonly IRepository<KnowledgeEmbeddingRecord, Guid> _embeddingRecordRepository;
     private readonly IRepository<KnowledgeIndexJob, Guid> _jobRepository;
+    private readonly IRepository<KnowledgeItem, Guid> _itemRepository;
+    private readonly IRepository<KnowledgeVersion, Guid> _versionRepository;
+    private readonly IRepository<KnowledgePermissionScope, Guid> _permissionScopeRepository;
     private readonly IKnowledgeEmbeddingClient _embeddingClient;
+    private readonly IKnowledgeVectorStore _vectorStore;
+    private readonly IKnowledgeVectorStoreMaintenance _vectorStoreMaintenance;
     private readonly IAiModelResolver _modelResolver;
     private readonly RagAiOptions _options;
 
@@ -32,7 +39,12 @@ public class KnowledgeEmbeddingPipeline : KnowPulseAppService, IKnowledgeEmbeddi
         IRepository<KnowledgeChunk, Guid> chunkRepository,
         IRepository<KnowledgeEmbeddingRecord, Guid> embeddingRecordRepository,
         IRepository<KnowledgeIndexJob, Guid> jobRepository,
+        IRepository<KnowledgeItem, Guid> itemRepository,
+        IRepository<KnowledgeVersion, Guid> versionRepository,
+        IRepository<KnowledgePermissionScope, Guid> permissionScopeRepository,
         IKnowledgeEmbeddingClient embeddingClient,
+        IKnowledgeVectorStore vectorStore,
+        IKnowledgeVectorStoreMaintenance vectorStoreMaintenance,
         IAiModelResolver modelResolver,
         IOptions<RagAiOptions> options)
     {
@@ -40,7 +52,12 @@ public class KnowledgeEmbeddingPipeline : KnowPulseAppService, IKnowledgeEmbeddi
         _chunkRepository = chunkRepository;
         _embeddingRecordRepository = embeddingRecordRepository;
         _jobRepository = jobRepository;
+        _itemRepository = itemRepository;
+        _versionRepository = versionRepository;
+        _permissionScopeRepository = permissionScopeRepository;
         _embeddingClient = embeddingClient;
+        _vectorStore = vectorStore;
+        _vectorStoreMaintenance = vectorStoreMaintenance;
         _modelResolver = modelResolver;
         _options = options.Value;
     }
@@ -51,6 +68,7 @@ public class KnowledgeEmbeddingPipeline : KnowPulseAppService, IKnowledgeEmbeddi
     public virtual async Task<KnowledgeEmbeddingRunResult> GenerateForVersionAsync(
         Guid knowledgeVersionId,
         Guid? embeddingModelVersionId = null,
+        Guid? knowledgeIndexJobId = null,
         CancellationToken cancellationToken = default)
     {
         // 模型版本是 embedding 记录的事实维度。没有显式指定时，使用 RagAI 配置创建/复用默认版本。
@@ -59,24 +77,42 @@ public class KnowledgeEmbeddingPipeline : KnowPulseAppService, IKnowledgeEmbeddi
             ? await _modelVersionRepository.GetAsync(embeddingModelVersionId.Value, cancellationToken: cancellationToken)
             : await GetOrCreateDefaultModelVersionAsync(cancellationToken);
 
-        var job = await GetLatestIndexJobAsync(knowledgeVersionId, cancellationToken);
+        var job = await GetIndexJobAsync(knowledgeVersionId, knowledgeIndexJobId, cancellationToken);
         if (job != null)
         {
             // 把任务和模型版本绑定，便于排查“哪次索引用了哪个模型/collection”。
             job.SetEmbeddingModelVersion(modelVersion.Id);
+            if (job.Status is KnowledgeIndexJobStatus.Pending or KnowledgeIndexJobStatus.Failed)
+            {
+                job.Start(DateTime.UtcNow);
+            }
+
+            if (job.Status == KnowledgeIndexJobStatus.Processing)
+            {
+                job.ReportProgress("embedding", 65, DateTime.UtcNow);
+            }
             await _jobRepository.UpdateAsync(job, autoSave: true, cancellationToken: cancellationToken);
         }
 
         var chunks = await GetActiveChunksAsync(knowledgeVersionId, cancellationToken);
         if (chunks.Count == 0)
         {
-            await MarkJobFailedAsync(job, "No active chunks found for embedding.", cancellationToken);
+            await MarkJobFailedAsync(job, "embedding", "No active chunks found for embedding.", cancellationToken);
             return Failed(knowledgeVersionId, modelVersion.Id, "No active chunks found for embedding.");
         }
 
+        var version = await _versionRepository.GetAsync(knowledgeVersionId, cancellationToken: cancellationToken);
+        var item = await _itemRepository.GetAsync(version.KnowledgeItemId, cancellationToken: cancellationToken);
+        var permissionQueryable = await _permissionScopeRepository.GetQueryableAsync();
+        var permissionScopes = await AsyncExecuter.ToListAsync(
+            permissionQueryable.Where(x => x.KnowledgeItemId == item.Id && x.IsEnabled),
+            cancellationToken);
+
         var processedCount = 0;
-        foreach (var chunk in chunks)
+        var vectorRecords = new List<KnowledgeChunkVectorRecord>(chunks.Count);
+        for (var index = 0; index < chunks.Count; index++)
         {
+            var chunk = chunks[index];
             // embedding client 是唯一允许触达 LiteLLM/模型网关的边界。
             // pipeline 不直接依赖供应商 SDK，保证模型替换不影响业务服务。
             var clientResult = await _embeddingClient.GenerateAsync(new KnowledgeEmbeddingClientRequest
@@ -92,40 +128,68 @@ public class KnowledgeEmbeddingPipeline : KnowPulseAppService, IKnowledgeEmbeddi
             if (!clientResult.Succeeded)
             {
                 var reason = clientResult.FailureReason ?? "Embedding generation failed.";
-                await MarkJobFailedAsync(job, reason, cancellationToken);
+                await MarkJobFailedAsync(job, clientResult.FailureStage ?? "embedding", reason, cancellationToken);
                 return Failed(knowledgeVersionId, modelVersion.Id, reason, clientResult.FailureStage ?? "embedding");
             }
 
             if (clientResult.Embedding.Length != modelVersion.VectorDimension)
             {
                 var reason = $"Embedding dimension mismatch. Expected {modelVersion.VectorDimension}, actual {clientResult.Embedding.Length}.";
-                await MarkJobFailedAsync(job, reason, cancellationToken);
+                await MarkJobFailedAsync(job, "embedding", reason, cancellationToken);
                 return Failed(knowledgeVersionId, modelVersion.Id, reason);
             }
 
-            if (await HasFreshEmbeddingRecordAsync(chunk, modelVersion, cancellationToken))
+            if (!await HasFreshEmbeddingRecordAsync(chunk, modelVersion, cancellationToken))
             {
-                // content hash、模型版本和维度都一致时跳过，保证重复执行 pipeline 是幂等的。
-                continue;
+                // 同一 chunk + 模型版本只保留一条 active embedding 记录；旧记录标记删除而不是物理覆盖。
+                // 这能保留审计轨迹，同时让重建查询只关注 active 记录。
+                await MarkExistingEmbeddingRecordsDeletedAsync(chunk.Id, modelVersion.Id, cancellationToken);
+                await _embeddingRecordRepository.InsertAsync(
+                    new KnowledgeEmbeddingRecord(
+                        GuidGenerator.Create(),
+                        CurrentTenant.Id,
+                        chunk.Id,
+                        chunk.KnowledgeVersionId,
+                        modelVersion.Id,
+                        BuildVectorStoreRecordId(modelVersion.CollectionName, chunk),
+                        chunk.ContentHash,
+                        modelVersion.VectorDimension,
+                        DateTime.UtcNow),
+                    autoSave: true,
+                    cancellationToken: cancellationToken);
+                processedCount++;
             }
 
-            // 同一 chunk + 模型版本只保留一条 active embedding 记录；旧记录标记删除而不是物理覆盖。
-            // 这能保留审计轨迹，同时让重建查询只关注 active 记录。
-            await MarkExistingEmbeddingRecordsDeletedAsync(chunk.Id, modelVersion.Id, cancellationToken);
-            await _embeddingRecordRepository.InsertAsync(
-                new KnowledgeEmbeddingRecord(
-                    GuidGenerator.Create(),
-                    CurrentTenant.Id,
-                    chunk.Id,
-                    chunk.KnowledgeVersionId,
-                    modelVersion.Id,
-                    BuildVectorStoreRecordId(modelVersion.CollectionName, chunk),
-                    chunk.ContentHash,
-                    modelVersion.VectorDimension,
-                    DateTime.UtcNow),
-                autoSave: true,
-                cancellationToken: cancellationToken);
-            processedCount++;
+            vectorRecords.Add(BuildVectorRecord(chunk, item, version, permissionScopes, clientResult.Embedding));
+            if (job?.Status == KnowledgeIndexJobStatus.Processing)
+            {
+                var progress = 65 + ((index + 1) * 25 / chunks.Count);
+                job.ReportProgress("embedding", progress, DateTime.UtcNow);
+                await _jobRepository.UpdateAsync(job, autoSave: true, cancellationToken: cancellationToken);
+            }
+        }
+
+        try
+        {
+            if (job?.Status == KnowledgeIndexJobStatus.Processing)
+            {
+                job.ReportProgress("vector-store", 95, DateTime.UtcNow);
+                await _jobRepository.UpdateAsync(job, autoSave: true, cancellationToken: cancellationToken);
+            }
+
+            var health = await _vectorStoreMaintenance.EnsureKnowledgeCollectionAsync(cancellationToken);
+            if (!health.IsHealthy)
+            {
+                throw new InvalidOperationException("Knowledge vector collection is not healthy.");
+            }
+
+            await _vectorStore.UpsertChunksAsync(vectorRecords, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            var reason = $"Vector store write failed: {ex.GetType().Name}";
+            await MarkJobFailedAsync(job, "vector-store", reason, cancellationToken);
+            return Failed(knowledgeVersionId, modelVersion.Id, reason, "vector-store");
         }
 
         if (job != null)
@@ -230,8 +294,24 @@ public class KnowledgeEmbeddingPipeline : KnowPulseAppService, IKnowledgeEmbeddi
     /// <summary>
     /// 获取指定知识版本最近的可关联索引任务。
     /// </summary>
-    private async Task<KnowledgeIndexJob?> GetLatestIndexJobAsync(Guid knowledgeVersionId, CancellationToken cancellationToken)
+    private async Task<KnowledgeIndexJob?> GetIndexJobAsync(
+        Guid knowledgeVersionId,
+        Guid? knowledgeIndexJobId,
+        CancellationToken cancellationToken)
     {
+        if (knowledgeIndexJobId.HasValue)
+        {
+            var requestedJob = await _jobRepository.GetAsync(
+                knowledgeIndexJobId.Value,
+                cancellationToken: cancellationToken);
+            if (requestedJob.KnowledgeVersionId != knowledgeVersionId)
+            {
+                throw new BusinessException(KnowPulseDomainErrorCodes.KnowledgeIndexJobVersionMismatch);
+            }
+
+            return requestedJob;
+        }
+
         var queryable = await _jobRepository.GetQueryableAsync();
         return await AsyncExecuter.FirstOrDefaultAsync(
             queryable
@@ -299,15 +379,67 @@ public class KnowledgeEmbeddingPipeline : KnowPulseAppService, IKnowledgeEmbeddi
     /// <summary>
     /// 将关联索引任务标记为 embedding 阶段失败。
     /// </summary>
-    private async Task MarkJobFailedAsync(KnowledgeIndexJob? job, string reason, CancellationToken cancellationToken)
+    private async Task MarkJobFailedAsync(
+        KnowledgeIndexJob? job,
+        string stage,
+        string reason,
+        CancellationToken cancellationToken)
     {
         if (job == null)
         {
             return;
         }
 
-        job.MarkFailed("embedding", reason, DateTime.UtcNow);
+        job.MarkFailed(stage, reason, DateTime.UtcNow);
         await _jobRepository.UpdateAsync(job, autoSave: true, cancellationToken: cancellationToken);
+    }
+
+    private static KnowledgeChunkVectorRecord BuildVectorRecord(
+        KnowledgeChunk chunk,
+        KnowledgeItem item,
+        KnowledgeVersion version,
+        IReadOnlyCollection<KnowledgePermissionScope> permissionScopes,
+        ReadOnlyMemory<float> embedding)
+    {
+        var hasAllAccess = permissionScopes.Count == 0 ||
+                           permissionScopes.Any(x => x.ScopeType == KnowledgePermissionScopeType.All);
+        return new KnowledgeChunkVectorRecord
+        {
+            ChunkId = chunk.Id,
+            KnowledgeItemId = chunk.KnowledgeItemId,
+            KnowledgeVersionId = chunk.KnowledgeVersionId,
+            TenantId = chunk.TenantId,
+            Content = chunk.Content,
+            Embedding = embedding,
+            Payload = new KnowledgeVectorPayload
+            {
+                TenantId = chunk.TenantId,
+                KnowledgeItemId = chunk.KnowledgeItemId,
+                KnowledgeVersionId = chunk.KnowledgeVersionId,
+                ChunkId = chunk.Id,
+                CategoryId = item.CategoryId,
+                Visibility = hasAllAccess ? "All" : "Restricted",
+                DepartmentIds = GetTargets(permissionScopes, KnowledgePermissionScopeType.Department),
+                PositionIds = GetTargets(permissionScopes, KnowledgePermissionScopeType.Position),
+                RoleIds = GetTargets(permissionScopes, KnowledgePermissionScopeType.Role),
+                UserIds = GetTargets(permissionScopes, KnowledgePermissionScopeType.User),
+                SecurityLevel = chunk.SecurityLevelSnapshot,
+                IsPublished = version.Status == KnowledgeVersionStatus.Published,
+                SourceTitle = chunk.SourceTitle,
+                SourcePage = chunk.SourcePage
+            }
+        };
+    }
+
+    private static IReadOnlyList<Guid> GetTargets(
+        IEnumerable<KnowledgePermissionScope> scopes,
+        KnowledgePermissionScopeType scopeType)
+    {
+        return scopes
+            .Where(x => x.ScopeType == scopeType && x.TargetId.HasValue)
+            .Select(x => x.TargetId!.Value)
+            .Distinct()
+            .ToList();
     }
 
     /// <summary>

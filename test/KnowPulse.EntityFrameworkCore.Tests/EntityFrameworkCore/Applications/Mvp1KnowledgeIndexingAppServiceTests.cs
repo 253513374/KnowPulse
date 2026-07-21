@@ -28,7 +28,9 @@ public class Mvp1KnowledgeIndexingAppServiceTests : KnowPulseEntityFrameworkCore
     private readonly IKnowledgeIndexJobAppService _indexJobAppService;
     private readonly IKnowledgeIngestionPipeline _ingestionPipeline;
     private readonly IKnowledgeEmbeddingPipeline _embeddingPipeline;
+    private readonly IKnowledgeIndexJobProcessor _jobProcessor;
     private readonly TestKnowledgeEmbeddingClient _embeddingClient;
+    private readonly TestKnowledgeVectorStore _vectorStore;
     private readonly TestKnowledgeDocumentMarkdownConverter _markdownConverter;
     private readonly IRepository<KnowledgeChunk, Guid> _chunkRepository;
     private readonly IRepository<KnowledgeEmbeddingRecord, Guid> _embeddingRecordRepository;
@@ -44,12 +46,15 @@ public class Mvp1KnowledgeIndexingAppServiceTests : KnowPulseEntityFrameworkCore
         _indexJobAppService = GetRequiredService<IKnowledgeIndexJobAppService>();
         _ingestionPipeline = GetRequiredService<IKnowledgeIngestionPipeline>();
         _embeddingPipeline = GetRequiredService<IKnowledgeEmbeddingPipeline>();
+        _jobProcessor = GetRequiredService<IKnowledgeIndexJobProcessor>();
         _embeddingClient = GetRequiredService<TestKnowledgeEmbeddingClient>();
+        _vectorStore = GetRequiredService<TestKnowledgeVectorStore>();
         _markdownConverter = GetRequiredService<TestKnowledgeDocumentMarkdownConverter>();
         _chunkRepository = GetRequiredService<IRepository<KnowledgeChunk, Guid>>();
         _embeddingRecordRepository = GetRequiredService<IRepository<KnowledgeEmbeddingRecord, Guid>>();
         _modelVersionRepository = GetRequiredService<IRepository<EmbeddingModelVersion, Guid>>();
         _embeddingClient.Reset();
+        _vectorStore.Reset();
         _markdownConverter.Reset();
     }
 
@@ -130,6 +135,99 @@ public class Mvp1KnowledgeIndexingAppServiceTests : KnowPulseEntityFrameworkCore
         });
         failedJobs.Items.Select(x => x.Id).ShouldContain(failed.Id);
         failedJobs.Items.Select(x => x.Id).ShouldNotContain(retry.Id);
+    }
+
+    /// <summary>
+    /// 验证同一版本存在活动任务时重复重建不会制造并行任务。
+    /// </summary>
+    [Fact]
+    public async Task ReindexVersionAsync_Should_Reuse_Active_Job()
+    {
+        var (_, version) = await CreateKnowledgeVersionAsync();
+
+        var first = await _indexJobAppService.ReindexVersionAsync(version.Id);
+        var second = await _indexJobAppService.ReindexVersionAsync(version.Id);
+
+        second.Id.ShouldBe(first.Id);
+        var jobs = await _indexJobAppService.GetListAsync(new GetKnowledgeIndexJobListInput
+        {
+            KnowledgeVersionId = version.Id,
+            MaxResultCount = 100
+        });
+        jobs.Items.Count(x => x.Status is KnowledgeIndexJobStatus.Pending or KnowledgeIndexJobStatus.Processing)
+            .ShouldBe(1);
+    }
+
+    /// <summary>
+    /// 验证共享处理器完成摄取、embedding、向量写入，并跳过重复投递。
+    /// </summary>
+    [Fact]
+    public async Task Processor_Should_Complete_Full_Pipeline_And_Be_Idempotent()
+    {
+        var (item, version) = await CreateKnowledgeVersionAsync("P3 完整索引执行内容。");
+        await _itemAppService.PublishVersionAsync(item.Id, version.Id);
+        var job = await GetSingleJobAsync(version.Id, KnowledgeIndexJobTriggerType.Publish);
+
+        await _jobProcessor.ProcessAsync(job.Id);
+
+        var indexed = await _indexJobAppService.GetAsync(job.Id);
+        indexed.Status.ShouldBe(KnowledgeIndexJobStatus.Indexed);
+        indexed.ProcessingStage.ShouldBe("completed");
+        indexed.ProgressPercent.ShouldBe(100);
+        indexed.LastHeartbeatTime.ShouldNotBeNull();
+        _vectorStore.UpsertRequests.Count.ShouldBe(1);
+        _vectorStore.UpsertRequests[0].ShouldNotBeEmpty();
+        _vectorStore.UpsertRequests[0].ShouldAllBe(x => x.Embedding.Length == 1536);
+        var embeddingCallCount = _embeddingClient.CallCount;
+
+        await _jobProcessor.ProcessAsync(job.Id);
+
+        _embeddingClient.CallCount.ShouldBe(embeddingCallCount);
+        _vectorStore.UpsertRequests.Count.ShouldBe(1);
+    }
+
+    /// <summary>
+    /// 验证真实执行失败会记录阶段并安排指数退避重试。
+    /// </summary>
+    [Fact]
+    public async Task Processor_Should_Schedule_Retry_When_Embedding_Fails()
+    {
+        var (item, version) = await CreateKnowledgeVersionAsync("P3 embedding 失败重试内容。");
+        await _itemAppService.PublishVersionAsync(item.Id, version.Id);
+        var job = await GetSingleJobAsync(version.Id, KnowledgeIndexJobTriggerType.Publish);
+        _embeddingClient.ShouldFail = true;
+        _embeddingClient.FailureReason = "P3 test gateway timeout.";
+
+        await _jobProcessor.ProcessAsync(job.Id);
+
+        var failed = await _indexJobAppService.GetAsync(job.Id);
+        failed.Status.ShouldBe(KnowledgeIndexJobStatus.Failed);
+        failed.FailureStage.ShouldBe("embedding");
+        failed.RetryCount.ShouldBe(1);
+        failed.CanRetry.ShouldBeTrue();
+        failed.NextRetryTime.ShouldNotBeNull();
+        failed.NextRetryTime!.Value.ShouldBeGreaterThan(DateTime.UtcNow);
+        _vectorStore.UpsertRequests.ShouldBeEmpty();
+    }
+
+    /// <summary>
+    /// 验证人工恢复会终止卡住任务并保留恢复来源。
+    /// </summary>
+    [Fact]
+    public async Task RecoverAsync_Should_Create_Lineage_And_Keep_Stuck_Job_Auditable()
+    {
+        var (_, version) = await CreateKnowledgeVersionAsync();
+        var stuck = await _indexJobAppService.ReindexVersionAsync(version.Id);
+        await _indexJobAppService.StartAsync(stuck.Id);
+
+        var recovery = await _indexJobAppService.RecoverAsync(stuck.Id);
+
+        recovery.Status.ShouldBe(KnowledgeIndexJobStatus.Pending);
+        recovery.TriggerType.ShouldBe(KnowledgeIndexJobTriggerType.ManualRebuild);
+        recovery.RetryOfJobId.ShouldBe(stuck.Id);
+        var original = await _indexJobAppService.GetAsync(stuck.Id);
+        original.Status.ShouldBe(KnowledgeIndexJobStatus.Failed);
+        original.FailureStage.ShouldBe("recovery");
     }
 
     /// <summary>

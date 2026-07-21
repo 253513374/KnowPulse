@@ -77,6 +77,8 @@ public class KnowPulseEntityFrameworkCoreTestModule : AbpModule
         services.AddSingleton<TestKnowledgeVectorStore>();
         services.Replace(ServiceDescriptor.Singleton<IKnowledgeVectorStore>(
             serviceProvider => serviceProvider.GetRequiredService<TestKnowledgeVectorStore>()));
+        services.Replace(ServiceDescriptor.Singleton<IKnowledgeVectorStoreMaintenance>(
+            serviceProvider => serviceProvider.GetRequiredService<TestKnowledgeVectorStore>()));
         services.AddSingleton<TestRagChatClient>();
         services.Replace(ServiceDescriptor.Singleton<IRagChatClient>(
             serviceProvider => serviceProvider.GetRequiredService<TestRagChatClient>()));
@@ -192,11 +194,13 @@ public class TestKnowledgeEmbeddingClient : IKnowledgeEmbeddingClient
     }
 }
 
-public class TestKnowledgeVectorStore : IKnowledgeVectorStore
+public class TestKnowledgeVectorStore : IKnowledgeVectorStore, IKnowledgeVectorStoreMaintenance
 {
     public List<KnowledgeVectorSearchRequest> SearchRequests { get; } = [];
 
     public List<VectorSearchHit> SearchResults { get; } = [];
+
+    public List<IReadOnlyList<KnowledgeChunkVectorRecord>> UpsertRequests { get; } = [];
 
     /// <summary>
     /// 清空向量库测试替身记录的请求和预置结果。
@@ -205,6 +209,7 @@ public class TestKnowledgeVectorStore : IKnowledgeVectorStore
     {
         SearchRequests.Clear();
         SearchResults.Clear();
+        UpsertRequests.Clear();
     }
 
     /// <summary>
@@ -214,7 +219,35 @@ public class TestKnowledgeVectorStore : IKnowledgeVectorStore
         IReadOnlyList<KnowledgeChunkVectorRecord> chunks,
         CancellationToken cancellationToken = default)
     {
+        UpsertRequests.Add(chunks.ToList());
         return Task.CompletedTask;
+    }
+
+    public Task<KnowledgeVectorCollectionHealthResult> EnsureKnowledgeCollectionAsync(
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(CreateHealthyCollection());
+    }
+
+    public Task<KnowledgeVectorCollectionHealthResult> GetKnowledgeCollectionHealthAsync(
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(CreateHealthyCollection());
+    }
+
+    private static KnowledgeVectorCollectionHealthResult CreateHealthyCollection()
+    {
+        return new KnowledgeVectorCollectionHealthResult
+        {
+            CollectionName = "knowledge_chunks_1536_mvp1",
+            ExpectedVectorDimension = 1536,
+            ActualVectorDimension = 1536,
+            CollectionExists = true,
+            VectorDimensionMatches = true,
+            RequiredPayloadIndexes = Array.Empty<string>(),
+            ExistingPayloadIndexes = Array.Empty<string>(),
+            MissingPayloadIndexes = Array.Empty<string>()
+        };
     }
 
     /// <summary>

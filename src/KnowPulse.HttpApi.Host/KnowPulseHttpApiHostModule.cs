@@ -81,10 +81,23 @@ public class KnowPulseHttpApiHostModule : AbpModule
         ConfigureUrls(configuration);
         ConfigureAuditing();
         ConfigureBlobStoring(configuration);
+        ConfigureKnowledgeIndexingWorker(context, configuration);
         ConfigureConventionalControllers();
         ConfigureVirtualFileSystem(context);
         ConfigureCors(context, configuration);
         ConfigureSwaggerServices(context, configuration);
+    }
+
+    /// <summary>
+    /// 注册 P3 知识索引后台消费者。
+    /// </summary>
+    private static void ConfigureKnowledgeIndexingWorker(
+        ServiceConfigurationContext context,
+        IConfiguration configuration)
+    {
+        context.Services.Configure<KnowledgeIndexJobWorkerOptions>(
+            configuration.GetSection(KnowledgeIndexJobWorkerOptions.SectionName));
+        context.Services.AddHostedService<KnowledgeIndexJobBackgroundWorker>();
     }
 
     /// <summary>

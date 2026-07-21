@@ -13,6 +13,7 @@ public class KnowledgeIndexJob : FullAuditedAggregateRoot<Guid>, IMultiTenant
 {
     public const int MaxFailureStageLength = 64;
     public const int MaxFailureReasonLength = 2048;
+    public const int MaxProcessingStageLength = 64;
 
     public Guid? TenantId { get; protected set; }
 
@@ -23,6 +24,8 @@ public class KnowledgeIndexJob : FullAuditedAggregateRoot<Guid>, IMultiTenant
     public Guid? EmbeddingModelVersionId { get; private set; }
 
     public Guid? RequestedByUserId { get; private set; }
+
+    public Guid? RetryOfJobId { get; private set; }
 
     public KnowledgeIndexJobTriggerType TriggerType { get; private set; }
 
@@ -41,6 +44,12 @@ public class KnowledgeIndexJob : FullAuditedAggregateRoot<Guid>, IMultiTenant
     public DateTime? CompletedTime { get; private set; }
 
     public DateTime? NextRetryTime { get; private set; }
+
+    public string? ProcessingStage { get; private set; }
+
+    public int ProgressPercent { get; private set; }
+
+    public DateTime? LastHeartbeatTime { get; private set; }
 
     /// <summary>
     /// EF Core 使用的受保护构造函数。
@@ -61,7 +70,8 @@ public class KnowledgeIndexJob : FullAuditedAggregateRoot<Guid>, IMultiTenant
         KnowledgeIndexJobTriggerType triggerType,
         Guid? embeddingModelVersionId = null,
         Guid? requestedByUserId = null,
-        int maxRetryCount = 3)
+        int maxRetryCount = 3,
+        Guid? retryOfJobId = null)
         : base(id)
     {
         if (maxRetryCount < 0)
@@ -75,8 +85,10 @@ public class KnowledgeIndexJob : FullAuditedAggregateRoot<Guid>, IMultiTenant
         TriggerType = triggerType;
         EmbeddingModelVersionId = embeddingModelVersionId;
         RequestedByUserId = requestedByUserId;
+        RetryOfJobId = retryOfJobId;
         MaxRetryCount = maxRetryCount;
         Status = KnowledgeIndexJobStatus.Pending;
+        ProcessingStage = "queued";
     }
 
     /// <summary>
@@ -93,12 +105,48 @@ public class KnowledgeIndexJob : FullAuditedAggregateRoot<Guid>, IMultiTenant
     /// </summary>
     public void Start(DateTime now)
     {
+        if (Status is KnowledgeIndexJobStatus.Indexed or KnowledgeIndexJobStatus.Outdated or KnowledgeIndexJobStatus.Deleted)
+        {
+            throw new BusinessException(KnowPulseDomainErrorCodes.KnowledgeIndexJobCannotStart);
+        }
+
+        if (Status == KnowledgeIndexJobStatus.Failed && RetryCount > MaxRetryCount)
+        {
+            throw new BusinessException(KnowPulseDomainErrorCodes.KnowledgeIndexJobRetryExhausted);
+        }
+
         Status = KnowledgeIndexJobStatus.Processing;
         StartedTime = now;
         CompletedTime = null;
         FailureStage = null;
         FailureReason = null;
         NextRetryTime = null;
+        ProcessingStage = "starting";
+        ProgressPercent = 0;
+        LastHeartbeatTime = now;
+    }
+
+    /// <summary>
+    /// 汇报当前执行阶段、单调递增进度和 worker 心跳。
+    /// </summary>
+    public void ReportProgress(string processingStage, int progressPercent, DateTime now)
+    {
+        if (Status != KnowledgeIndexJobStatus.Processing)
+        {
+            throw new BusinessException(KnowPulseDomainErrorCodes.KnowledgeIndexJobCannotStart);
+        }
+
+        if (progressPercent is < 0 or > 100)
+        {
+            throw new ArgumentOutOfRangeException(nameof(progressPercent));
+        }
+
+        ProcessingStage = Check.NotNullOrWhiteSpace(
+            processingStage,
+            nameof(processingStage),
+            MaxProcessingStageLength);
+        ProgressPercent = Math.Max(ProgressPercent, progressPercent);
+        LastHeartbeatTime = now;
     }
 
     /// <summary>
@@ -111,6 +159,9 @@ public class KnowledgeIndexJob : FullAuditedAggregateRoot<Guid>, IMultiTenant
         FailureStage = null;
         FailureReason = null;
         NextRetryTime = null;
+        ProcessingStage = "completed";
+        ProgressPercent = 100;
+        LastHeartbeatTime = now;
     }
 
     /// <summary>
@@ -125,7 +176,36 @@ public class KnowledgeIndexJob : FullAuditedAggregateRoot<Guid>, IMultiTenant
         FailureReason = Check.NotNullOrWhiteSpace(failureReason, nameof(failureReason), MaxFailureReasonLength);
         RetryCount++;
         NextRetryTime = RetryCount <= MaxRetryCount ? nextRetryTime : null;
+        ProcessingStage = FailureStage;
+        LastHeartbeatTime = now;
     }
+
+    /// <summary>
+    /// 为失败任务设置下一次自动重试时间。
+    /// </summary>
+    public void ScheduleRetry(DateTime nextRetryTime)
+    {
+        if (Status != KnowledgeIndexJobStatus.Failed)
+        {
+            throw new BusinessException(KnowPulseDomainErrorCodes.KnowledgeIndexJobRetryRequiresFailedStatus);
+        }
+
+        if (RetryCount > MaxRetryCount)
+        {
+            throw new BusinessException(KnowPulseDomainErrorCodes.KnowledgeIndexJobRetryExhausted);
+        }
+
+        NextRetryTime = nextRetryTime;
+    }
+
+    public bool CanRetry => Status == KnowledgeIndexJobStatus.Failed && RetryCount <= MaxRetryCount;
+
+    public bool IsRetryDue(DateTime now) => CanRetry && (!NextRetryTime.HasValue || NextRetryTime <= now);
+
+    public bool IsStale(DateTime now, TimeSpan timeout) =>
+        Status == KnowledgeIndexJobStatus.Processing &&
+        LastHeartbeatTime.HasValue &&
+        LastHeartbeatTime.Value <= now.Subtract(timeout);
 
     /// <summary>
     /// 标记任务结果已过期。
@@ -137,6 +217,8 @@ public class KnowledgeIndexJob : FullAuditedAggregateRoot<Guid>, IMultiTenant
         FailureStage = null;
         FailureReason = Check.Length(reason, nameof(reason), MaxFailureReasonLength);
         NextRetryTime = null;
+        ProcessingStage = "outdated";
+        LastHeartbeatTime = null;
     }
 
     /// <summary>
@@ -147,5 +229,7 @@ public class KnowledgeIndexJob : FullAuditedAggregateRoot<Guid>, IMultiTenant
         Status = KnowledgeIndexJobStatus.Deleted;
         CompletedTime = now;
         NextRetryTime = null;
+        ProcessingStage = "deleted";
+        LastHeartbeatTime = now;
     }
 }

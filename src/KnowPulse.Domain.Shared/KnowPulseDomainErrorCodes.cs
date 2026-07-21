@@ -65,6 +65,26 @@ public static class KnowPulseDomainErrorCodes
     /// </summary>
     public const string KnowledgeAccessPolicyTargetRequired = "KnowPulse:00012";
 
+    /// <summary>
+    /// 当前索引任务状态不允许开始或继续执行。
+    /// </summary>
+    public const string KnowledgeIndexJobCannotStart = "KnowPulse:00013";
+
+    /// <summary>
+    /// 索引任务已经耗尽自动重试次数。
+    /// </summary>
+    public const string KnowledgeIndexJobRetryExhausted = "KnowPulse:00014";
+
+    /// <summary>
+    /// 只有处理中任务可以执行人工恢复。
+    /// </summary>
+    public const string KnowledgeIndexJobRecoveryRequiresProcessingStatus = "KnowPulse:00015";
+
+    /// <summary>
+    /// 索引任务与准备处理的知识版本不匹配。
+    /// </summary>
+    public const string KnowledgeIndexJobVersionMismatch = "KnowPulse:00016";
+
     public const string QuestionAnswerRequired = "KnowPulse:01001";
 
     public const string QuestionChoiceOptionsRequired = "KnowPulse:01002";

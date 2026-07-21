@@ -18,7 +18,11 @@ public interface IKnowledgeIngestionPipeline
     /// <summary>
     /// 摄取指定知识版本，并返回本次摄取生成的分块结果或失败信息。
     /// </summary>
-    Task<KnowledgeIngestionResult> IngestAsync(Guid knowledgeVersionId, CancellationToken cancellationToken = default);
+    Task<KnowledgeIngestionResult> IngestAsync(
+        Guid knowledgeVersionId,
+        Guid? knowledgeIndexJobId = null,
+        bool completeIndexJob = true,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -86,6 +90,7 @@ public interface IKnowledgeEmbeddingPipeline
     Task<KnowledgeEmbeddingRunResult> GenerateForVersionAsync(
         Guid knowledgeVersionId,
         Guid? embeddingModelVersionId = null,
+        Guid? knowledgeIndexJobId = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>

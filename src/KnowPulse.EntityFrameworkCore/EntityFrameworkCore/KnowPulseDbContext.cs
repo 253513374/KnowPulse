@@ -329,10 +329,13 @@ public class KnowPulseDbContext :
             b.Property(x => x.Status).IsRequired();
             b.Property(x => x.FailureStage).HasMaxLength(KnowledgeIndexJob.MaxFailureStageLength);
             b.Property(x => x.FailureReason).HasMaxLength(KnowledgeIndexJob.MaxFailureReasonLength);
+            b.Property(x => x.ProcessingStage).HasMaxLength(KnowledgeIndexJob.MaxProcessingStageLength);
             b.HasIndex(x => new { x.TenantId, x.KnowledgeVersionId, x.Status });
             b.HasIndex(x => new { x.KnowledgeItemId, x.Status });
             b.HasIndex(x => x.EmbeddingModelVersionId);
+            b.HasIndex(x => x.RetryOfJobId);
             b.HasIndex(x => x.NextRetryTime);
+            b.HasIndex(x => new { x.Status, x.LastHeartbeatTime });
         });
 
         builder.Entity<KnowledgeChunk>(b =>

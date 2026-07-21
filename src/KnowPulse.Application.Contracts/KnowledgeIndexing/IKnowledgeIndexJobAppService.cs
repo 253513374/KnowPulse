@@ -27,6 +27,12 @@ public interface IKnowledgeIndexJobAppService : IApplicationService
     Task<KnowledgeIndexJobDto> GetAsync(Guid id);
 
     /// <summary>
+    /// 读取索引队列运维摘要。
+    /// </summary>
+    [Authorize(KnowPulsePermissions.KnowledgeIndexing.IndexJobs)]
+    Task<KnowledgeIndexJobOperationalSummaryDto> GetOperationalSummaryAsync();
+
+    /// <summary>
     /// 创建一条索引任务。调用方必须提供匹配的知识条目和知识版本编号。
     /// </summary>
     [Authorize(KnowPulsePermissions.KnowledgeIndexing.IndexJobs)]
@@ -44,6 +50,18 @@ public interface IKnowledgeIndexJobAppService : IApplicationService
     /// </summary>
     [Authorize(KnowPulsePermissions.KnowledgeIndexing.IndexJobs)]
     Task<KnowledgeIndexJobDto> RetryAsync(Guid id);
+
+    /// <summary>
+    /// 立即执行一条待处理或到期可重试任务，真正运行摄取、embedding 和向量写入。
+    /// </summary>
+    [Authorize(KnowPulsePermissions.KnowledgeIndexing.IndexJobs)]
+    Task<KnowledgeIndexJobDto> ExecuteAsync(Guid id);
+
+    /// <summary>
+    /// 将卡住的处理中任务终止为失败，并创建一条可重新执行的恢复任务。
+    /// </summary>
+    [Authorize(KnowPulsePermissions.KnowledgeIndexing.IndexJobs)]
+    Task<KnowledgeIndexJobDto> RecoverAsync(Guid id);
 
     /// <summary>
     /// 将任务标记为处理中。MVP-1 中也用于管理员手动推进状态。
