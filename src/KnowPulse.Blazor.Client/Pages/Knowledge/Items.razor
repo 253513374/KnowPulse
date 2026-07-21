@@ -836,12 +836,48 @@
     /// <param name="version">准备发布的知识版本。</param>
     private async Task PublishVersionAsync(KnowledgeVersionDto version)
     {
-        if (!await ConfirmAsync($"确定发布 v{version.VersionNumber}「{version.Title}」吗？发布后会成为当前版本。"))
+        if (SelectedItemId == null)
         {
             return;
         }
 
-        await RunVersionCommandAsync(version.Id, KnowledgeItemAppService.PublishVersionAsync);
+        var itemId = SelectedItemId.Value;
+        await RunBusyAsync(async () =>
+        {
+            var scopeResult = await KnowledgeItemAppService.GetPermissionScopesAsync(itemId);
+            var permissionScopes = scopeResult.Items
+                .Where(x => x.IsEnabled)
+                .Select(x => new CreateKnowledgePermissionScopeDto
+                {
+                    ScopeType = x.ScopeType,
+                    TargetId = x.TargetId,
+                    MinimumSecurityLevel = x.MinimumSecurityLevel
+                })
+                .ToList();
+            if (permissionScopes.Count == 0)
+            {
+                permissionScopes.Add(new CreateKnowledgePermissionScopeDto
+                {
+                    ScopeType = KnowledgePermissionScopeType.All
+                });
+            }
+
+            var accessText = permissionScopes.Any(x => x.ScopeType == KnowledgePermissionScopeType.All)
+                ? "全员可见"
+                : $"{permissionScopes.Count} 条定向访问规则";
+            if (!await ConfirmAsync($"确定发布 v{version.VersionNumber}「{version.Title}」吗？本次访问策略：{accessText}。发布会同时创建索引任务。"))
+            {
+                return;
+            }
+
+            await KnowledgeItemAppService.PublishVersionWithAccessPolicyAsync(itemId, new PublishKnowledgeVersionInput
+            {
+                KnowledgeVersionId = version.Id,
+                PermissionScopes = permissionScopes
+            });
+            await LoadVersionsAsync(itemId);
+            await LoadAsync();
+        });
     }
 
     /// <summary>

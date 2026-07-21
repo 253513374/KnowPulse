@@ -1,0 +1,730 @@
+@page "/knowledge/{Id:guid}"
+@* 知识条目聚合详情工作台。 *@
+@attribute [Authorize(KnowPulsePermissions.KnowledgeBase.Items)]
+@inherits KnowPulseComponentBase
+@inject IKnowledgeManagementAppService KnowledgeManagementAppService
+@inject IKnowledgeItemAppService KnowledgeItemAppService
+@inject IKnowledgeIndexJobAppService IndexJobAppService
+@inject IPermissionChecker PermissionChecker
+@inject NavigationManager NavigationManager
+@inject IJSRuntime JSRuntime
+
+<PageTitle>@(Detail?.Title ?? "知识详情")</PageTitle>
+
+<div class="knowledge-detail-page">
+    <button class="knowledge-back-link" type="button" @onclick="BackToList">
+        <i class="fas fa-arrow-left" aria-hidden="true"></i>返回知识列表
+    </button>
+
+    @if (!string.IsNullOrWhiteSpace(ErrorMessage))
+    {
+        <div class="alert alert-danger d-flex flex-wrap align-items-center justify-content-between gap-2" role="alert">
+            <span>@ErrorMessage</span>
+            <button class="btn btn-sm btn-outline-danger" type="button" @onclick="LoadAsync" disabled="@IsBusy">重试</button>
+        </div>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(SuccessMessage))
+    {
+        <div class="alert alert-success" role="status">@SuccessMessage</div>
+    }
+
+    @if (IsLoading && Detail == null)
+    {
+        <div class="card"><div class="card-body py-5 text-center text-muted">
+            <span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>正在加载知识详情
+        </div></div>
+    }
+    else if (Detail != null)
+    {
+        <header class="knowledge-detail-header">
+            <div class="knowledge-detail-title">
+                <span class="knowledge-detail-file @GetFileClass(Detail.Status)">
+                    <i class="fas fa-file-lines" aria-hidden="true"></i>
+                </span>
+                <div>
+                    <div class="d-flex flex-wrap align-items-center gap-2">
+                        <h1 class="h3 mb-0">@Detail.Title</h1>
+                        <span class="knowledge-detail-status @GetStatusClass(Detail.Status)">
+                            <i aria-hidden="true"></i>@GetStatusText(Detail.Status)
+                        </span>
+                    </div>
+                    <p class="text-muted mb-0 mt-2">
+                        @Detail.CategoryName · @(Detail.CurrentVersionNumber.HasValue ? $"当前版本 v{Detail.CurrentVersionNumber}" : "尚未发布")
+                        · 最后更新于 @FormatDateTime(Detail.UpdatedTime)
+                    </p>
+                </div>
+            </div>
+            <div class="d-flex flex-wrap gap-2">
+                <button class="btn btn-outline-secondary" type="button" @onclick="OpenAdvanced">
+                    <i class="fas fa-sliders me-2" aria-hidden="true"></i>高级维护
+                </button>
+                <button class="btn btn-primary" type="button" @onclick="OpenRevision">
+                    <i class="fas fa-file-circle-plus me-2" aria-hidden="true"></i>创建修订
+                </button>
+            </div>
+        </header>
+
+        <nav class="knowledge-detail-tabs" aria-label="知识详情导航">
+            <button class="@GetTabClass(DetailTab.Overview)" type="button" @onclick="() => ActiveTab = DetailTab.Overview">概览</button>
+            <button class="@GetTabClass(DetailTab.Versions)" type="button" @onclick="() => ActiveTab = DetailTab.Versions">
+                内容与版本 <span>@Detail.VersionCount</span>
+            </button>
+            <button class="@GetTabClass(DetailTab.Access)" type="button" @onclick="() => ActiveTab = DetailTab.Access">访问策略</button>
+            <button class="@GetTabClass(DetailTab.Index)" type="button" @onclick="() => ActiveTab = DetailTab.Index">检索状态</button>
+            <button class="@GetTabClass(DetailTab.Feedback)" type="button" @onclick="() => ActiveTab = DetailTab.Feedback">
+                反馈与修订
+                @if (Detail.PendingFeedbackCount > 0)
+                {
+                    <span class="tab-attention">@Detail.PendingFeedbackCount</span>
+                }
+            </button>
+            <button class="@GetTabClass(DetailTab.Activity)" type="button" @onclick="() => ActiveTab = DetailTab.Activity">活动记录</button>
+        </nav>
+
+        @if (ActiveTab == DetailTab.Overview)
+        {
+            <div class="knowledge-detail-grid">
+                <div class="knowledge-detail-main">
+                    <section class="card knowledge-detail-card">
+                        <div class="card-header d-flex align-items-center justify-content-between gap-3">
+                            <div><h2 class="h6 mb-1">知识概览</h2><small class="text-muted">当前生效的业务事实</small></div>
+                            <button class="btn btn-link btn-sm" type="button" @onclick="OpenAdvanced">编辑信息</button>
+                        </div>
+                        <div class="knowledge-definition-grid">
+                            <div><small>分类</small><strong>@Detail.CategoryName</strong></div>
+                            <div><small>创建人</small><strong>@FormatUser(Detail.CreatorId)</strong></div>
+                            <div><small>当前版本</small><strong>@GetCurrentVersionText(Detail)</strong></div>
+                            <div><small>访问范围</small><strong><i class="fas @(Detail.IsAccessRestricted ? "fa-lock" : "fa-earth-asia") me-2" aria-hidden="true"></i>@Detail.AccessScopeText</strong></div>
+                            <div class="span-two"><small>摘要</small><p>@(string.IsNullOrWhiteSpace(Detail.Summary) ? "暂未填写摘要。" : Detail.Summary)</p></div>
+                        </div>
+                    </section>
+
+                    <section class="card knowledge-detail-card">
+                        <div class="card-header d-flex align-items-center justify-content-between gap-3">
+                            <div><h2 class="h6 mb-1">问答可用性</h2><small class="text-muted">版本生命周期与索引任务保持独立，页面合成为一个健康状态。</small></div>
+                            <span class="knowledge-detail-status @GetStatusClass(Detail.Status)">
+                                <i aria-hidden="true"></i>@GetStatusText(Detail.Status)
+                            </span>
+                        </div>
+                        <div class="knowledge-pipeline">
+                            <div class="knowledge-pipeline-step is-done">
+                                <span><i class="fas fa-check" aria-hidden="true"></i></span><strong>内容已创建</strong><small>@FormatShortTime(Detail.CreationTime)</small>
+                            </div>
+                            <div class="knowledge-pipeline-line @(Detail.CurrentVersionId.HasValue ? "is-done" : null)"></div>
+                            <div class="knowledge-pipeline-step @(Detail.CurrentVersionId.HasValue ? "is-done" : null)">
+                                <span><i class="fas @(Detail.CurrentVersionId.HasValue ? "fa-check" : "fa-minus")" aria-hidden="true"></i></span>
+                                <strong>版本已发布</strong><small>@(Detail.CurrentVersionNumber.HasValue ? $"v{Detail.CurrentVersionNumber}" : "等待发布")</small>
+                            </div>
+                            <div class="knowledge-pipeline-line @(HasIndexStarted(Detail) ? "is-done" : null)"></div>
+                            <div class="knowledge-pipeline-step @(HasIndexStarted(Detail) ? "is-done" : null)">
+                                <span><i class="fas @(HasIndexStarted(Detail) ? "fa-check" : "fa-minus")" aria-hidden="true"></i></span>
+                                <strong>索引处理</strong><small>@GetIndexStatusText(Detail.LatestIndexStatus)</small>
+                            </div>
+                            <div class="knowledge-pipeline-line @(Detail.Status == KnowledgeManagementStatus.Ready ? "is-done" : null)"></div>
+                            <div class="knowledge-pipeline-step @(Detail.Status == KnowledgeManagementStatus.Ready ? "is-done" : null)">
+                                <span><i class="fas @(Detail.Status == KnowledgeManagementStatus.Ready ? "fa-check" : "fa-minus")" aria-hidden="true"></i></span>
+                                <strong>可用于问答</strong><small>@Detail.StatusReason</small>
+                            </div>
+                        </div>
+                        <div class="knowledge-pipeline-meta">
+                            <span><strong>@Detail.AttachmentCount</strong> 个附件</span>
+                            <span><strong>@Detail.VersionCount</strong> 个历史版本</span>
+                            <span><strong>@Detail.PendingFeedbackCount</strong> 条待处理反馈</span>
+                            <span>最近处理：<strong>@FormatNullableDateTime(Detail.LatestIndexTime)</strong></span>
+                        </div>
+                        @if (Detail.Status == KnowledgeManagementStatus.NeedsAttention)
+                        {
+                            <div class="knowledge-index-warning">
+                                <div>
+                                    <strong>@Detail.StatusReason</strong>
+                                    @if (!string.IsNullOrWhiteSpace(Detail.LatestIndexFailureReason))
+                                    {
+                                        <p>@Detail.LatestIndexFailureReason</p>
+                                    }
+                                </div>
+                                @if (CanManageIndexJobs && Detail.LatestIndexStatus == KnowledgeIndexJobStatus.Failed)
+                                {
+                                    <button class="btn btn-outline-danger btn-sm" type="button" @onclick="RetryLatestAsync" disabled="@IsBusy">重试索引</button>
+                                }
+                                else if (CanManageIndexJobs && Detail.CurrentVersionId.HasValue)
+                                {
+                                    <button class="btn btn-outline-primary btn-sm" type="button" @onclick="ReindexCurrentAsync" disabled="@IsBusy">重建索引</button>
+                                }
+                            </div>
+                        }
+                    </section>
+
+                    <section class="card knowledge-detail-card">
+                        <div class="card-header d-flex align-items-center justify-content-between gap-3">
+                            <div><h2 class="h6 mb-1">最近反馈</h2><small class="text-muted">修订动作回到当前知识上下文。</small></div>
+                            <button class="btn btn-link btn-sm" type="button" @onclick="() => ActiveTab = DetailTab.Feedback">查看全部</button>
+                        </div>
+                        @if (Detail.RecentFeedback.Count == 0)
+                        {
+                            <div class="card-body text-muted">暂无知识反馈。</div>
+                        }
+                        else
+                        {
+                            @foreach (var feedback in Detail.RecentFeedback.Take(3))
+                            {
+                                <div class="knowledge-feedback-row">
+                                    <span class="knowledge-feedback-icon @GetFeedbackClass(feedback.Status)">
+                                        <i class="fas @(feedback.Status is KnowledgeFeedbackStatus.Resolved or KnowledgeFeedbackStatus.Closed ? "fa-circle-check" : "fa-message")" aria-hidden="true"></i>
+                                    </span>
+                                    <div><strong>@feedback.Title</strong><p>@feedback.Description</p><small>@GetFeedbackStatusText(feedback.Status) · @FormatDateTime(feedback.HandledTime ?? feedback.CreationTime)</small></div>
+                                </div>
+                            }
+                        }
+                    </section>
+                </div>
+
+                <aside class="knowledge-detail-side">
+                    <section class="card knowledge-detail-card">
+                        <div class="card-header"><h2 class="h6 mb-0">当前状态</h2></div>
+                        <div class="knowledge-health-list">
+                            <div><span class="health-success"><i class="fas fa-arrow-up-from-bracket" aria-hidden="true"></i></span><p><small>业务生命周期</small><strong>@GetCurrentVersionText(Detail)</strong></p></div>
+                            <div><span class="@GetHealthClass(Detail.Status)"><i class="fas fa-atom" aria-hidden="true"></i></span><p><small>问答可用状态</small><strong>@GetStatusText(Detail.Status)</strong></p></div>
+                            <div><span class="health-info"><i class="fas @(Detail.IsAccessRestricted ? "fa-lock" : "fa-earth-asia")" aria-hidden="true"></i></span><p><small>访问策略</small><strong>@Detail.AccessScopeText</strong></p></div>
+                            <div><span class="health-warning"><i class="fas fa-message" aria-hidden="true"></i></span><p><small>待处理反馈</small><strong>@Detail.PendingFeedbackCount 条</strong></p></div>
+                        </div>
+                    </section>
+
+                    <section class="card knowledge-detail-card">
+                        <div class="card-header d-flex align-items-center justify-content-between">
+                            <h2 class="h6 mb-0">最近活动</h2>
+                            <button class="btn btn-link btn-sm" type="button" @onclick="() => ActiveTab = DetailTab.Activity">全部</button>
+                        </div>
+                        <div class="knowledge-activity-list">
+                            @foreach (var activity in Detail.RecentActivities.Take(5))
+                            {
+                                <div><i class="@GetActivityClass(activity.Kind)" aria-hidden="true"></i><p><strong>@activity.Title</strong><small>@FormatDateTime(activity.OccurredTime)</small></p></div>
+                            }
+                        </div>
+                    </section>
+                </aside>
+            </div>
+        }
+        else if (ActiveTab == DetailTab.Versions)
+        {
+            <section class="card knowledge-detail-card">
+                <div class="card-header d-flex align-items-center justify-content-between gap-3">
+                    <div><h2 class="h6 mb-1">内容与版本</h2><small class="text-muted">发布时同时确认访问策略并创建索引任务。</small></div>
+                    <button class="btn btn-primary btn-sm" type="button" @onclick="OpenRevision">创建修订</button>
+                </div>
+                @if (PublishCandidate != null)
+                {
+                    <div class="knowledge-publish-panel">
+                        <div>
+                            <small>准备发布</small>
+                            <strong>v@PublishCandidate.VersionNumber · @PublishCandidate.Title</strong>
+                            <p>系统会在一个事务内保存访问策略、切换当前版本、使旧索引失效并创建新索引任务。</p>
+                        </div>
+                        <div class="knowledge-publish-policy">
+                            <span><i class="fas @(GetPublishPermissionScopes().Any(x => x.ScopeType != KnowledgePermissionScopeType.All) ? "fa-lock" : "fa-earth-asia")" aria-hidden="true"></i></span>
+                            <div><small>本次访问策略</small><strong>@GetPublishAccessPolicyText()</strong></div>
+                            <button class="btn btn-link btn-sm" type="button" @onclick="OpenPermissionManagement">调整策略</button>
+                        </div>
+                        <label class="form-check knowledge-publish-confirm">
+                            <input class="form-check-input" type="checkbox" @bind="AccessPolicyConfirmed" disabled="@IsBusy" />
+                            <span class="form-check-label">我已确认该版本内容和以上访问范围。</span>
+                        </label>
+                        <div class="d-flex flex-wrap gap-2 justify-content-end">
+                            <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="CancelPublish" disabled="@IsBusy">取消</button>
+                            <button class="btn btn-primary btn-sm" type="button" @onclick="ConfirmPublishAsync" disabled="@(IsBusy || !AccessPolicyConfirmed)">
+                                @if (IsBusy) { <span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span> }
+                                确认发布
+                            </button>
+                        </div>
+                    </div>
+                }
+                <div class="table-responsive">
+                    <table class="table align-middle mb-0">
+                        <thead><tr><th>版本</th><th>标题</th><th>状态</th><th>发布时间</th><th class="text-end">操作</th></tr></thead>
+                        <tbody>
+                            @foreach (var version in Detail.Versions)
+                            {
+                                <tr>
+                                    <td><strong>v@version.VersionNumber</strong></td><td>@version.Title</td>
+                                    <td><span class="badge @(version.IsCurrentPublished ? "text-bg-success" : "text-bg-secondary")">@GetVersionStatusText(version)</span></td>
+                                    <td>@FormatNullableDateTime(version.PublishedTime)</td>
+                                    <td class="text-end">
+                                        @if (CanPublishKnowledge && CanPublishVersion(version))
+                                        {
+                                            <button class="btn btn-link btn-sm" type="button" @onclick="() => PreparePublish(version)" disabled="@IsBusy">发布</button>
+                                        }
+                                        <button class="btn btn-link btn-sm" type="button" @onclick="OpenAdvanced">管理版本</button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        }
+        else if (ActiveTab == DetailTab.Access)
+        {
+            <section class="card knowledge-detail-card">
+                <div class="card-header d-flex align-items-center justify-content-between gap-3">
+                    <div><h2 class="h6 mb-1">访问策略</h2><small class="text-muted">已发布知识应持久化至少一条显式访问规则。</small></div>
+                    <button class="btn btn-outline-primary btn-sm" type="button" @onclick="OpenPermissionManagement">管理访问范围</button>
+                </div>
+                <div class="card-body">
+                    <div class="knowledge-access-summary mb-4">
+                        <span><i class="fas @(Detail.IsAccessRestricted ? "fa-lock" : "fa-earth-asia")" aria-hidden="true"></i></span>
+                        <div><small>当前有效访问范围</small><strong>@Detail.AccessScopeText</strong><p>@GetAccessExplanation(Detail)</p></div>
+                    </div>
+                    @if (Detail.PermissionScopes.Count == 0)
+                    {
+                        <div class="alert alert-warning d-flex flex-wrap align-items-center justify-content-between gap-2 mb-0">
+                            <span>这是历史兼容状态：当前仍按全员可见处理，但尚未保存显式访问策略。</span>
+                            @if (CanManageAccessPolicy)
+                            {
+                                <button class="btn btn-sm btn-outline-warning" type="button" @onclick="PersistExplicitAllPolicyAsync" disabled="@IsBusy">补齐全员策略</button>
+                            }
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="table-responsive">
+                            <table class="table align-middle mb-0">
+                                <thead><tr><th>范围类型</th><th>目标</th><th>最低安全等级</th><th>状态</th></tr></thead>
+                                <tbody>
+                                    @foreach (var scope in Detail.PermissionScopes)
+                                    {
+                                        <tr><td>@GetScopeTypeText(scope.ScopeType)</td><td>@(scope.TargetId?.ToString("D") ?? "全部用户")</td><td>@(scope.MinimumSecurityLevel?.ToString() ?? "无限制")</td><td><span class="badge text-bg-success">启用</span></td></tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </div>
+            </section>
+        }
+        else if (ActiveTab == DetailTab.Index)
+        {
+            <section class="card knowledge-detail-card">
+                <div class="card-header d-flex align-items-center justify-content-between gap-3">
+                    <div><h2 class="h6 mb-1">检索状态</h2><small class="text-muted">保留发布、权限变更和手动重建产生的任务事实。</small></div>
+                    @if (CanManageIndexJobs && Detail.CurrentVersionId.HasValue)
+                    {
+                        <button class="btn btn-outline-primary btn-sm" type="button" @onclick="ReindexCurrentAsync" disabled="@IsBusy">重建当前版本索引</button>
+                    }
+                </div>
+                <div class="table-responsive">
+                    <table class="table align-middle mb-0">
+                        <thead><tr><th>创建时间</th><th>版本</th><th>触发方式</th><th>状态</th><th>失败信息</th><th class="text-end">操作</th></tr></thead>
+                        <tbody>
+                            @if (Detail.IndexJobs.Count == 0)
+                            {
+                                <tr><td colspan="6" class="text-center py-4 text-muted">暂无索引任务</td></tr>
+                            }
+                            else
+                            {
+                                @foreach (var job in Detail.IndexJobs)
+                                {
+                                    <tr>
+                                        <td>@FormatDateTime(job.CreationTime)</td><td>@GetVersionLabel(job.KnowledgeVersionId)</td><td>@GetTriggerText(job.TriggerType)</td>
+                                        <td><span class="badge @GetIndexBadgeClass(job.Status)">@GetIndexStatusText(job.Status)</span></td>
+                                        <td>
+                                            @if (string.IsNullOrWhiteSpace(job.FailureReason)) { <span class="text-muted">-</span> }
+                                            else { <strong class="text-danger d-block">@job.FailureStage</strong><small>@job.FailureReason</small> }
+                                        </td>
+                                        <td class="text-end">
+                                            @if (CanManageIndexJobs && job.Status == KnowledgeIndexJobStatus.Failed)
+                                            {
+                                                <button class="btn btn-link btn-sm" type="button" @onclick="() => RetryAsync(job.Id)" disabled="@IsBusy">重试</button>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        }
+        else if (ActiveTab == DetailTab.Feedback)
+        {
+            <section class="card knowledge-detail-card">
+                <div class="card-header d-flex align-items-center justify-content-between gap-3">
+                    <div><h2 class="h6 mb-1">反馈与修订</h2><small class="text-muted">展示最近 10 条反馈，完整处理继续使用反馈工作台。</small></div>
+                    <button class="btn btn-outline-primary btn-sm" type="button" @onclick="OpenFeedbackManagement">打开反馈工作台</button>
+                </div>
+                @if (Detail.RecentFeedback.Count == 0)
+                {
+                    <div class="card-body text-center text-muted py-5">暂无知识反馈。</div>
+                }
+                else
+                {
+                    @foreach (var feedback in Detail.RecentFeedback)
+                    {
+                        <div class="knowledge-feedback-row knowledge-feedback-row-wide">
+                            <span class="knowledge-feedback-icon @GetFeedbackClass(feedback.Status)">
+                                <i class="fas @(feedback.Status is KnowledgeFeedbackStatus.Resolved or KnowledgeFeedbackStatus.Closed ? "fa-circle-check" : "fa-message")" aria-hidden="true"></i>
+                            </span>
+                            <div>
+                                <div class="d-flex flex-wrap align-items-center gap-2"><strong>@feedback.Title</strong><span class="badge @GetFeedbackBadgeClass(feedback.Status)">@GetFeedbackStatusText(feedback.Status)</span></div>
+                                <p>@feedback.Description</p>
+                                @if (!string.IsNullOrWhiteSpace(feedback.Resolution)) { <p class="knowledge-feedback-resolution">处理备注：@feedback.Resolution</p> }
+                                <small>@FormatDateTime(feedback.HandledTime ?? feedback.CreationTime)</small>
+                            </div>
+                        </div>
+                    }
+                }
+            </section>
+        }
+        else
+        {
+            <section class="card knowledge-detail-card">
+                <div class="card-header"><h2 class="h6 mb-1">活动记录</h2><small class="text-muted">从知识、版本、索引和反馈事实实时投影。</small></div>
+                <div class="knowledge-activity-timeline">
+                    @foreach (var activity in Detail.RecentActivities)
+                    {
+                        <div><span class="@GetActivityClass(activity.Kind)"></span><div><strong>@activity.Title</strong><p>@activity.Description</p><small>@FormatDateTime(activity.OccurredTime)</small></div></div>
+                    }
+                </div>
+            </section>
+        }
+    }
+</div>
+
+@code {
+    [Parameter]
+    public Guid Id { get; set; }
+
+    private KnowledgeManagementDetailDto? Detail { get; set; }
+    private KnowledgeVersionDto? PublishCandidate { get; set; }
+    private DetailTab ActiveTab { get; set; } = DetailTab.Overview;
+    private bool CanManageIndexJobs { get; set; }
+    private bool CanManageVersions { get; set; }
+    private bool CanManageAccessPolicy { get; set; }
+    private bool AccessPolicyConfirmed { get; set; }
+    private bool IsLoading { get; set; }
+    private bool IsBusy { get; set; }
+    private string? ErrorMessage { get; set; }
+    private string? SuccessMessage { get; set; }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        CanManageIndexJobs = await PermissionChecker.IsGrantedAsync(KnowPulsePermissions.KnowledgeIndexing.IndexJobs);
+        CanManageVersions = await PermissionChecker.IsGrantedAsync(KnowPulsePermissions.KnowledgeBase.Versions);
+        CanManageAccessPolicy = await PermissionChecker.IsGrantedAsync(KnowPulsePermissions.KnowledgeBase.PermissionScopes);
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        IsLoading = true;
+        ErrorMessage = null;
+        try { Detail = await KnowledgeManagementAppService.GetAsync(Id); }
+        catch (Exception exception) { ErrorMessage = exception.Message; }
+        finally { IsLoading = false; }
+    }
+
+    private void BackToList() => NavigationManager.NavigateTo("/knowledge");
+
+    private void OpenAdvanced()
+    {
+        var versionQuery = Detail?.CurrentVersionId.HasValue == true ? $"&versionId={Detail.CurrentVersionId.Value:D}" : string.Empty;
+        NavigationManager.NavigateTo($"/knowledge/items?itemId={Id:D}{versionQuery}");
+    }
+
+    private void OpenRevision() => OpenAdvanced();
+    private void OpenPermissionManagement() => NavigationManager.NavigateTo($"/knowledge/permission-scopes?itemId={Id:D}");
+    private void OpenFeedbackManagement() => NavigationManager.NavigateTo($"/knowledge/feedback?itemId={Id:D}");
+
+    private bool CanPublishKnowledge => CanManageVersions && CanManageAccessPolicy;
+
+    private void PreparePublish(KnowledgeVersionDto version)
+    {
+        PublishCandidate = version;
+        AccessPolicyConfirmed = false;
+        ErrorMessage = null;
+        SuccessMessage = null;
+    }
+
+    private void CancelPublish()
+    {
+        PublishCandidate = null;
+        AccessPolicyConfirmed = false;
+    }
+
+    private async Task ConfirmPublishAsync()
+    {
+        if (PublishCandidate == null || !AccessPolicyConfirmed)
+        {
+            return;
+        }
+
+        IsBusy = true;
+        ErrorMessage = null;
+        SuccessMessage = null;
+        try
+        {
+            var result = await KnowledgeItemAppService.PublishVersionWithAccessPolicyAsync(Id, new PublishKnowledgeVersionInput
+            {
+                KnowledgeVersionId = PublishCandidate.Id,
+                PermissionScopes = GetPublishPermissionScopes()
+            });
+            SuccessMessage = $"v{result.Version.VersionNumber} 已发布，显式访问策略已保存，索引任务已创建。";
+            PublishCandidate = null;
+            AccessPolicyConfirmed = false;
+            await LoadAsync();
+        }
+        catch (Exception exception)
+        {
+            ErrorMessage = exception.Message;
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    private async Task PersistExplicitAllPolicyAsync()
+    {
+        if (!await ConfirmAsync("确认将当前知识的访问策略明确设置为全员可见吗？已发布知识会创建权限变更索引任务。"))
+        {
+            return;
+        }
+
+        IsBusy = true;
+        ErrorMessage = null;
+        SuccessMessage = null;
+        try
+        {
+            await KnowledgeItemAppService.CreatePermissionScopeAsync(Id, new CreateKnowledgePermissionScopeDto
+            {
+                ScopeType = KnowledgePermissionScopeType.All
+            });
+            SuccessMessage = "已补齐显式全员访问策略。";
+            await LoadAsync();
+        }
+        catch (Exception exception)
+        {
+            ErrorMessage = exception.Message;
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    private List<CreateKnowledgePermissionScopeDto> GetPublishPermissionScopes()
+    {
+        if (Detail == null || Detail.PermissionScopes.Count == 0)
+        {
+            return [new CreateKnowledgePermissionScopeDto { ScopeType = KnowledgePermissionScopeType.All }];
+        }
+
+        var allScope = Detail.PermissionScopes.FirstOrDefault(x => x.ScopeType == KnowledgePermissionScopeType.All);
+        if (allScope != null)
+        {
+            return [new CreateKnowledgePermissionScopeDto
+            {
+                ScopeType = KnowledgePermissionScopeType.All,
+                MinimumSecurityLevel = allScope.MinimumSecurityLevel
+            }];
+        }
+
+        return Detail.PermissionScopes
+            .GroupBy(x => new { x.ScopeType, x.TargetId })
+            .Select(x => x.First())
+            .Select(x => new CreateKnowledgePermissionScopeDto
+        {
+            ScopeType = x.ScopeType,
+            TargetId = x.TargetId,
+            MinimumSecurityLevel = x.MinimumSecurityLevel
+        }).ToList();
+    }
+
+    private string GetPublishAccessPolicyText()
+    {
+        var scopes = GetPublishPermissionScopes();
+        if (scopes.Any(x => x.ScopeType == KnowledgePermissionScopeType.All))
+        {
+            var minimumSecurityLevel = scopes[0].MinimumSecurityLevel;
+            return minimumSecurityLevel.HasValue
+                ? $"全员 · 安全等级 ≥ {minimumSecurityLevel.Value}"
+                : "全员可见";
+        }
+
+        return string.Join("、", scopes.GroupBy(x => x.ScopeType).Select(x => $"{GetScopeTypeText(x.Key)} {x.Count()} 个"));
+    }
+
+    private static bool CanPublishVersion(KnowledgeVersionDto version) =>
+        !version.IsCurrentPublished && version.Status != KnowledgeVersionStatus.Archived;
+
+    private async Task<bool> ConfirmAsync(string message) =>
+        await JSRuntime.InvokeAsync<bool>("confirm", message);
+
+    private async Task ReindexCurrentAsync()
+    {
+        if (Detail?.CurrentVersionId == null) return;
+        await RunIndexCommandAsync(() => IndexJobAppService.ReindexVersionAsync(Detail.CurrentVersionId.Value), "已创建当前版本的重建索引任务。");
+    }
+
+    private async Task RetryLatestAsync()
+    {
+        if (Detail?.LatestIndexJobId == null) return;
+        await RetryAsync(Detail.LatestIndexJobId.Value);
+    }
+
+    private Task RetryAsync(Guid jobId) =>
+        RunIndexCommandAsync(() => IndexJobAppService.RetryAsync(jobId), "已从失败任务创建新的重试任务。");
+
+    private async Task RunIndexCommandAsync(Func<Task<KnowledgeIndexJobDto>> command, string successMessage)
+    {
+        IsBusy = true;
+        ErrorMessage = null;
+        SuccessMessage = null;
+        try { await command(); SuccessMessage = successMessage; await LoadAsync(); }
+        catch (Exception exception) { ErrorMessage = exception.Message; }
+        finally { IsBusy = false; }
+    }
+
+    private string GetTabClass(DetailTab tab) => ActiveTab == tab ? "is-active" : string.Empty;
+
+    private static string GetStatusText(KnowledgeManagementStatus status) => status switch
+    {
+        KnowledgeManagementStatus.Draft => "草稿",
+        KnowledgeManagementStatus.Publishing => "发布处理中",
+        KnowledgeManagementStatus.Ready => "可用于问答",
+        KnowledgeManagementStatus.NeedsAttention => "需要处理",
+        KnowledgeManagementStatus.Withdrawn => "已下架",
+        KnowledgeManagementStatus.Archived => "已归档",
+        KnowledgeManagementStatus.Disabled => "已停用",
+        _ => status.ToString()
+    };
+
+    private static string GetStatusClass(KnowledgeManagementStatus status) => status switch
+    {
+        KnowledgeManagementStatus.Ready => "status-ready",
+        KnowledgeManagementStatus.Publishing => "status-publishing",
+        KnowledgeManagementStatus.NeedsAttention => "status-attention",
+        _ => "status-neutral"
+    };
+
+    private static string GetFileClass(KnowledgeManagementStatus status) => status switch
+    {
+        KnowledgeManagementStatus.Ready => "file-ready",
+        KnowledgeManagementStatus.Publishing => "file-publishing",
+        KnowledgeManagementStatus.NeedsAttention => "file-attention",
+        _ => "file-neutral"
+    };
+
+    private static string GetCurrentVersionText(KnowledgeManagementDetailDto detail) =>
+        detail.CurrentVersionNumber.HasValue ? $"已发布 · v{detail.CurrentVersionNumber}" : "暂无当前发布版本";
+
+    private static bool HasIndexStarted(KnowledgeManagementDetailDto detail) =>
+        detail.LatestIndexStatus.HasValue && detail.LatestIndexStatus != KnowledgeIndexJobStatus.Deleted;
+
+    private static string GetIndexStatusText(KnowledgeIndexJobStatus? status) => status switch
+    {
+        KnowledgeIndexJobStatus.Pending => "待处理",
+        KnowledgeIndexJobStatus.Processing => "处理中",
+        KnowledgeIndexJobStatus.Indexed => "已索引",
+        KnowledgeIndexJobStatus.Failed => "失败",
+        KnowledgeIndexJobStatus.Outdated => "已过期",
+        KnowledgeIndexJobStatus.Deleted => "已删除",
+        _ => "未创建"
+    };
+
+    private static string GetIndexStatusText(KnowledgeIndexJobStatus status) => GetIndexStatusText((KnowledgeIndexJobStatus?)status);
+
+    private static string GetIndexBadgeClass(KnowledgeIndexJobStatus status) => status switch
+    {
+        KnowledgeIndexJobStatus.Indexed => "text-bg-success",
+        KnowledgeIndexJobStatus.Pending => "text-bg-warning",
+        KnowledgeIndexJobStatus.Processing => "text-bg-info",
+        KnowledgeIndexJobStatus.Failed => "text-bg-danger",
+        _ => "text-bg-secondary"
+    };
+
+    private static string GetHealthClass(KnowledgeManagementStatus status) => status switch
+    {
+        KnowledgeManagementStatus.Ready => "health-success",
+        KnowledgeManagementStatus.NeedsAttention => "health-danger",
+        KnowledgeManagementStatus.Publishing => "health-info",
+        _ => "health-neutral"
+    };
+
+    private static string GetVersionStatusText(KnowledgeVersionDto version) => version.IsCurrentPublished ? "当前发布" : version.Status switch
+    {
+        KnowledgeVersionStatus.Draft => "草稿",
+        KnowledgeVersionStatus.Published => "已发布",
+        KnowledgeVersionStatus.Withdrawn => "已下架",
+        KnowledgeVersionStatus.Archived => "已归档",
+        KnowledgeVersionStatus.Disabled => "已停用",
+        _ => version.Status.ToString()
+    };
+
+    private string GetVersionLabel(Guid versionId)
+    {
+        var version = Detail?.Versions.FirstOrDefault(x => x.Id == versionId);
+        return version == null ? versionId.ToString("N")[..8] : $"v{version.VersionNumber}";
+    }
+
+    private static string GetTriggerText(KnowledgeIndexJobTriggerType trigger) => trigger switch
+    {
+        KnowledgeIndexJobTriggerType.Publish => "发布",
+        KnowledgeIndexJobTriggerType.ManualRebuild => "手动重建",
+        KnowledgeIndexJobTriggerType.PermissionChanged => "权限变化",
+        KnowledgeIndexJobTriggerType.ModelChanged => "模型变化",
+        KnowledgeIndexJobTriggerType.Delete => "删除",
+        _ => trigger.ToString()
+    };
+
+    private static string GetScopeTypeText(KnowledgePermissionScopeType type) => type switch
+    {
+        KnowledgePermissionScopeType.All => "全员",
+        KnowledgePermissionScopeType.Department => "部门",
+        KnowledgePermissionScopeType.Position => "岗位",
+        KnowledgePermissionScopeType.Role => "角色",
+        KnowledgePermissionScopeType.User => "指定用户",
+        _ => type.ToString()
+    };
+
+    private static string GetAccessExplanation(KnowledgeManagementDetailDto detail) =>
+        !detail.HasExplicitAccessPolicy
+            ? "当前使用历史兼容规则；下一次发布必须显式确认访问范围。"
+            : detail.IsAccessRestricted
+            ? "只有命中任一启用范围且满足最低安全等级的用户可以访问。"
+            : "拥有知识库功能权限并满足最低安全等级的用户可以访问。";
+
+    private static string GetFeedbackStatusText(KnowledgeFeedbackStatus status) => status switch
+    {
+        KnowledgeFeedbackStatus.Submitted => "待处理",
+        KnowledgeFeedbackStatus.Processing => "处理中",
+        KnowledgeFeedbackStatus.Resolved => "已解决",
+        KnowledgeFeedbackStatus.Closed => "已关闭",
+        _ => status.ToString()
+    };
+
+    private static string GetFeedbackClass(KnowledgeFeedbackStatus status) =>
+        status is KnowledgeFeedbackStatus.Resolved or KnowledgeFeedbackStatus.Closed ? "feedback-resolved" : "feedback-open";
+
+    private static string GetFeedbackBadgeClass(KnowledgeFeedbackStatus status) => status switch
+    {
+        KnowledgeFeedbackStatus.Submitted => "text-bg-warning",
+        KnowledgeFeedbackStatus.Processing => "text-bg-info",
+        KnowledgeFeedbackStatus.Resolved => "text-bg-success",
+        _ => "text-bg-secondary"
+    };
+
+    private static string GetActivityClass(string kind) => kind switch
+    {
+        "Index" => "activity-green",
+        "Version" => "activity-blue",
+        "Feedback" => "activity-amber",
+        _ => "activity-gray"
+    };
+
+    private static string FormatUser(Guid? userId) => userId.HasValue ? $"用户 {userId.Value.ToString("N")[..8]}" : "系统";
+    private static string FormatDateTime(DateTime value) => value.ToLocalTime().ToString("yyyy-MM-dd HH:mm");
+    private static string FormatShortTime(DateTime value) => value.ToLocalTime().ToString("MM-dd HH:mm");
+    private static string FormatNullableDateTime(DateTime? value) => value.HasValue ? FormatDateTime(value.Value) : "-";
+
+    private enum DetailTab { Overview, Versions, Access, Index, Feedback, Activity }
+}

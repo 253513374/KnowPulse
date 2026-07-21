@@ -135,16 +135,25 @@ public class KnowledgeVersion : FullAuditedAggregateRoot<Guid>, IMultiTenant
     /// </summary>
     public void Publish(DateTime now)
     {
-        if (Status == KnowledgeVersionStatus.Archived)
-        {
-            throw new BusinessException(KnowPulseDomainErrorCodes.KnowledgeVersionAlreadyArchived);
-        }
+        EnsureCanPublish();
 
         Status = KnowledgeVersionStatus.Published;
         PublishedTime = now;
         WithdrawnTime = null;
         DisabledTime = null;
         IsCurrentPublished = true;
+    }
+
+    /// <summary>
+    /// 在发布编排开始写入访问策略前校验版本是否允许发布。
+    /// 该方法不改变状态，供应用服务执行无副作用的发布预检。
+    /// </summary>
+    public void EnsureCanPublish()
+    {
+        if (Status == KnowledgeVersionStatus.Archived)
+        {
+            throw new BusinessException(KnowPulseDomainErrorCodes.KnowledgeVersionAlreadyArchived);
+        }
     }
 
     /// <summary>

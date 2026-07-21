@@ -242,7 +242,7 @@
                                     <input id="visibility-all" class="form-check-input" type="radio" name="visibility-mode" checked="@(CurrentScopeType == KnowledgePermissionScopeType.All)" @onchange="() => SelectVisibility(KnowledgePermissionScopeType.All)" />
                                     <span class="form-check-label fw-semibold">全员可见</span>
                                 </div>
-                                <div class="text-muted small mt-2">不创建权限范围，按后端默认规则面向全员。</div>
+                                <div class="text-muted small mt-2">发布或保存草稿时持久化一条显式全员访问规则。</div>
                             </label>
                         </div>
                         <div class="col-md-6">
@@ -251,7 +251,7 @@
                                     <input id="visibility-restricted" class="form-check-input" type="radio" name="visibility-mode" checked="@(CurrentScopeType != KnowledgePermissionScopeType.All)" disabled="@(!CanUseRestrictedScopes)" @onchange="() => SelectVisibility(KnowledgePermissionScopeType.Department)" />
                                     <span class="form-check-label fw-semibold">限制范围</span>
                                 </div>
-                                <div class="text-muted small mt-2">发布前创建部门、岗位、角色或用户范围。</div>
+                                <div class="text-muted small mt-2">发布前明确选择部门、岗位、角色或指定用户规则。</div>
                             </label>
                         </div>
                     </div>
@@ -424,6 +424,12 @@
                             <div class="fw-semibold">失败阶段：@FailureStageText</div>
                             <div class="mt-1">@FailureReasonText</div>
                         </div>
+                        @if (CreatedItemId.HasValue)
+                        {
+                            <div class="alert alert-info" role="status">
+                                发布前已经保存的知识、版本和附件仍作为草稿保留；可以打开知识详情继续修复，不需要重新上传。
+                            </div>
+                        }
                     }
                     else if (HasIndexFailure)
                     {
@@ -464,7 +470,14 @@
                             {
                                 <button class="btn btn-primary" type="button" @onclick="RetryIndexAsync" disabled="@IsBusy">重试索引</button>
                             }
-                            <button class="btn btn-outline-secondary" type="button" @onclick="ReturnToEdit" disabled="@IsBusy">返回修改内容</button>
+                            @if (ResultKind == UploadResultKind.Failed && CreatedItemId.HasValue)
+                            {
+                                <button class="btn btn-outline-primary" type="button" @onclick="ViewAdvanced" disabled="@IsBusy">打开保留的草稿</button>
+                            }
+                            else
+                            {
+                                <button class="btn btn-outline-secondary" type="button" @onclick="ReturnToEdit" disabled="@IsBusy">返回修改内容</button>
+                            }
                             @if (CanManageIndexJobs)
                             {
                                 <button class="btn btn-outline-secondary" type="button" @onclick="ViewIndexJobs" disabled="@IsBusy">查看索引任务</button>
@@ -586,6 +599,7 @@
         UploadResultKind.DraftSaved => "草稿已保存",
         UploadResultKind.Published when HasIndexFailure => "索引失败",
         UploadResultKind.Published => "已发布",
+        UploadResultKind.Failed when CreatedItemId.HasValue => "发布未完成，草稿已保留",
         UploadResultKind.Failed => "处理失败",
         _ => "未完成"
     };
@@ -617,6 +631,7 @@
         UploadResultKind.DraftSaved => "草稿不会进入问答检索，发布后才会创建索引任务。",
         UploadResultKind.Published when LatestIndexJob?.Status == KnowledgeIndexJobStatus.Indexed => "索引已完成，可以直接去问答验证。",
         UploadResultKind.Published => "发布已经完成，索引任务会继续处理。",
+        UploadResultKind.Failed when CreatedItemId.HasValue => "本次处理没有完成，但已经写入的草稿与附件可以继续修复。",
         UploadResultKind.Failed => "本次处理没有完成，请按失败阶段返回修正或重试。",
         _ => ""
     };
@@ -857,26 +872,31 @@
                 await UploadSelectedFileAsync(item.Id, version.Id);
             }
 
-            if (CurrentScopeType != KnowledgePermissionScopeType.All)
+            var accessPolicy = new CreateKnowledgePermissionScopeDto
             {
-                FailureStageText = "配置可见范围";
-                await KnowledgeItemAppService.CreatePermissionScopeAsync(item.Id, new CreateKnowledgePermissionScopeDto
-                {
-                    ScopeType = CurrentScopeType,
-                    TargetId = ParseNullableGuid(Form.TargetIdText),
-                    MinimumSecurityLevel = Form.MinimumSecurityLevel
-                });
-            }
+                ScopeType = CurrentScopeType,
+                TargetId = CurrentScopeType == KnowledgePermissionScopeType.All
+                    ? null
+                    : ParseNullableGuid(Form.TargetIdText),
+                MinimumSecurityLevel = Form.MinimumSecurityLevel
+            };
 
             if (publish)
             {
-                FailureStageText = "发布并创建索引";
-                await KnowledgeItemAppService.PublishVersionAsync(item.Id, version.Id);
+                FailureStageText = "确认访问策略、发布并创建索引";
+                await KnowledgeItemAppService.PublishVersionWithAccessPolicyAsync(item.Id, new PublishKnowledgeVersionInput
+                {
+                    KnowledgeVersionId = version.Id,
+                    PermissionScopes = [accessPolicy]
+                });
                 ResultKind = UploadResultKind.Published;
                 await LoadLatestIndexJobAsync(version.Id);
             }
             else
             {
+                // 草稿也保留显式访问策略，方便后续从详情页直接确认发布。
+                FailureStageText = "保存访问策略";
+                await KnowledgeItemAppService.CreatePermissionScopeAsync(item.Id, accessPolicy);
                 ResultKind = UploadResultKind.DraftSaved;
             }
 
@@ -1138,11 +1158,11 @@
     {
         if (CreatedItemId.HasValue && CreatedVersionId.HasValue)
         {
-            NavigationManager.NavigateTo($"/knowledge/items?itemId={CreatedItemId.Value}&versionId={CreatedVersionId.Value}");
+            NavigationManager.NavigateTo($"/knowledge/{CreatedItemId.Value:D}");
             return;
         }
 
-        NavigationManager.NavigateTo("/knowledge/items");
+        NavigationManager.NavigateTo("/knowledge");
     }
 
     private void GoToRag()

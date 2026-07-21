@@ -13,6 +13,7 @@ using Volo.Abp.BlobStoring;
 using Volo.Abp.Content;
 using Volo.Abp.Domain.Entities;
 using Volo.Abp.Domain.Repositories;
+using Volo.Abp.Uow;
 
 namespace KnowPulse.KnowledgeBase;
 
@@ -171,9 +172,67 @@ public class KnowledgeItemAppService : KnowPulseAppService, IKnowledgeItemAppSer
         await CheckMvpPermissionAsync(KnowPulsePermissions.KnowledgeBase.Versions);
         var item = await _itemRepository.GetAsync(id);
         var version = await GetVersionOfItemAsync(id, versionId);
+        version.EnsureCanPublish();
+
+        // 旧调用方没有显式访问策略参数；首次发布时补齐一条全员规则，
+        // 使后续管理页面不再依赖“空范围等于全员”的历史兼容语义。
+        var scopes = await GetEnabledScopesAsync(id);
+        if (scopes.Count == 0)
+        {
+            await _permissionScopeRepository.InsertAsync(
+                new KnowledgePermissionScope(
+                    GuidGenerator.Create(),
+                    CurrentTenant.Id,
+                    id,
+                    KnowledgePermissionScopeType.All),
+                autoSave: false);
+        }
+
+        var (updatedVersion, _) = await PublishVersionCoreAsync(item, version);
+        return MapToDto(updatedVersion);
+    }
+
+    /// <summary>
+    /// 使用显式访问策略发布知识版本。策略替换、当前版本切换、旧索引失效和新索引任务创建
+    /// 在同一个工作单元中完成；任一步失败都会回滚发布事实。
+    /// </summary>
+    [Authorize(KnowPulsePermissions.KnowledgeBase.Versions)]
+    [UnitOfWork]
+    public virtual async Task<PublishKnowledgeVersionResultDto> PublishVersionWithAccessPolicyAsync(
+        Guid id,
+        PublishKnowledgeVersionInput input)
+    {
+        await CheckMvpPermissionAsync(KnowPulsePermissions.KnowledgeBase.Versions);
+        await CheckMvpPermissionAsync(KnowPulsePermissions.KnowledgeBase.PermissionScopes);
+
+        var rules = input.PermissionScopes
+            .Select(x => new KnowledgeAccessPolicyRule(x.ScopeType, x.TargetId, x.MinimumSecurityLevel))
+            .ToList();
+        KnowledgeAccessPolicyValidator.EnsureValid(rules);
+
+        var item = await _itemRepository.GetAsync(id);
+        var version = await GetVersionOfItemAsync(id, input.KnowledgeVersionId);
+        version.EnsureCanPublish();
+        var scopes = await ReplacePermissionScopesAsync(item, rules);
+        var (updatedVersion, indexJob) = await PublishVersionCoreAsync(item, version);
+
+        return new PublishKnowledgeVersionResultDto
+        {
+            Version = MapToDto(updatedVersion),
+            PermissionScopes = scopes.Select(MapToDto).ToList(),
+            IndexJob = MapToDto(indexJob)
+        };
+    }
+
+    private async Task<(KnowledgeVersion Version, KnowledgeIndexJob IndexJob)> PublishVersionCoreAsync(
+        KnowledgeItem item,
+        KnowledgeVersion version)
+    {
+        version.EnsureCanPublish();
+        await MarkItemIndexOutdatedAsync(item.Id, "Knowledge version or access policy republished.");
 
         var queryable = await _versionRepository.GetQueryableAsync();
-        var currentVersions = await AsyncExecuter.ToListAsync(queryable.Where(x => x.KnowledgeItemId == id && x.IsCurrentPublished));
+        var currentVersions = await AsyncExecuter.ToListAsync(queryable.Where(x => x.KnowledgeItemId == item.Id && x.IsCurrentPublished));
 
         // 数据库有唯一索引兜底，这里仍主动清理旧发布标记，保证领域状态和页面展示立即一致。
         foreach (var currentVersion in currentVersions)
@@ -182,7 +241,6 @@ public class KnowledgeItemAppService : KnowPulseAppService, IKnowledgeItemAppSer
             {
                 currentVersion.ClearCurrentPublished();
                 await _versionRepository.UpdateAsync(currentVersion, autoSave: true);
-                await MarkVersionIndexOutdatedAsync(currentVersion.Id, "Replaced by a newly published version.");
             }
         }
 
@@ -191,9 +249,9 @@ public class KnowledgeItemAppService : KnowPulseAppService, IKnowledgeItemAppSer
 
         await _itemRepository.UpdateAsync(item);
         var updatedVersion = await _versionRepository.UpdateAsync(version, autoSave: true);
-        await CreateIndexJobAsync(item.Id, version.Id, KnowledgeIndexJobTriggerType.Publish);
+        var indexJob = await CreateIndexJobAsync(item.Id, version.Id, KnowledgeIndexJobTriggerType.Publish);
 
-        return MapToDto(updatedVersion);
+        return (updatedVersion, indexJob);
     }
 
     /// <summary>
@@ -348,12 +406,29 @@ public class KnowledgeItemAppService : KnowPulseAppService, IKnowledgeItemAppSer
         await CheckMvpPermissionAsync(KnowPulsePermissions.KnowledgeBase.PermissionScopes);
         var item = await _itemRepository.GetAsync(id);
 
+        var targetId = input.ScopeType == KnowledgePermissionScopeType.All ? null : input.TargetId;
+        var rule = new KnowledgeAccessPolicyRule(input.ScopeType, targetId, input.MinimumSecurityLevel);
+        KnowledgeAccessPolicyValidator.EnsureValid([rule]);
+
+        var existingScopes = await GetEnabledScopesAsync(id);
+        // “全员”和定向范围是互斥模式。新增另一种模式时原子移除旧模式，
+        // 避免全员规则继续生效而让管理员误以为已经限制访问；同一目标再次保存视为覆盖更新。
+        var scopesToReplace = existingScopes.Where(x =>
+            (input.ScopeType == KnowledgePermissionScopeType.All
+                ? x.ScopeType != KnowledgePermissionScopeType.All
+                : x.ScopeType == KnowledgePermissionScopeType.All) ||
+            (x.ScopeType == input.ScopeType && x.TargetId == targetId));
+        foreach (var conflictingScope in scopesToReplace)
+        {
+            await _permissionScopeRepository.DeleteAsync(conflictingScope, autoSave: false);
+        }
+
         var scope = new KnowledgePermissionScope(
             GuidGenerator.Create(),
             CurrentTenant.Id,
             id,
             input.ScopeType,
-            input.TargetId,
+            targetId,
             input.MinimumSecurityLevel);
 
         var insertedScope = await _permissionScopeRepository.InsertAsync(scope, autoSave: true);
@@ -375,8 +450,18 @@ public class KnowledgeItemAppService : KnowPulseAppService, IKnowledgeItemAppSer
             return;
         }
 
+        var item = await _itemRepository.GetAsync(id);
+        if (item.CurrentPublishedVersionId.HasValue && scope.IsEnabled)
+        {
+            var enabledScopes = await GetEnabledScopesAsync(id);
+            if (enabledScopes.Count == 1)
+            {
+                throw new BusinessException(KnowPulseDomainErrorCodes.KnowledgeAccessPolicyRequired);
+            }
+        }
+
         await _permissionScopeRepository.DeleteAsync(scope);
-        await QueuePermissionChangedReindexAsync(await _itemRepository.GetAsync(id));
+        await QueuePermissionChangedReindexAsync(item);
     }
 
     /// <summary>
@@ -411,6 +496,38 @@ public class KnowledgeItemAppService : KnowPulseAppService, IKnowledgeItemAppSer
                 item.CurrentPublishedVersionId.Value,
                 KnowledgeIndexJobTriggerType.PermissionChanged);
         }
+    }
+
+    /// <summary>
+    /// 将当前知识的访问范围整体替换为已经通过领域校验的策略快照。
+    /// 删除和新增都留在当前工作单元中，不产生发布瞬间的半配置状态。
+    /// </summary>
+    private async Task<List<KnowledgePermissionScope>> ReplacePermissionScopesAsync(
+        KnowledgeItem item,
+        IReadOnlyCollection<KnowledgeAccessPolicyRule> rules)
+    {
+        // 先完整构造新策略，再触碰现有持久化状态；任何领域校验失败都不会留下半替换的跟踪实体。
+        var scopes = rules.Select(rule => new KnowledgePermissionScope(
+            GuidGenerator.Create(),
+            CurrentTenant.Id,
+            item.Id,
+            rule.ScopeType,
+            rule.TargetId,
+            rule.MinimumSecurityLevel)).ToList();
+
+        var queryable = await _permissionScopeRepository.GetQueryableAsync();
+        var existingScopes = await AsyncExecuter.ToListAsync(queryable.Where(x => x.KnowledgeItemId == item.Id));
+        foreach (var existingScope in existingScopes)
+        {
+            await _permissionScopeRepository.DeleteAsync(existingScope, autoSave: false);
+        }
+
+        foreach (var scope in scopes)
+        {
+            await _permissionScopeRepository.InsertAsync(scope, autoSave: false);
+        }
+
+        return scopes;
     }
 
     /// <summary>
@@ -707,6 +824,37 @@ public class KnowledgeItemAppService : KnowPulseAppService, IKnowledgeItemAppSer
             TargetId = scope.TargetId,
             MinimumSecurityLevel = scope.MinimumSecurityLevel,
             IsEnabled = scope.IsEnabled
+        };
+    }
+
+    /// <summary>
+    /// 将发布动作创建的索引任务映射为结果 DTO。
+    /// </summary>
+    private static KnowledgeIndexJobDto MapToDto(KnowledgeIndexJob job)
+    {
+        return new KnowledgeIndexJobDto
+        {
+            Id = job.Id,
+            CreationTime = job.CreationTime,
+            CreatorId = job.CreatorId,
+            LastModificationTime = job.LastModificationTime,
+            LastModifierId = job.LastModifierId,
+            IsDeleted = job.IsDeleted,
+            DeleterId = job.DeleterId,
+            DeletionTime = job.DeletionTime,
+            KnowledgeItemId = job.KnowledgeItemId,
+            KnowledgeVersionId = job.KnowledgeVersionId,
+            EmbeddingModelVersionId = job.EmbeddingModelVersionId,
+            RequestedByUserId = job.RequestedByUserId,
+            TriggerType = job.TriggerType,
+            Status = job.Status,
+            RetryCount = job.RetryCount,
+            MaxRetryCount = job.MaxRetryCount,
+            FailureStage = job.FailureStage,
+            FailureReason = job.FailureReason,
+            StartedTime = job.StartedTime,
+            CompletedTime = job.CompletedTime,
+            NextRetryTime = job.NextRetryTime
         };
     }
 }

@@ -62,7 +62,7 @@
 | 页面 | 路由 | 菜单 | 权限 | 说明 |
 | --- | --- | --- | --- | --- |
 | 我的学习 | `/learning/my` | `学习路径 / 我的学习` | `KnowPulse.Learning.View` | 展示当前用户被分配到的学习路径、必学知识、推荐知识、必考考试、完成状态和最近阅读时间 |
-| 知识文档深链 | `/knowledge/items?itemId={id}&versionId={id}` | 复用知识库菜单 | `KnowPulse.KnowledgeBase.Items` | 支持学习中心跳转后打开指定知识版本预览 |
+| 知识文档深链 | `/knowledge/{id}` | 复用知识库菜单 | `KnowPulse.KnowledgeBase.Items` | 支持学习中心跳转后打开知识详情，并可继续进入高级版本维护 |
 | 在线考试入口 | `/exam/take` | 复用考试菜单 | `KnowPulse.Exam.Participate` | 支持学习中心跳转到考试入口，实际开始考试仍由考试模块分配规则校验 |
 
 ## 5. 验证命令

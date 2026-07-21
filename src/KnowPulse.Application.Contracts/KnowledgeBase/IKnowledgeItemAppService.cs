@@ -28,6 +28,8 @@ public interface IKnowledgeItemAppService : IApplicationService
     [Authorize(KnowPulsePermissions.KnowledgeBase.Versions)]
     Task<KnowledgeVersionDto> PublishVersionAsync(Guid id, Guid versionId);
     [Authorize(KnowPulsePermissions.KnowledgeBase.Versions)]
+    Task<PublishKnowledgeVersionResultDto> PublishVersionWithAccessPolicyAsync(Guid id, PublishKnowledgeVersionInput input);
+    [Authorize(KnowPulsePermissions.KnowledgeBase.Versions)]
     Task<KnowledgeVersionDto> WithdrawVersionAsync(Guid id, Guid versionId);
     [Authorize(KnowPulsePermissions.KnowledgeBase.Versions)]
     Task<KnowledgeVersionDto> ArchiveVersionAsync(Guid id, Guid versionId);

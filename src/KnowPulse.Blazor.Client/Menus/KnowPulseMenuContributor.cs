@@ -116,7 +116,7 @@ public class KnowPulseMenuContributor : IMenuContributor
         knowledgeBase.AddItem(new ApplicationMenuItem(
             KnowPulseMenus.KnowledgeItems,
             l["Menu:KnowledgeItems"],
-            "/knowledge/items",
+            "/knowledge",
             icon: "fas fa-file-lines"
         ).RequirePermissions(KnowPulsePermissions.KnowledgeBase.Items));
 

@@ -190,7 +190,8 @@ public class Mvp1KnowledgeIndexingAppServiceTests : KnowPulseEntityFrameworkCore
 
         var scope = await _itemAppService.CreatePermissionScopeAsync(item.Id, new CreateKnowledgePermissionScopeDto
         {
-            ScopeType = KnowledgePermissionScopeType.All,
+            ScopeType = KnowledgePermissionScopeType.Department,
+            TargetId = Guid.NewGuid(),
             MinimumSecurityLevel = 1
         });
 
@@ -209,7 +210,23 @@ public class Mvp1KnowledgeIndexingAppServiceTests : KnowPulseEntityFrameworkCore
         var firstPermissionJob = jobsAfterCreate.Items.Single(x => x.TriggerType == KnowledgeIndexJobTriggerType.PermissionChanged);
         firstPermissionJob.Status.ShouldBe(KnowledgeIndexJobStatus.Pending);
 
-        var secondChunkId = await InsertChunkAsync(item.Id, version.Id, firstPermissionJob.Id, sequence: 1);
+        // 已发布知识不能删除最后一条显式规则；先增加第二条定向规则，再验证删除仍会触发重建。
+        await _itemAppService.CreatePermissionScopeAsync(item.Id, new CreateKnowledgePermissionScopeDto
+        {
+            ScopeType = KnowledgePermissionScopeType.Department,
+            TargetId = Guid.NewGuid()
+        });
+        var jobsAfterSecondScope = await _indexJobAppService.GetListAsync(new GetKnowledgeIndexJobListInput
+        {
+            KnowledgeVersionId = version.Id,
+            MaxResultCount = 100
+        });
+        var secondPermissionJob = jobsAfterSecondScope.Items
+            .Where(x => x.TriggerType == KnowledgeIndexJobTriggerType.PermissionChanged)
+            .OrderByDescending(x => x.CreationTime)
+            .First();
+
+        var secondChunkId = await InsertChunkAsync(item.Id, version.Id, secondPermissionJob.Id, sequence: 1);
         await _itemAppService.DeletePermissionScopeAsync(item.Id, scope.Id);
 
         var secondChunk = await GetChunkAsync(secondChunkId);
@@ -221,7 +238,7 @@ public class Mvp1KnowledgeIndexingAppServiceTests : KnowPulseEntityFrameworkCore
             KnowledgeVersionId = version.Id,
             MaxResultCount = 100
         });
-        jobsAfterDelete.Items.Count(x => x.TriggerType == KnowledgeIndexJobTriggerType.PermissionChanged).ShouldBe(2);
+        jobsAfterDelete.Items.Count(x => x.TriggerType == KnowledgeIndexJobTriggerType.PermissionChanged).ShouldBe(3);
     }
 
     /// <summary>

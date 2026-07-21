@@ -45,6 +45,26 @@ public static class KnowPulseDomainErrorCodes
     /// </summary>
     public const string KnowledgeFeedbackVersionItemMismatch = "KnowPulse:00008";
 
+    /// <summary>
+    /// 发布知识时没有提交显式访问策略。
+    /// </summary>
+    public const string KnowledgeAccessPolicyRequired = "KnowPulse:00009";
+
+    /// <summary>
+    /// 全员范围与定向范围不能同时出现在同一访问策略中。
+    /// </summary>
+    public const string KnowledgeAccessPolicyAllCannotBeCombined = "KnowPulse:00010";
+
+    /// <summary>
+    /// 同一访问目标不能重复配置。
+    /// </summary>
+    public const string KnowledgeAccessPolicyDuplicateScope = "KnowPulse:00011";
+
+    /// <summary>
+    /// 定向访问范围缺少目标编号。
+    /// </summary>
+    public const string KnowledgeAccessPolicyTargetRequired = "KnowPulse:00012";
+
     public const string QuestionAnswerRequired = "KnowPulse:01001";
 
     public const string QuestionChoiceOptionsRequired = "KnowPulse:01002";

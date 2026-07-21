@@ -1,0 +1,346 @@
+@page "/knowledge"
+@attribute [Authorize(KnowPulsePermissions.KnowledgeBase.Items)]
+@inherits KnowPulseComponentBase
+@inject IKnowledgeManagementAppService KnowledgeManagementAppService
+@inject NavigationManager NavigationManager
+
+<PageTitle>知识管理</PageTitle>
+
+<div class="knowledge-management-page">
+    <div class="d-flex flex-wrap align-items-start justify-content-between gap-3 mb-4">
+        <div>
+            <h1 class="h3 mb-1">知识</h1>
+            <p class="text-muted mb-0">管理内容、访问策略、检索状态和修订记录。</p>
+        </div>
+        <button class="btn btn-primary" type="button" @onclick="CreateKnowledge">
+            <i class="fas fa-plus me-2" aria-hidden="true"></i>新增知识
+        </button>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(ErrorMessage))
+    {
+        <div class="alert alert-danger d-flex flex-wrap align-items-center justify-content-between gap-2" role="alert">
+            <span>@ErrorMessage</span>
+            <button class="btn btn-sm btn-outline-danger" type="button" @onclick="LoadAsync" disabled="@IsLoading">重试</button>
+        </div>
+    }
+
+    <div class="knowledge-metric-grid mb-4">
+        <button class="knowledge-metric-card @GetMetricClass(null)" type="button" @onclick="() => SetStatusAsync(null)">
+            <span class="knowledge-metric-icon metric-blue"><i class="fas fa-book-open" aria-hidden="true"></i></span>
+            <span><small>全部知识</small><strong>@Overview.TotalCount</strong><em>当前可见知识</em></span>
+        </button>
+        <button class="knowledge-metric-card @GetMetricClass(KnowledgeManagementStatus.Ready)" type="button"
+                @onclick="() => SetStatusAsync(KnowledgeManagementStatus.Ready)">
+            <span class="knowledge-metric-icon metric-green"><i class="fas fa-circle-check" aria-hidden="true"></i></span>
+            <span><small>可用于问答</small><strong>@Overview.ReadyCount</strong><em>@ReadyRateText</em></span>
+        </button>
+        <button class="knowledge-metric-card @GetMetricClass(KnowledgeManagementStatus.NeedsAttention)" type="button"
+                @onclick="() => SetStatusAsync(KnowledgeManagementStatus.NeedsAttention)">
+            <span class="knowledge-metric-icon metric-amber"><i class="fas fa-triangle-exclamation" aria-hidden="true"></i></span>
+            <span><small>需要处理</small><strong>@Overview.NeedsAttentionCount</strong><em>索引异常或缺失</em></span>
+        </button>
+        <button class="knowledge-metric-card @GetMetricClass(KnowledgeManagementStatus.Draft)" type="button"
+                @onclick="() => SetStatusAsync(KnowledgeManagementStatus.Draft)">
+            <span class="knowledge-metric-icon metric-gray"><i class="fas fa-file-pen" aria-hidden="true"></i></span>
+            <span><small>草稿</small><strong>@Overview.DraftCount</strong><em>@Overview.PublishingCount 个发布处理中</em></span>
+        </button>
+    </div>
+
+    <section class="card knowledge-list-card">
+        <div class="card-body border-bottom">
+            <div class="d-flex flex-wrap align-items-center justify-content-between gap-3">
+                <div class="knowledge-status-tabs" role="group" aria-label="知识状态筛选">
+                    <button class="@GetStatusTabClass(null)" type="button" @onclick="() => SetStatusAsync(null)">全部</button>
+                    <button class="@GetStatusTabClass(KnowledgeManagementStatus.Ready)" type="button"
+                            @onclick="() => SetStatusAsync(KnowledgeManagementStatus.Ready)">可用于问答</button>
+                    <button class="@GetStatusTabClass(KnowledgeManagementStatus.Publishing)" type="button"
+                            @onclick="() => SetStatusAsync(KnowledgeManagementStatus.Publishing)">发布处理中</button>
+                    <button class="@GetStatusTabClass(KnowledgeManagementStatus.NeedsAttention)" type="button"
+                            @onclick="() => SetStatusAsync(KnowledgeManagementStatus.NeedsAttention)">需要处理</button>
+                    <button class="@GetStatusTabClass(KnowledgeManagementStatus.Draft)" type="button"
+                            @onclick="() => SetStatusAsync(KnowledgeManagementStatus.Draft)">草稿</button>
+                </div>
+
+                <form class="knowledge-search" @onsubmit="SearchAsync" @onsubmit:preventDefault>
+                    <i class="fas fa-magnifying-glass" aria-hidden="true"></i>
+                    <input aria-label="搜索知识" placeholder="搜索标题、摘要或分类"
+                           @bind="Keyword" @bind:event="oninput" />
+                    @if (!string.IsNullOrWhiteSpace(Keyword))
+                    {
+                        <button class="knowledge-search-clear" type="button" title="清空搜索" @onclick="ClearSearchAsync">
+                            <i class="fas fa-xmark" aria-hidden="true"></i>
+                        </button>
+                    }
+                    <button class="btn btn-outline-secondary btn-sm" type="submit" disabled="@IsLoading">搜索</button>
+                </form>
+            </div>
+        </div>
+
+        <div class="knowledge-filter-summary">
+            <span>当前筛选：<strong>@CurrentFilterText</strong></span>
+            <span>共 @TotalCount 条</span>
+        </div>
+
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0 knowledge-management-table">
+                <thead>
+                    <tr>
+                        <th>知识</th>
+                        <th>状态</th>
+                        <th>访问范围</th>
+                        <th>待处理反馈</th>
+                        <th>更新时间</th>
+                        <th class="text-end">操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @if (IsLoading)
+                    {
+                        <tr>
+                            <td colspan="6" class="text-center py-5 text-muted">
+                                <span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>正在加载知识状态
+                            </td>
+                        </tr>
+                    }
+                    else if (Items.Count == 0)
+                    {
+                        <tr>
+                            <td colspan="6" class="text-center py-5">
+                                <div class="knowledge-empty">
+                                    <span><i class="fas fa-book-open" aria-hidden="true"></i></span>
+                                    <strong>@EmptyTitle</strong>
+                                    <p>@EmptyDescription</p>
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                    else
+                    {
+                        @foreach (var item in Items)
+                        {
+                            <tr class="@(item.Status == KnowledgeManagementStatus.NeedsAttention ? "knowledge-row-attention" : null)"
+                                @onclick="() => OpenDetail(item.Id)">
+                                <td>
+                                    <div class="knowledge-title-cell">
+                                        <span class="knowledge-file-icon @GetFileIconClass(item)">
+                                            <i class="@GetFileIcon(item)" aria-hidden="true"></i>
+                                        </span>
+                                        <span>
+                                            <strong>@item.Title</strong>
+                                            <small>@GetKnowledgeMeta(item)</small>
+                                        </span>
+                                    </div>
+                                </td>
+                                <td>
+                                    <span class="knowledge-status @GetStatusClass(item.Status)">
+                                        <i aria-hidden="true"></i>@GetStatusText(item.Status)
+                                    </span>
+                                    <small class="knowledge-status-reason">@item.StatusReason</small>
+                                </td>
+                                <td>
+                                    <span class="knowledge-scope">
+                                        <i class="fas @(item.IsAccessRestricted ? "fa-lock" : "fa-earth-asia")" aria-hidden="true"></i>
+                                        @item.AccessScopeText
+                                    </span>
+                                </td>
+                                <td>
+                                    @if (item.PendingFeedbackCount > 0)
+                                    {
+                                        <span class="badge rounded-pill text-bg-warning">@item.PendingFeedbackCount</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-muted">0</span>
+                                    }
+                                </td>
+                                <td>
+                                    <strong class="knowledge-update-time">@FormatDate(item.UpdatedTime)</strong>
+                                    <small>@GetUpdateText(item)</small>
+                                </td>
+                                <td class="text-end">
+                                    <button class="btn btn-link btn-sm" type="button"
+                                            @onclick:stopPropagation="true" @onclick="() => OpenDetail(item.Id)">查看详情</button>
+                                </td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        <MvpPager SkipCount="SkipCount" PageSize="PageSize" TotalCount="TotalCount"
+                  IsBusy="IsLoading" OnSkipCountChanged="ChangePageAsync" />
+    </section>
+</div>
+
+@code {
+    private const int PageSize = 20;
+    private readonly List<KnowledgeManagementListItemDto> Items = new();
+    private KnowledgeManagementOverviewDto Overview { get; set; } = new();
+    private KnowledgeManagementStatus? StatusFilter { get; set; }
+    private string? Keyword { get; set; }
+    private string? ErrorMessage { get; set; }
+    private bool IsLoading { get; set; }
+    private int SkipCount { get; set; }
+    private long TotalCount { get; set; }
+
+    private string CurrentFilterText => StatusFilter.HasValue ? GetStatusText(StatusFilter.Value) : "全部知识";
+    private string ReadyRateText => Overview.TotalCount == 0
+        ? "暂无数据"
+        : $"覆盖率 {(double)Overview.ReadyCount / Overview.TotalCount:P1}";
+    private string EmptyTitle => string.IsNullOrWhiteSpace(Keyword) ? "当前筛选下暂无知识" : "没有找到匹配的知识";
+    private string EmptyDescription => string.IsNullOrWhiteSpace(Keyword)
+        ? "可以新建知识，或切换其他状态查看。"
+        : "尝试缩短关键词或清空筛选条件。";
+
+    protected override Task OnInitializedAsync()
+    {
+        return LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        IsLoading = true;
+        ErrorMessage = null;
+        try
+        {
+            var result = await KnowledgeManagementAppService.GetListAsync(new GetKnowledgeManagementListInput
+            {
+                Keyword = string.IsNullOrWhiteSpace(Keyword) ? null : Keyword.Trim(),
+                Status = StatusFilter,
+                SkipCount = SkipCount,
+                MaxResultCount = PageSize,
+                Sorting = "UpdatedTime desc"
+            });
+
+            Items.Clear();
+            Items.AddRange(result.Items);
+            Overview = result.Overview;
+            TotalCount = result.TotalCount;
+        }
+        catch (Exception exception)
+        {
+            ErrorMessage = exception.Message;
+            Items.Clear();
+            TotalCount = 0;
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+
+    private async Task SetStatusAsync(KnowledgeManagementStatus? status)
+    {
+        StatusFilter = status;
+        SkipCount = 0;
+        await LoadAsync();
+    }
+
+    private async Task SearchAsync()
+    {
+        SkipCount = 0;
+        await LoadAsync();
+    }
+
+    private async Task ClearSearchAsync()
+    {
+        Keyword = null;
+        SkipCount = 0;
+        await LoadAsync();
+    }
+
+    private async Task ChangePageAsync(int skipCount)
+    {
+        SkipCount = skipCount;
+        await LoadAsync();
+    }
+
+    private void CreateKnowledge()
+    {
+        NavigationManager.NavigateTo("/knowledge/upload");
+    }
+
+    private void OpenDetail(Guid id)
+    {
+        NavigationManager.NavigateTo($"/knowledge/{id:D}");
+    }
+
+    private string GetMetricClass(KnowledgeManagementStatus? status)
+    {
+        return StatusFilter == status ? "is-selected" : string.Empty;
+    }
+
+    private string GetStatusTabClass(KnowledgeManagementStatus? status)
+    {
+        return StatusFilter == status ? "is-active" : string.Empty;
+    }
+
+    private static string GetStatusText(KnowledgeManagementStatus status)
+    {
+        return status switch
+        {
+            KnowledgeManagementStatus.Draft => "草稿",
+            KnowledgeManagementStatus.Publishing => "发布处理中",
+            KnowledgeManagementStatus.Ready => "可用于问答",
+            KnowledgeManagementStatus.NeedsAttention => "需要处理",
+            KnowledgeManagementStatus.Withdrawn => "已下架",
+            KnowledgeManagementStatus.Archived => "已归档",
+            KnowledgeManagementStatus.Disabled => "已停用",
+            _ => status.ToString()
+        };
+    }
+
+    private static string GetStatusClass(KnowledgeManagementStatus status)
+    {
+        return status switch
+        {
+            KnowledgeManagementStatus.Ready => "status-ready",
+            KnowledgeManagementStatus.Publishing => "status-publishing",
+            KnowledgeManagementStatus.NeedsAttention => "status-attention",
+            KnowledgeManagementStatus.Withdrawn or KnowledgeManagementStatus.Archived or KnowledgeManagementStatus.Disabled => "status-inactive",
+            _ => "status-draft"
+        };
+    }
+
+    private static string GetFileIcon(KnowledgeManagementListItemDto item)
+    {
+        return item.CurrentVersionId.HasValue ? "fas fa-file-lines" : "far fa-file";
+    }
+
+    private static string GetFileIconClass(KnowledgeManagementListItemDto item)
+    {
+        return item.Status switch
+        {
+            KnowledgeManagementStatus.Ready => "file-ready",
+            KnowledgeManagementStatus.NeedsAttention => "file-attention",
+            KnowledgeManagementStatus.Publishing => "file-publishing",
+            _ => "file-draft"
+        };
+    }
+
+    private static string GetKnowledgeMeta(KnowledgeManagementListItemDto item)
+    {
+        var version = item.CurrentVersionNumber.HasValue ? $"v{item.CurrentVersionNumber}" : "未发布";
+        return $"{item.CategoryName} · {version} · 共 {item.VersionCount} 个版本";
+    }
+
+    private static string GetUpdateText(KnowledgeManagementListItemDto item)
+    {
+        return item.CurrentVersionNumber.HasValue
+            ? $"当前版本 v{item.CurrentVersionNumber}"
+            : "最近保存草稿";
+    }
+
+    private static string FormatDate(DateTime value)
+    {
+        var local = value.ToLocalTime();
+        var now = DateTime.Now;
+        return local.Date == now.Date
+            ? $"今天 {local:HH:mm}"
+            : local.Year == now.Year
+                ? local.ToString("MM 月 dd 日")
+                : local.ToString("yyyy-MM-dd");
+    }
+}

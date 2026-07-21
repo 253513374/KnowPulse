@@ -65,6 +65,10 @@
     "Permission:Learning.Manage": "管理学习路径",
     "Permission:Learning.View": "查看个人学习内容",
     "Welcome": "欢迎",
-    "LongWelcomeMessage": "欢迎使用本应用程序。这是一个基于 ABP 框架的启动项目。更多信息，请访问 abp.io。"
+    "LongWelcomeMessage": "欢迎使用本应用程序。这是一个基于 ABP 框架的启动项目。更多信息，请访问 abp.io。",
+    "KnowPulse:00009": "发布知识或维护已发布知识时必须保留至少一条显式访问规则。",
+    "KnowPulse:00010": "全员访问规则不能与部门、岗位、角色或用户规则同时使用。",
+    "KnowPulse:00011": "同一访问目标不能重复配置。",
+    "KnowPulse:00012": "部门、岗位、角色或用户访问规则必须指定目标。"
   }
 }

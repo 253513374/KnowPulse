@@ -230,6 +230,10 @@ else
 @code {
     private const int PageSize = 20;
 
+    [Parameter]
+    [SupplyParameterFromQuery(Name = "itemId")]
+    public Guid? QueryItemId { get; set; }
+
     private readonly List<KnowledgeFeedbackDto> FeedbackList = new();
     private int SkipCount { get; set; }
     private long TotalCount { get; set; }
@@ -280,6 +284,7 @@ else
         IsLoading = true;
         var result = await FeedbackAppService.GetListAsync(new GetKnowledgeFeedbackListInput
         {
+            KnowledgeItemId = QueryItemId,
             Status = ParseStatus(StatusFilterText),
             Type = ParseType(TypeFilterText),
             Keyword = string.IsNullOrWhiteSpace(Keyword) ? null : Keyword.Trim(),
@@ -401,10 +406,7 @@ else
             return;
         }
 
-        var url = SelectedFeedback.KnowledgeVersionId.HasValue
-            ? $"/knowledge/items?itemId={SelectedFeedback.KnowledgeItemId}&versionId={SelectedFeedback.KnowledgeVersionId.Value}"
-            : $"/knowledge/items?itemId={SelectedFeedback.KnowledgeItemId}";
-        NavigationManager.NavigateTo(url);
+        NavigationManager.NavigateTo($"/knowledge/{SelectedFeedback.KnowledgeItemId:D}");
     }
 
     private void ResetActionForms(KnowledgeFeedbackDto feedback)

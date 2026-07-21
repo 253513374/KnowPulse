@@ -65,6 +65,10 @@
     "Permission:Learning.Manage": "Manage learning paths",
     "Permission:Learning.View": "View assigned learning content",
     "Welcome": "Welcome",
-    "LongWelcomeMessage": "Welcome to the application. This is a startup project based on the ABP framework. For more information, visit abp.io."
+    "LongWelcomeMessage": "Welcome to the application. This is a startup project based on the ABP framework. For more information, visit abp.io.",
+    "KnowPulse:00009": "Publishing or maintaining published knowledge requires at least one explicit access rule.",
+    "KnowPulse:00010": "An all-users rule cannot be combined with department, position, role, or user rules.",
+    "KnowPulse:00011": "The same access target cannot be configured more than once.",
+    "KnowPulse:00012": "Department, position, role, and user access rules require a target."
   }
 }

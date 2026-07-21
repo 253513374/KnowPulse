@@ -13,7 +13,7 @@
 <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
     <div>
         <h1 class="h4 mb-1">权限范围</h1>
-        <div class="text-muted small">KnowledgeBase / Permission Scopes</div>
+        <div class="text-muted small">全员模式与定向模式互斥；已发布知识必须保留至少一条显式规则。</div>
     </div>
     <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="LoadAsync" disabled="@IsBusy">刷新</button>
 </div>
@@ -43,6 +43,9 @@
                 </div>
 
                 <h2 class="h6 mb-3">新增范围</h2>
+                <div class="alert alert-light border small py-2">
+                    新增全员规则会替换现有定向规则；新增定向规则会自动移除全员规则。
+                </div>
                 <EditForm Model="@FormModel" OnValidSubmit="@SaveAsync">
                     <DataAnnotationsValidator />
 
@@ -134,7 +137,7 @@
         </div>
     </div>
 
-    @* 右侧展示当前知识文档已配置的权限范围；没有范围时按后端规则默认全员可见。 *@
+    @* 右侧展示当前知识文档已配置的显式访问策略。 *@
     <div class="col-lg-8">
         <div class="card">
             <div class="table-responsive">
@@ -164,7 +167,7 @@
                         else if (ScopeList.Count == 0)
                         {
                             <tr>
-                                <td colspan="5" class="text-center py-4 text-muted">暂无权限范围，默认全员可见</td>
+                                <td colspan="5" class="text-center py-4 text-warning">尚未保存显式访问策略；历史数据暂按全员可见兼容</td>
                             </tr>
                         }
                         else
@@ -195,6 +198,10 @@
 
 @code {
     // 当前页面需要一次性加载多类目标数据，用于把权限范围 TargetId 翻译成可读名称。
+    [Parameter]
+    [SupplyParameterFromQuery(Name = "itemId")]
+    public Guid? QueryItemId { get; set; }
+
     private readonly List<KnowledgeItemDto> KnowledgeItemList = new();
     private readonly List<KnowledgePermissionScopeDto> ScopeList = new();
     private readonly List<DepartmentDto> DepartmentList = new();
@@ -228,6 +235,12 @@
 
             KnowledgeItemList.Clear();
             KnowledgeItemList.AddRange(items.Items.OrderBy(x => x.Title));
+            if (QueryItemId.HasValue)
+            {
+                SelectedItemId = QueryItemId.Value;
+                SelectedItemIdText = QueryItemId.Value.ToString("D");
+            }
+
             DepartmentList.Clear();
             DepartmentList.AddRange(departments.Items.OrderBy(x => x.Code));
             PositionList.Clear();

@@ -265,7 +265,7 @@ else
                 MarkCompleted = false
             });
 
-            NavigationManager.NavigateTo($"/knowledge/items?itemId={item.KnowledgeItemId}&versionId={item.KnowledgeVersionId}");
+            NavigationManager.NavigateTo($"/knowledge/{item.KnowledgeItemId:D}");
         });
     }
 
