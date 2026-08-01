@@ -1,0 +1,23 @@
+<nav class="qb-flow" aria-label="题库业务流程">
+    <a class="qb-flow__step @(ActiveStage == "create" ? "is-active" : null)" href="/question-bank/ai-candidates">
+        <span class="qb-flow__number">1</span>
+        <span><strong>创建候选</strong><small>人工或 AI</small></span>
+    </a>
+    <a class="qb-flow__step @(ActiveStage == "drafts" ? "is-active" : null)" href="/question-bank/drafts">
+        <span class="qb-flow__number">2</span>
+        <span><strong>编辑送审</strong><small>完善题目与依据</small></span>
+    </a>
+    <a class="qb-flow__step @(ActiveStage == "review" ? "is-active" : null)" href="/question-bank/reviews">
+        <span class="qb-flow__number">3</span>
+        <span><strong>审核入库</strong><small>通过后才可组卷</small></span>
+    </a>
+    <a class="qb-flow__step @(ActiveStage == "formal" ? "is-active" : null)" href="/question-bank/formal">
+        <span class="qb-flow__number">4</span>
+        <span><strong>正式使用</strong><small>组卷或停用</small></span>
+    </a>
+</nav>
+
+@code {
+    [Parameter]
+    public string? ActiveStage { get; set; }
+}

@@ -1,0 +1,391 @@
+@inherits KnowPulseComponentBase
+@inject IQuestionAppService QuestionAppService
+@inject IPositionAppService PositionAppService
+@inject IJSRuntime JSRuntime
+
+<QuestionBankFlowNav ActiveStage="@FlowStage" />
+
+<div class="d-flex flex-wrap align-items-start justify-content-between gap-3 mb-3">
+    <div>
+        <h1 class="h4 mb-1">@Title</h1>
+        <div class="text-muted small">@Description</div>
+    </div>
+    <div class="d-flex flex-wrap gap-2">
+        @if (Worklist == QuestionWorklistKind.Drafts)
+        {
+            <a class="btn btn-outline-primary btn-sm" href="/question-bank/ai-candidates"><i class="fa-solid fa-wand-magic-sparkles me-1"></i>AI 辅助出题</a>
+            <a class="btn btn-primary btn-sm" href="/question-bank/questions/new"><i class="fa-solid fa-plus me-1"></i>新建人工题</a>
+        }
+        else if (Worklist == QuestionWorklistKind.Formal)
+        {
+            <a class="btn btn-primary btn-sm" href="/exam/management"><i class="fa-solid fa-file-circle-plus me-1"></i>前往考试组卷</a>
+        }
+        <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="LoadAsync" disabled="@IsBusy">刷新</button>
+    </div>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(ErrorMessage))
+{
+    <div class="alert alert-danger" role="alert">@ErrorMessage</div>
+}
+
+<div class="card mb-3">
+    <div class="card-body">
+        @if (Worklist == QuestionWorklistKind.Drafts)
+        {
+            <div class="d-flex flex-wrap align-items-center gap-2 mb-3" aria-label="草稿状态筛选">
+                <span class="text-muted small me-1">按处理原因查看</span>
+                <button class="btn btn-sm @(StatusFilter == null ? "btn-primary" : "btn-outline-secondary")" type="button" @onclick="() => ChangeStatusAsync(null)">全部待处理</button>
+                <button class="btn btn-sm @(StatusFilter == QuestionStatus.Draft ? "btn-primary" : "btn-outline-secondary")" type="button" @onclick="() => ChangeStatusAsync(QuestionStatus.Draft)">新草稿</button>
+                <button class="btn btn-sm @(StatusFilter == QuestionStatus.ReturnedForRevision ? "btn-primary" : "btn-outline-secondary")" type="button" @onclick="() => ChangeStatusAsync(QuestionStatus.ReturnedForRevision)">退回修改</button>
+                <button class="btn btn-sm @(StatusFilter == QuestionStatus.Rejected ? "btn-primary" : "btn-outline-secondary")" type="button" @onclick="() => ChangeStatusAsync(QuestionStatus.Rejected)">未采用</button>
+            </div>
+        }
+        <div class="row g-2 align-items-end">
+            <div class="col-lg-3 col-md-6">
+                <label class="form-label" for="worklist-keyword">关键字</label>
+                <input id="worklist-keyword" class="form-control" @bind="Keyword" @bind:event="oninput" placeholder="标题、题干或标签" />
+            </div>
+            <div class="col-lg-2 col-md-6">
+                <label class="form-label" for="worklist-type">题型</label>
+                <select id="worklist-type" class="form-select" @bind="TypeText">
+                    <option value="">全部</option>
+                    <option value="@QuestionType.SingleChoice">单选</option>
+                    <option value="@QuestionType.MultipleChoice">多选</option>
+                    <option value="@QuestionType.TrueFalse">判断</option>
+                    <option value="@QuestionType.FillBlank">填空</option>
+                </select>
+            </div>
+            <div class="col-lg-2 col-md-6">
+                <label class="form-label" for="worklist-difficulty">难度</label>
+                <select id="worklist-difficulty" class="form-select" @bind="DifficultyText">
+                    <option value="">全部</option>
+                    <option value="@QuestionDifficulty.Easy">简单</option>
+                    <option value="@QuestionDifficulty.Normal">普通</option>
+                    <option value="@QuestionDifficulty.Hard">困难</option>
+                </select>
+            </div>
+            <div class="col-lg-2 col-md-6">
+                <label class="form-label" for="worklist-position">岗位</label>
+                <select id="worklist-position" class="form-select" @bind="PositionText">
+                    <option value="">全部</option>
+                    @foreach (var position in Positions)
+                    {
+                        <option value="@position.Id">@position.Name</option>
+                    }
+                </select>
+            </div>
+            <div class="col-lg-2 col-md-6">
+                <label class="form-label" for="worklist-point">知识点</label>
+                <input id="worklist-point" class="form-control" @bind="KnowledgePoint" @bind:event="oninput" />
+            </div>
+            <div class="col-lg-1 col-md-6">
+                <button class="btn btn-outline-primary w-100" type="button" @onclick="ApplyFiltersAsync" disabled="@IsBusy">查询</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card qb-worklist-card">
+    <div class="card-header bg-transparent border-0 d-flex flex-wrap justify-content-between align-items-center gap-2 px-3 pt-3 pb-2">
+        <div class="fw-semibold">@ListTitle</div>
+        <div class="text-muted small">共 @TotalCount 道</div>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0">
+            <thead>
+                <tr>
+                    <th>题目</th>
+                    <th>题型 / 难度</th>
+                    <th>状态 / 来源</th>
+                    <th>知识点</th>
+                    <th class="text-end">下一步</th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (IsLoading)
+                {
+                    <tr><td colspan="5" class="text-center py-5 text-muted">加载中</td></tr>
+                }
+                else if (Questions.Count == 0)
+                {
+                    <tr>
+                        <td colspan="5">
+                            <div class="qb-empty">
+                                <span class="qb-empty__icon"><i class="fa-regular fa-folder-open"></i></span>
+                                <div class="fw-semibold mt-3">@EmptyText</div>
+                                <div class="small text-muted mt-1">@EmptyHelpText</div>
+                                @if (Worklist == QuestionWorklistKind.Drafts)
+                                {
+                                    <div class="d-flex flex-wrap justify-content-center gap-2 mt-3">
+                                        <a class="btn btn-sm btn-primary" href="/question-bank/questions/new">新建人工题</a>
+                                        <a class="btn btn-sm btn-outline-primary" href="/question-bank/ai-candidates">AI 辅助出题</a>
+                                    </div>
+                                }
+                            </div>
+                        </td>
+                    </tr>
+                }
+                else
+                {
+                    @foreach (var question in Questions)
+                    {
+                        <tr>
+                            <td>
+                                <div class="fw-semibold">@question.Title</div>
+                                <div class="small text-muted">@Trim(question.Stem, 96)</div>
+                            </td>
+                            <td>
+                                <div>@GetTypeText(question.Type)</div>
+                                <div class="small text-muted">@GetDifficultyText(question.Difficulty)</div>
+                            </td>
+                            <td>
+                                <span class="badge @GetStatusBadge(question.Status)">@GetStatusText(question.Status)</span>
+                                <div class="small text-muted mt-1">@GetSourceText(question.CreationSource)</div>
+                            </td>
+                            <td class="small">@GetKnowledgePoints(question)</td>
+                            <td class="text-end">
+                                @if (Worklist == QuestionWorklistKind.Drafts)
+                                {
+                                    <div class="d-flex justify-content-end flex-wrap gap-2">
+                                        <a class="btn btn-outline-secondary btn-sm" href="@($"/question-bank/questions/{question.Id}/edit")">编辑</a>
+                                        <button class="btn btn-primary btn-sm" type="button" @onclick="() => SubmitAsync(question)" disabled="@IsBusy">@(question.Status == QuestionStatus.Draft ? "提交审核" : "修改后重提")</button>
+                                    </div>
+                                }
+                                else if (Worklist == QuestionWorklistKind.ReviewQueue)
+                                {
+                                    <a class="btn btn-primary btn-sm" href="@($"/question-bank/reviews/{question.Id}")">开始审核</a>
+                                }
+                                else
+                                {
+                                    <div class="d-flex justify-content-end flex-wrap gap-2">
+                                        <a class="btn btn-outline-primary btn-sm" href="/exam/management">用于组卷</a>
+                                        <button class="btn btn-outline-danger btn-sm" type="button" @onclick="() => DisableAsync(question)" disabled="@IsBusy">停用</button>
+                                    </div>
+                                }
+                            </td>
+                        </tr>
+                    }
+                }
+            </tbody>
+        </table>
+    </div>
+    <MvpPager SkipCount="SkipCount" PageSize="PageSize" TotalCount="TotalCount" IsBusy="IsBusy" OnSkipCountChanged="ChangePageAsync" />
+</div>
+
+@code {
+    private const int PageSize = 20;
+
+    [Parameter, EditorRequired]
+    public QuestionWorklistKind Worklist { get; set; }
+
+    private readonly List<QuestionDto> Questions = new();
+    private readonly List<PositionDto> Positions = new();
+    private string? Keyword { get; set; }
+    private string? TypeText { get; set; }
+    private string? DifficultyText { get; set; }
+    private string? PositionText { get; set; }
+    private string? KnowledgePoint { get; set; }
+    private QuestionStatus? StatusFilter { get; set; }
+    private int SkipCount { get; set; }
+    private long TotalCount { get; set; }
+    private bool IsLoading { get; set; }
+    private bool IsBusy { get; set; }
+    private string? ErrorMessage { get; set; }
+
+    private string Title => Worklist switch
+    {
+        QuestionWorklistKind.Drafts => "出题与草稿",
+        QuestionWorklistKind.ReviewQueue => "审核入库",
+        QuestionWorklistKind.Formal => "正式题库",
+        _ => "题库"
+    };
+
+    private string Description => Worklist switch
+    {
+        QuestionWorklistKind.Drafts => "人工题和 AI 候选都会先成为草稿；完善内容与依据后再提交审核。",
+        QuestionWorklistKind.ReviewQueue => "核对题目质量与来源依据，通过后才会进入正式题库。",
+        QuestionWorklistKind.Formal => "仅展示审核通过且可用于新试卷的题目。",
+        _ => string.Empty
+    };
+
+    private string EmptyText => Worklist switch
+    {
+        QuestionWorklistKind.Drafts => "没有需要处理的草稿",
+        QuestionWorklistKind.ReviewQueue => "所有待审核题目都处理完了",
+        QuestionWorklistKind.Formal => "还没有可组卷的正式题目",
+        _ => "暂无题目"
+    };
+
+    private string EmptyHelpText => Worklist switch
+    {
+        QuestionWorklistKind.Drafts => "可以人工新建，也可以从知识库生成 AI 候选题。",
+        QuestionWorklistKind.ReviewQueue => "新提交的题目会自动出现在这里。",
+        QuestionWorklistKind.Formal => "题目审核通过后会自动进入正式题库。",
+        _ => string.Empty
+    };
+
+    private string ListTitle => Worklist switch
+    {
+        QuestionWorklistKind.Drafts => "待编辑与待修改",
+        QuestionWorklistKind.ReviewQueue => "等待审核决策",
+        QuestionWorklistKind.Formal => "可用于新试卷",
+        _ => "题目列表"
+    };
+
+    private string FlowStage => Worklist switch
+    {
+        QuestionWorklistKind.Drafts => "drafts",
+        QuestionWorklistKind.ReviewQueue => "review",
+        QuestionWorklistKind.Formal => "formal",
+        _ => string.Empty
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        var positions = await PositionAppService.GetListAsync(new PagedAndSortedResultRequestDto { MaxResultCount = 200 });
+        Positions.AddRange(positions.Items.OrderBy(x => x.Name));
+        await LoadAsync();
+    }
+
+    private async Task ApplyFiltersAsync()
+    {
+        SkipCount = 0;
+        await LoadAsync();
+    }
+
+    private async Task ChangePageAsync(int skipCount)
+    {
+        SkipCount = skipCount;
+        await LoadAsync();
+    }
+
+    private async Task ChangeStatusAsync(QuestionStatus? status)
+    {
+        StatusFilter = status;
+        SkipCount = 0;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        await RunBusyAsync(async () =>
+        {
+            IsLoading = true;
+            var result = await QuestionAppService.GetListAsync(new GetQuestionListInput
+            {
+                Worklist = Worklist,
+                Status = StatusFilter,
+                Keyword = Keyword,
+                Type = ParseEnum<QuestionType>(TypeText),
+                Difficulty = ParseEnum<QuestionDifficulty>(DifficultyText),
+                ApplicablePositionId = Guid.TryParse(PositionText, out var positionId) ? positionId : null,
+                KnowledgePoint = KnowledgePoint,
+                SkipCount = SkipCount,
+                MaxResultCount = PageSize
+            });
+
+            Questions.Clear();
+            Questions.AddRange(result.Items);
+            TotalCount = result.TotalCount;
+        });
+        IsLoading = false;
+    }
+
+    private async Task SubmitAsync(QuestionDto question)
+    {
+        if (!await JSRuntime.InvokeAsync<bool>("confirm", "确定提交该题目进入审核队列吗？"))
+        {
+            return;
+        }
+
+        await RunBusyAsync(async () =>
+        {
+            await QuestionAppService.SubmitReviewAsync(question.Id);
+            await LoadAsync();
+        });
+    }
+
+    private async Task DisableAsync(QuestionDto question)
+    {
+        if (!await JSRuntime.InvokeAsync<bool>("confirm", "停用后该题不再进入新试卷，确定继续吗？"))
+        {
+            return;
+        }
+
+        await RunBusyAsync(async () =>
+        {
+            await QuestionAppService.DisableAsync(question.Id);
+            await LoadAsync();
+        });
+    }
+
+    private async Task RunBusyAsync(Func<Task> action)
+    {
+        try
+        {
+            ErrorMessage = null;
+            IsBusy = true;
+            await action();
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = GetUserFriendlyErrorMessage(ex);
+        }
+        finally
+        {
+            IsBusy = false;
+            IsLoading = false;
+        }
+    }
+
+    private static TEnum? ParseEnum<TEnum>(string? value) where TEnum : struct
+        => Enum.TryParse<TEnum>(value, out var parsed) ? parsed : null;
+
+    private static string GetKnowledgePoints(QuestionDto question)
+        => question.KnowledgePoints.Count == 0 ? "-" : string.Join(", ", question.KnowledgePoints.Select(x => x.Name));
+
+    private static string Trim(string value, int maxLength)
+        => value.Length <= maxLength ? value : value[..maxLength] + "...";
+
+    private static string GetTypeText(QuestionType type) => type switch
+    {
+        QuestionType.SingleChoice => "单选",
+        QuestionType.MultipleChoice => "多选",
+        QuestionType.TrueFalse => "判断",
+        QuestionType.FillBlank => "填空",
+        _ => type.ToString()
+    };
+
+    private static string GetDifficultyText(QuestionDifficulty difficulty) => difficulty switch
+    {
+        QuestionDifficulty.Easy => "简单",
+        QuestionDifficulty.Normal => "普通",
+        QuestionDifficulty.Hard => "困难",
+        _ => difficulty.ToString()
+    };
+
+    private static string GetSourceText(QuestionCreationSource source)
+        => source == QuestionCreationSource.AiGenerated ? "AI 采纳" : "人工创建";
+
+    private static string GetStatusText(QuestionStatus status) => status switch
+    {
+        QuestionStatus.Draft => "草稿",
+        QuestionStatus.PendingReview => "待审核",
+        QuestionStatus.Approved => "审核通过",
+        QuestionStatus.Rejected => "已驳回",
+        QuestionStatus.ReturnedForRevision => "退回修改",
+        QuestionStatus.Disabled => "已停用",
+        QuestionStatus.Archived => "已归档",
+        _ => status.ToString()
+    };
+
+    private static string GetStatusBadge(QuestionStatus status) => status switch
+    {
+        QuestionStatus.PendingReview => "bg-info",
+        QuestionStatus.Approved => "bg-success",
+        QuestionStatus.Rejected => "bg-danger",
+        QuestionStatus.ReturnedForRevision => "bg-warning text-dark",
+        _ => "bg-secondary"
+    };
+}

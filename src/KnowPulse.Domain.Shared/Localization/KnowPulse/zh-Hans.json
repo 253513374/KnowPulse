@@ -16,11 +16,15 @@
     "Menu:KnowledgePermissionScopes": "权限范围",
     "Menu:KnowledgeIndexJobs": "索引任务",
     "Menu:KnowledgeFeedback": "知识反馈",
-    "Menu:Rag": "RAG 问答",
-    "Menu:RagAnswer": "知识问答",
+    "Menu:Rag": "RAG 管理",
+    "Menu:RagAnswer": "问答验证",
     "Menu:AiModels": "模型管理",
     "Menu:QuestionBank": "题库",
+    "Menu:QuestionBankWorkbench": "题库工作台",
     "Menu:Questions": "题目管理",
+    "Menu:QuestionDrafts": "出题与草稿",
+    "Menu:QuestionReviews": "审核入库",
+    "Menu:FormalQuestions": "正式题库",
     "Menu:AiQuestionCandidates": "AI 候选题",
     "Menu:Exam": "考试",
     "Menu:ExamManagement": "考试管理",
@@ -73,6 +77,12 @@
     "KnowPulse:00013": "当前索引任务状态不允许开始或继续执行。",
     "KnowPulse:00014": "索引任务已经耗尽自动重试次数，请修复原因后创建新的重建任务。",
     "KnowPulse:00015": "只有处理中任务可以执行人工恢复。",
-    "KnowPulse:00016": "索引任务与知识版本不匹配。"
+    "KnowPulse:00016": "索引任务与知识版本不匹配。",
+    "KnowPulse:00017": "请先接手反馈，再创建修订草稿。",
+    "KnowPulse:00018": "该反馈已经关联修订版本，请直接继续编辑、发布和验证。",
+    "KnowPulse:00019": "完成反馈前必须先创建并关联修订版本。",
+    "KnowPulse:00020": "关联修订尚未成为当前发布版本，请先发布修订。",
+    "KnowPulse:00021": "关联修订尚未完成索引，请等待检索状态变为已索引。",
+    "KnowPulse:01012": "退回或驳回题目时必须填写审核原因。"
   }
 }

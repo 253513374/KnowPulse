@@ -6,342 +6,380 @@
 
 <PageTitle>模型管理</PageTitle>
 
-<div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
-    <div>
-        <h1 class="h4 mb-1">模型管理</h1>
-        <div class="text-muted small">RAG / Models</div>
-    </div>
-    <div class="d-flex flex-wrap gap-2">
-        @if (!string.IsNullOrWhiteSpace(Overview?.LiteLlmAdminUrl))
-        {
-            <a class="btn btn-outline-secondary" href="@Overview.LiteLlmAdminUrl" target="_blank" rel="noopener">LiteLLM Admin UI</a>
-        }
-        @if (CanTest)
-        {
-            <button class="btn btn-outline-primary" type="button" @onclick="TestAllAsync" disabled="@IsBusy">批量健康检查</button>
-        }
-        <button class="btn btn-primary" type="button" @onclick="ReloadAsync" disabled="@IsBusy">刷新</button>
-    </div>
-</div>
-
-@if (!string.IsNullOrWhiteSpace(ErrorMessage))
-{
-    <div class="alert alert-danger" role="alert">@ErrorMessage</div>
-}
-
-@if (!string.IsNullOrWhiteSpace(SuccessMessage))
-{
-    <div class="alert alert-success" role="alert">@SuccessMessage</div>
-}
-
-@if (Overview == null)
-{
-    <div class="text-muted py-4">加载中</div>
-}
-else
-{
-    <div class="row g-3 mb-3">
-        <div class="col-lg-3 col-6">
-            <div class="card h-100">
-                <div class="card-body">
-                    <div class="text-muted small">模型总数</div>
-                    <div class="h4 mb-0">@Overview.Deployments.Count</div>
-                </div>
-            </div>
+<div class="rag-model-console">
+    <header class="rag-model-header">
+        <div>
+            <h1>RAG 运行控制台 · 模型管理</h1>
+            <p>管理稳定 Alias、验证模型连通性，并控制不同业务用途的生效配置。</p>
         </div>
-        <div class="col-lg-3 col-6">
-            <div class="card h-100">
-                <div class="card-body">
-                    <div class="text-muted small">启用模型</div>
-                    <div class="h4 mb-0">@Overview.Deployments.Count(x => x.IsActive)</div>
-                </div>
-            </div>
+        <div class="rag-model-header-actions">
+            @if (!string.IsNullOrWhiteSpace(Overview?.LiteLlmAdminUrl))
+            {
+                <a class="btn btn-outline-secondary" href="@Overview.LiteLlmAdminUrl" target="_blank" rel="noopener">
+                    LiteLLM 控制台 <i class="fa fa-external-link-alt" aria-hidden="true"></i>
+                </a>
+            }
+            <button class="btn btn-outline-primary" type="button" @onclick="ReloadAsync" disabled="@IsBusy">
+                <i class="fa fa-sync-alt" aria-hidden="true"></i> 刷新
+            </button>
         </div>
-        <div class="col-lg-3 col-6">
-            <div class="card h-100">
-                <div class="card-body">
-                    <div class="text-muted small">用途绑定</div>
-                    <div class="h4 mb-0">@Overview.Bindings.Count</div>
-                </div>
-            </div>
-        </div>
-        <div class="col-lg-3 col-6">
-            <div class="card h-100">
-                <div class="card-body">
-                    <div class="text-muted small">健康模型</div>
-                    <div class="h4 mb-0">@Overview.Deployments.Count(x => x.HealthStatus == AiModelHealthStatus.Healthy)</div>
-                </div>
-            </div>
-        </div>
-    </div>
+    </header>
 
-    <div class="row g-3">
-        <div class="col-xl-8">
-            <div class="card">
-                <div class="card-body border-bottom">
-                    <div class="d-flex flex-wrap align-items-center justify-content-between gap-2">
-                        <h2 class="h6 mb-0">模型目录</h2>
-                        @if (CanManage)
-                        {
-                            <button class="btn btn-sm btn-primary" type="button" @onclick="NewModelAsync">新增模型</button>
-                        }
+    @if (!string.IsNullOrWhiteSpace(ErrorMessage))
+    {
+        <div class="alert alert-danger" role="alert">@ErrorMessage</div>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(SuccessMessage))
+    {
+        <div class="alert alert-success" role="status">@SuccessMessage</div>
+    }
+
+    @if (Overview == null)
+    {
+        <div class="rag-model-loading" role="status">
+            <span class="spinner-border spinner-border-sm" aria-hidden="true"></span>
+            正在读取模型配置
+        </div>
+    }
+    else
+    {
+        <section class="rag-usage-summary" aria-label="当前业务用途配置">
+            @foreach (var binding in Overview.Bindings.Where(x => x.Usage != AiModelUsage.SubjectiveScoring).OrderBy(x => x.Usage))
+            {
+                var deployment = Overview.Deployments.FirstOrDefault(x => x.Id == binding.DeploymentId);
+                <article class="rag-usage-card">
+                    <span class="rag-usage-icon @GetUsageIconCss(binding.Usage)">
+                        <i class="fa @GetUsageIcon(binding.Usage)" aria-hidden="true"></i>
+                    </span>
+                    <div class="rag-usage-copy">
+                        <div class="rag-usage-heading">
+                            <strong>@GetUsageText(binding.Usage)</strong>
+                            <span class="rag-model-status @GetHealthStatusCss(deployment?.HealthStatus ?? AiModelHealthStatus.Unknown)">
+                                <span aria-hidden="true"></span>@GetHealthText(deployment?.HealthStatus ?? AiModelHealthStatus.Unknown)
+                            </span>
+                        </div>
+                        <div class="rag-usage-alias">@binding.DeploymentAlias</div>
+                        <div class="rag-usage-version">业务版本 @binding.BusinessModelVersion</div>
                     </div>
+                </article>
+            }
+        </section>
+
+        <nav class="rag-model-tabs" aria-label="模型管理分区">
+            <button type="button" class="@(ActiveSection == ModelWorkspaceSection.Bindings ? "is-active" : null)" @onclick="() => SelectSection(ModelWorkspaceSection.Bindings)">
+                <i class="fa fa-route" aria-hidden="true"></i> 用途配置
+            </button>
+            <button type="button" class="@(ActiveSection == ModelWorkspaceSection.Catalog ? "is-active" : null)" @onclick="() => SelectSection(ModelWorkspaceSection.Catalog)">
+                <i class="fa fa-cubes" aria-hidden="true"></i> 模型目录
+            </button>
+            <button type="button" class="@(ActiveSection == ModelWorkspaceSection.Health ? "is-active" : null)" @onclick="() => SelectSection(ModelWorkspaceSection.Health)">
+                <i class="fa fa-heartbeat" aria-hidden="true"></i> 健康记录
+            </button>
+        </nav>
+
+        @if (ActiveSection == ModelWorkspaceSection.Bindings)
+        {
+            <section class="rag-model-surface">
+                <div class="rag-model-section-heading">
+                    <div>
+                        <h2>用途配置</h2>
+                        <p>业务代码只依赖稳定用途；切换默认模型前必须先完成健康检查。</p>
+                    </div>
+                    @if (CanTest)
+                    {
+                        <button class="btn btn-sm btn-outline-primary" type="button" @onclick="TestAllAsync" disabled="@IsBusy">
+                            <i class="fa fa-stethoscope" aria-hidden="true"></i> 检查全部模型
+                        </button>
+                    }
                 </div>
-                <div class="table-responsive">
-                    <table class="table table-hover align-middle mb-0">
+
+                <div class="rag-binding-list">
+                    @foreach (var binding in BindingForms)
+                    {
+                        var selectedDeployment = GetSelectedDeployment(binding);
+                        var isChanging = binding.OriginalDeploymentId != binding.DeploymentId;
+                        <article class="rag-binding-row">
+                            <div class="rag-binding-purpose">
+                                <span class="rag-usage-icon @GetUsageIconCss(binding.Usage)">
+                                    <i class="fa @GetUsageIcon(binding.Usage)" aria-hidden="true"></i>
+                                </span>
+                                <div>
+                                    <h3>@GetUsageText(binding.Usage)</h3>
+                                    <p>@GetUsageDescription(binding.Usage)</p>
+                                </div>
+                            </div>
+
+                            <div class="rag-binding-controls">
+                                <div class="rag-field">
+                                    <label for="binding-model-@binding.Usage">默认模型</label>
+                                    <InputSelect id="@($"binding-model-{binding.Usage}")" class="form-select" @bind-Value="binding.DeploymentId" disabled="@(!CanSwitchDefaults)">
+                                        @foreach (var model in GetDeploymentsForUsage(binding.Usage))
+                                        {
+                                            <option value="@model.Id">@model.Alias</option>
+                                        }
+                                    </InputSelect>
+                                </div>
+                                <div class="rag-field">
+                                    <label for="binding-version-@binding.Usage">业务版本</label>
+                                    <InputText id="@($"binding-version-{binding.Usage}")" class="form-control" @bind-Value="binding.BusinessModelVersion" disabled="@(!CanSwitchDefaults)" />
+                                </div>
+                            </div>
+
+                            <div class="rag-binding-state">
+                                <span class="rag-model-status @GetHealthStatusCss(selectedDeployment?.HealthStatus ?? AiModelHealthStatus.Unknown)">
+                                    <span aria-hidden="true"></span>@GetHealthText(selectedDeployment?.HealthStatus ?? AiModelHealthStatus.Unknown)
+                                </span>
+                                <span class="rag-binding-hint @GetBindingHintCss(binding)">@GetBindingHint(binding)</span>
+                            </div>
+
+                            <details class="rag-binding-advanced">
+                                <summary>高级参数</summary>
+                                <div class="rag-binding-advanced-grid">
+                                    @if (binding.Usage != AiModelUsage.KnowledgeEmbedding)
+                                    {
+                                        <div class="rag-field">
+                                            <label for="binding-token-@binding.Usage">输出 token</label>
+                                            <InputNumber id="@($"binding-token-{binding.Usage}")" class="form-control" @bind-Value="binding.MaxOutputTokens" disabled="@(!CanSwitchDefaults)" />
+                                        </div>
+                                        <div class="rag-field">
+                                            <label for="binding-temperature-@binding.Usage">Temperature</label>
+                                            <InputNumber id="@($"binding-temperature-{binding.Usage}")" class="form-control" @bind-Value="binding.Temperature" disabled="@(!CanSwitchDefaults)" />
+                                        </div>
+                                    }
+                                    <div class="rag-field">
+                                        <label for="binding-fallback-@binding.Usage">Fallback Alias</label>
+                                        <InputText id="@($"binding-fallback-{binding.Usage}")" class="form-control" @bind-Value="binding.FallbackAliasesText" disabled="@(!CanSwitchDefaults)" />
+                                    </div>
+                                </div>
+                            </details>
+
+                            <div class="rag-binding-actions">
+                                @if (CanTest && selectedDeployment != null)
+                                {
+                                    <button class="btn btn-sm btn-outline-secondary" type="button" @onclick="() => TestModelAsync(selectedDeployment.Id)" disabled="@IsBusy">测试模型</button>
+                                }
+                                <button class="btn btn-sm btn-primary" type="button" @onclick="() => SaveBindingAsync(binding)" disabled="@(!CanSaveBinding(binding) || IsBusy)">
+                                    @(isChanging ? "切换并生效" : "保存配置")
+                                </button>
+                            </div>
+                        </article>
+                    }
+                </div>
+            </section>
+        }
+        else if (ActiveSection == ModelWorkspaceSection.Catalog)
+        {
+            <section class="rag-model-surface">
+                <div class="rag-model-section-heading">
+                    <div>
+                        <h2>模型目录</h2>
+                        <p>维护稳定 Alias 与上游模型映射；密钥只通过环境变量读取。</p>
+                    </div>
+                    @if (CanManage)
+                    {
+                        <button class="btn btn-sm btn-primary" type="button" @onclick="NewModelAsync">
+                            <i class="fa fa-plus" aria-hidden="true"></i> 新增模型
+                        </button>
+                    }
+                </div>
+
+                @if (ShowModelEditor)
+                {
+                    <div class="rag-model-editor">
+                        <div class="rag-model-editor-heading">
+                            <div>
+                                <h3>@(ModelForm.IsEditing ? "编辑模型" : "接入新模型")</h3>
+                                <p>保存的是业务 Alias 和连接信息，不保存任何密钥值。</p>
+                            </div>
+                            <button class="btn-close" type="button" aria-label="关闭模型编辑器" @onclick="CloseModelEditorAsync"></button>
+                        </div>
+
+                        <EditForm Model="@ModelForm" OnValidSubmit="@SaveModelAsync">
+                            <DataAnnotationsValidator />
+                            <div class="rag-model-form-grid">
+                                <div class="rag-field">
+                                    <label for="model-alias">Alias</label>
+                                    <InputText id="model-alias" class="form-control" @bind-Value="ModelForm.Alias" disabled="@(!CanManage)" />
+                                    <ValidationMessage For="@(() => ModelForm.Alias)" />
+                                </div>
+                                <div class="rag-field">
+                                    <label for="model-upstream">上游模型</label>
+                                    <InputText id="model-upstream" class="form-control" @bind-Value="ModelForm.UpstreamModelName" disabled="@(!CanManage)" />
+                                    <ValidationMessage For="@(() => ModelForm.UpstreamModelName)" />
+                                </div>
+                                <div class="rag-field">
+                                    <label for="model-capability">能力</label>
+                                    <InputSelect id="model-capability" class="form-select" @bind-Value="ModelForm.Capability" disabled="@(!CanManage)">
+                                        @foreach (var value in Enum.GetValues<AiModelCapability>())
+                                        {
+                                            <option value="@value">@GetCapabilityText(value)</option>
+                                        }
+                                    </InputSelect>
+                                </div>
+                                <div class="rag-field">
+                                    <label for="model-provider">供应商</label>
+                                    <InputSelect id="model-provider" class="form-select" @bind-Value="ModelForm.ProviderType" disabled="@(!CanManage)">
+                                        @foreach (var value in Enum.GetValues<AiModelProviderType>())
+                                        {
+                                            <option value="@value">@value</option>
+                                        }
+                                    </InputSelect>
+                                </div>
+                                <div class="rag-field">
+                                    <label for="model-version">业务版本</label>
+                                    <InputText id="model-version" class="form-control" @bind-Value="ModelForm.ModelVersion" disabled="@(!CanManage)" />
+                                    <ValidationMessage For="@(() => ModelForm.ModelVersion)" />
+                                </div>
+                                <div class="rag-field">
+                                    <label for="model-env">Key 环境变量</label>
+                                    <InputText id="model-env" class="form-control" @bind-Value="ModelForm.ApiKeyEnvironmentVariable" disabled="@(!CanManage)" />
+                                </div>
+                                <div class="rag-field">
+                                    <label for="model-base-url">Base URL</label>
+                                    <InputText id="model-base-url" class="form-control" @bind-Value="ModelForm.BaseUrl" disabled="@(!CanManage)" />
+                                </div>
+                                @if (ModelForm.Capability == AiModelCapability.Embedding)
+                                {
+                                    <div class="rag-field">
+                                        <label for="model-dimension">向量维度</label>
+                                        <InputNumber id="model-dimension" class="form-control" @bind-Value="ModelForm.EmbeddingDimension" disabled="@(!CanManage)" />
+                                        <small>切换为不同维度的 Embedding 模型需要重建知识索引。</small>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div class="rag-field">
+                                        <label for="model-output">最大输出 token</label>
+                                        <InputNumber id="model-output" class="form-control" @bind-Value="ModelForm.MaxOutputTokens" disabled="@(!CanManage)" />
+                                    </div>
+                                }
+                            </div>
+                            <div class="rag-model-form-footer">
+                                <div class="form-check form-switch">
+                                    <InputCheckbox id="model-active" class="form-check-input" @bind-Value="ModelForm.IsActive" disabled="@(!CanManage)" />
+                                    <label class="form-check-label" for="model-active">保存后启用</label>
+                                </div>
+                                <div>
+                                    <button class="btn btn-outline-secondary" type="button" @onclick="CloseModelEditorAsync" disabled="@IsBusy">取消</button>
+                                    <button class="btn btn-primary" type="submit" disabled="@(!CanManage || IsBusy)">保存模型</button>
+                                </div>
+                            </div>
+                        </EditForm>
+                    </div>
+                }
+
+                <div class="table-responsive rag-model-table-wrap">
+                    <table class="table align-middle mb-0 rag-model-table">
                         <thead>
                             <tr>
-                                <th>Alias</th>
+                                <th>业务 Alias</th>
                                 <th>能力</th>
-                                <th>供应商</th>
                                 <th>上游模型</th>
-                                <th>状态</th>
-                                <th>健康</th>
-                                <th>操作</th>
+                                <th>当前用途</th>
+                                <th>运行状态</th>
+                                <th class="text-end">操作</th>
                             </tr>
                         </thead>
                         <tbody>
-                            @if (Overview.Deployments.Count == 0)
+                            @foreach (var model in Overview.Deployments)
                             {
                                 <tr>
-                                    <td colspan="7" class="text-center py-4 text-muted">暂无模型</td>
+                                    <td>
+                                        <strong>@model.Alias</strong>
+                                        <span>@model.ModelVersion</span>
+                                    </td>
+                                    <td>@GetCapabilityText(model.Capability)</td>
+                                    <td>
+                                        <strong>@model.UpstreamModelName</strong>
+                                        <span>@model.ProviderType · @model.ApiKeyEnvironmentVariable</span>
+                                    </td>
+                                    <td>@GetModelUsageText(model.Id)</td>
+                                    <td>
+                                        <span class="rag-model-status @GetHealthStatusCss(model.HealthStatus)"><span aria-hidden="true"></span>@GetHealthText(model.HealthStatus)</span>
+                                        <span>@(model.IsActive ? "已启用" : "已停用")</span>
+                                    </td>
+                                    <td>
+                                        <div class="rag-model-row-actions">
+                                            @if (CanTest)
+                                            {
+                                                <button class="btn btn-sm btn-outline-primary" type="button" @onclick="() => TestModelAsync(model.Id)" disabled="@IsBusy">测试</button>
+                                            }
+                                            @if (CanManage)
+                                            {
+                                                <button class="btn btn-sm btn-outline-secondary" type="button" @onclick="() => EditModelAsync(model)">编辑</button>
+                                                <button class="btn btn-sm btn-outline-secondary" type="button" @onclick="() => ToggleModelAsync(model)" disabled="@IsBusy">
+                                                    @(model.IsActive ? "停用" : "启用")
+                                                </button>
+                                            }
+                                        </div>
+                                    </td>
                                 </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        }
+        else
+        {
+            <section class="rag-model-surface">
+                <div class="rag-model-section-heading">
+                    <div>
+                        <h2>健康记录</h2>
+                        <p>健康检查会真实调用 LiteLLM 的 Chat 或 Embedding 接口，并记录延迟与失败原因。</p>
+                    </div>
+                    @if (CanTest)
+                    {
+                        <button class="btn btn-sm btn-primary" type="button" @onclick="TestAllAsync" disabled="@IsBusy">
+                            <i class="fa fa-play" aria-hidden="true"></i> 立即检查全部
+                        </button>
+                    }
+                </div>
+
+                <div class="table-responsive rag-model-table-wrap">
+                    <table class="table align-middle mb-0 rag-model-table">
+                        <thead>
+                            <tr>
+                                <th>模型</th>
+                                <th>状态</th>
+                                <th>延迟</th>
+                                <th>检查时间</th>
+                                <th>错误摘要</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @if (Overview.HealthSnapshots.Count == 0)
+                            {
+                                <tr><td colspan="5"><div class="rag-model-empty">尚未执行健康检查。请先检查全部模型，再进行默认模型切换。</div></td></tr>
                             }
                             else
                             {
-                                @foreach (var model in Overview.Deployments)
+                                @foreach (var health in Overview.HealthSnapshots.OrderByDescending(x => x.CheckedTime))
                                 {
                                     <tr>
-                                        <td>
-                                            <div class="fw-semibold">@model.Alias</div>
-                                            <div class="text-muted small">@model.ModelVersion</div>
-                                        </td>
-                                        <td>@GetCapabilityText(model.Capability)</td>
-                                        <td>@model.ProviderType</td>
-                                        <td>
-                                            <div>@model.UpstreamModelName</div>
-                                            @if (!string.IsNullOrWhiteSpace(model.ApiKeyEnvironmentVariable))
-                                            {
-                                                <div class="text-muted small">@model.ApiKeyEnvironmentVariable</div>
-                                            }
-                                        </td>
-                                        <td>
-                                            <span class="badge @(model.IsActive ? "bg-success" : "bg-secondary")">
-                                                @(model.IsActive ? "启用" : "停用")
-                                            </span>
-                                        </td>
-                                        <td>
-                                            <span class="badge @GetHealthBadge(model.HealthStatus)">@GetHealthText(model.HealthStatus)</span>
-                                            @if (model.LastCheckedTime.HasValue)
-                                            {
-                                                <div class="text-muted small">@model.LastCheckedTime.Value.ToLocalTime().ToString("MM-dd HH:mm")</div>
-                                            }
-                                        </td>
-                                        <td>
-                                            <div class="d-flex flex-wrap gap-2">
-                                                @if (CanManage)
-                                                {
-                                                    <button class="btn btn-sm btn-outline-secondary" type="button" @onclick="() => EditModelAsync(model)">编辑</button>
-                                                    <button class="btn btn-sm btn-outline-secondary" type="button" @onclick="() => ToggleModelAsync(model)" disabled="@IsBusy">
-                                                        @(model.IsActive ? "停用" : "启用")
-                                                    </button>
-                                                }
-                                                @if (CanTest)
-                                                {
-                                                    <button class="btn btn-sm btn-outline-primary" type="button" @onclick="() => TestModelAsync(model.Id)" disabled="@IsBusy">测试</button>
-                                                }
-                                            </div>
-                                        </td>
+                                        <td><strong>@health.DeploymentAlias</strong></td>
+                                        <td><span class="rag-model-status @GetHealthStatusCss(health.Status)"><span aria-hidden="true"></span>@GetHealthText(health.Status)</span></td>
+                                        <td>@(health.LatencyMs.HasValue ? $"{health.LatencyMs.Value} ms" : "-")</td>
+                                        <td>@health.CheckedTime.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")</td>
+                                        <td>@(string.IsNullOrWhiteSpace(health.FailureReason) ? "-" : health.FailureReason)</td>
                                     </tr>
                                 }
                             }
                         </tbody>
                     </table>
                 </div>
-            </div>
-        </div>
-
-        <div class="col-xl-4">
-            <div class="card">
-                <div class="card-body">
-                    <h2 class="h6 mb-3">@(ModelForm.IsEditing ? "编辑模型" : "新增模型")</h2>
-                    <EditForm Model="@ModelForm" OnValidSubmit="@SaveModelAsync">
-                        <DataAnnotationsValidator />
-
-                        <div class="mb-3">
-                            <label class="form-label" for="model-alias">Alias</label>
-                            <InputText id="model-alias" class="form-control" @bind-Value="ModelForm.Alias" disabled="@(!CanManage)" />
-                            <ValidationMessage For="@(() => ModelForm.Alias)" />
-                        </div>
-
-                        <div class="row g-2">
-                            <div class="col-6 mb-3">
-                                <label class="form-label" for="model-capability">能力</label>
-                                <InputSelect id="model-capability" class="form-select" @bind-Value="ModelForm.Capability" disabled="@(!CanManage)">
-                                    @foreach (var value in Enum.GetValues<AiModelCapability>())
-                                    {
-                                        <option value="@value">@GetCapabilityText(value)</option>
-                                    }
-                                </InputSelect>
-                            </div>
-                            <div class="col-6 mb-3">
-                                <label class="form-label" for="model-provider">供应商</label>
-                                <InputSelect id="model-provider" class="form-select" @bind-Value="ModelForm.ProviderType" disabled="@(!CanManage)">
-                                    @foreach (var value in Enum.GetValues<AiModelProviderType>())
-                                    {
-                                        <option value="@value">@value</option>
-                                    }
-                                </InputSelect>
-                            </div>
-                        </div>
-
-                        <div class="mb-3">
-                            <label class="form-label" for="model-upstream">上游模型</label>
-                            <InputText id="model-upstream" class="form-control" @bind-Value="ModelForm.UpstreamModelName" disabled="@(!CanManage)" />
-                            <ValidationMessage For="@(() => ModelForm.UpstreamModelName)" />
-                        </div>
-
-                        <div class="row g-2">
-                            <div class="col-6 mb-3">
-                                <label class="form-label" for="model-version">业务版本</label>
-                                <InputText id="model-version" class="form-control" @bind-Value="ModelForm.ModelVersion" disabled="@(!CanManage)" />
-                            </div>
-                            <div class="col-6 mb-3">
-                                <label class="form-label" for="model-env">Key 环境变量</label>
-                                <InputText id="model-env" class="form-control" @bind-Value="ModelForm.ApiKeyEnvironmentVariable" disabled="@(!CanManage)" />
-                            </div>
-                        </div>
-
-                        <div class="row g-2">
-                            <div class="col-6 mb-3">
-                                <label class="form-label" for="model-output">输出 token</label>
-                                <InputNumber id="model-output" class="form-control" @bind-Value="ModelForm.MaxOutputTokens" disabled="@(!CanManage)" />
-                            </div>
-                            <div class="col-6 mb-3">
-                                <label class="form-label" for="model-dimension">向量维度</label>
-                                <InputNumber id="model-dimension" class="form-control" @bind-Value="ModelForm.EmbeddingDimension" disabled="@(!CanManage)" />
-                            </div>
-                        </div>
-
-                        <div class="mb-3">
-                            <label class="form-label" for="model-base-url">Base URL</label>
-                            <InputText id="model-base-url" class="form-control" @bind-Value="ModelForm.BaseUrl" disabled="@(!CanManage)" />
-                        </div>
-
-                        <div class="form-check form-switch mb-3">
-                            <InputCheckbox id="model-active" class="form-check-input" @bind-Value="ModelForm.IsActive" disabled="@(!CanManage)" />
-                            <label class="form-check-label" for="model-active">启用</label>
-                        </div>
-
-                        <div class="d-flex gap-2">
-                            <button class="btn btn-primary" type="submit" disabled="@(!CanManage || IsBusy)">保存</button>
-                            <button class="btn btn-outline-secondary" type="button" @onclick="NewModelAsync" disabled="@IsBusy">重置</button>
-                        </div>
-                    </EditForm>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <div class="card mt-3">
-        <div class="card-body border-bottom">
-            <h2 class="h6 mb-0">用途绑定</h2>
-        </div>
-        <div class="table-responsive">
-            <table class="table table-hover align-middle mb-0">
-                <thead>
-                    <tr>
-                        <th>用途</th>
-                        <th>默认模型</th>
-                        <th>业务版本</th>
-                        <th>输出 token</th>
-                        <th>Temperature</th>
-                        <th>Fallback alias</th>
-                        <th>操作</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @foreach (var binding in BindingForms)
-                    {
-                        <tr>
-                            <td>@GetUsageText(binding.Usage)</td>
-                            <td>
-                                <InputSelect class="form-select" @bind-Value="binding.DeploymentId" disabled="@(!CanSwitchDefaults)">
-                                    @foreach (var model in GetDeploymentsForUsage(binding.Usage))
-                                    {
-                                        <option value="@model.Id">@model.Alias</option>
-                                    }
-                                </InputSelect>
-                            </td>
-                            <td>
-                                <InputText class="form-control" @bind-Value="binding.BusinessModelVersion" disabled="@(!CanSwitchDefaults)" />
-                            </td>
-                            <td>
-                                <InputNumber class="form-control" @bind-Value="binding.MaxOutputTokens" disabled="@(!CanSwitchDefaults)" />
-                            </td>
-                            <td>
-                                <InputNumber class="form-control" @bind-Value="binding.Temperature" disabled="@(!CanSwitchDefaults)" />
-                            </td>
-                            <td>
-                                <InputText class="form-control" @bind-Value="binding.FallbackAliasesText" disabled="@(!CanSwitchDefaults)" />
-                            </td>
-                            <td>
-                                <button class="btn btn-sm btn-primary" type="button" @onclick="() => SaveBindingAsync(binding)" disabled="@(!CanSwitchDefaults || IsBusy)">
-                                    保存
-                                </button>
-                            </td>
-                        </tr>
-                    }
-                </tbody>
-            </table>
-        </div>
-    </div>
-
-    <div class="card mt-3">
-        <div class="card-body">
-            <h2 class="h6 mb-3">最近健康检查</h2>
-            <div class="table-responsive">
-                <table class="table table-hover align-middle mb-0">
-                    <thead>
-                        <tr>
-                            <th>模型</th>
-                            <th>状态</th>
-                            <th>延迟</th>
-                            <th>检查时间</th>
-                            <th>错误摘要</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @if (Overview.HealthSnapshots.Count == 0)
-                        {
-                            <tr>
-                                <td colspan="5" class="text-center py-4 text-muted">暂无健康检查记录</td>
-                            </tr>
-                        }
-                        else
-                        {
-                            @foreach (var health in Overview.HealthSnapshots.OrderByDescending(x => x.CheckedTime))
-                            {
-                                <tr>
-                                    <td>@health.DeploymentAlias</td>
-                                    <td><span class="badge @GetHealthBadge(health.Status)">@GetHealthText(health.Status)</span></td>
-                                    <td>@(health.LatencyMs.HasValue ? $"{health.LatencyMs.Value} ms" : "-")</td>
-                                    <td>@health.CheckedTime.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")</td>
-                                    <td>@health.FailureReason</td>
-                                </tr>
-                            }
-                        }
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    </div>
-}
+            </section>
+        }
+    }
+</div>
 
 @code {
     private AiModelCatalogOverviewDto? Overview { get; set; }
     private ModelFormModel ModelForm { get; set; } = new();
     private List<BindingFormModel> BindingForms { get; set; } = new();
+    private ModelWorkspaceSection ActiveSection { get; set; } = ModelWorkspaceSection.Bindings;
+    private bool ShowModelEditor { get; set; }
     private bool CanManage { get; set; }
     private bool CanTest { get; set; }
     private bool CanSwitchDefaults { get; set; }
@@ -357,6 +395,13 @@ else
         await ReloadAsync();
     }
 
+    private void SelectSection(ModelWorkspaceSection section)
+    {
+        ActiveSection = section;
+        ErrorMessage = null;
+        SuccessMessage = null;
+    }
+
     private async Task ReloadAsync()
     {
         await RunBusyAsync(async () =>
@@ -368,7 +413,9 @@ else
 
     private Task NewModelAsync()
     {
+        ActiveSection = ModelWorkspaceSection.Catalog;
         ModelForm = new ModelFormModel();
+        ShowModelEditor = true;
         SuccessMessage = null;
         ErrorMessage = null;
         return Task.CompletedTask;
@@ -376,6 +423,8 @@ else
 
     private Task EditModelAsync(AiModelDeploymentDto model)
     {
+        ActiveSection = ModelWorkspaceSection.Catalog;
+        ShowModelEditor = true;
         ModelForm = new ModelFormModel
         {
             Id = model.Id,
@@ -398,6 +447,14 @@ else
         return Task.CompletedTask;
     }
 
+    private Task CloseModelEditorAsync()
+    {
+        ModelForm = new ModelFormModel();
+        ShowModelEditor = false;
+        ErrorMessage = null;
+        return Task.CompletedTask;
+    }
+
     private async Task SaveModelAsync()
     {
         await RunBusyAsync(async () =>
@@ -415,7 +472,8 @@ else
             Overview = await AiModelCatalogAppService.GetOverviewAsync();
             BindingForms = CreateBindingForms(Overview);
             ModelForm = new ModelFormModel();
-        }, "模型已保存");
+            ShowModelEditor = false;
+        }, "模型已保存；切换业务用途前请先执行健康检查。");
     }
 
     private async Task ToggleModelAsync(AiModelDeploymentDto model)
@@ -448,6 +506,12 @@ else
 
     private async Task SaveBindingAsync(BindingFormModel binding)
     {
+        if (!CanSaveBinding(binding))
+        {
+            ErrorMessage = GetBindingHint(binding);
+            return;
+        }
+
         await RunBusyAsync(async () =>
         {
             await AiModelCatalogAppService.SetUsageBindingAsync(new SetAiModelUsageBindingDto
@@ -463,7 +527,7 @@ else
             });
             Overview = await AiModelCatalogAppService.GetOverviewAsync();
             BindingForms = CreateBindingForms(Overview);
-        }, "用途绑定已保存");
+        }, "用途配置已保存并生效");
     }
 
     private IReadOnlyList<AiModelDeploymentDto> GetDeploymentsForUsage(AiModelUsage usage)
@@ -473,14 +537,69 @@ else
             return Array.Empty<AiModelDeploymentDto>();
         }
 
-        var capability = usage == AiModelUsage.KnowledgeEmbedding
-            ? AiModelCapability.Embedding
-            : AiModelCapability.Chat;
+        var capability = usage == AiModelUsage.KnowledgeEmbedding ? AiModelCapability.Embedding : AiModelCapability.Chat;
+        return Overview.Deployments.Where(x => x.IsActive && x.Capability == capability).OrderBy(x => x.Alias).ToList();
+    }
 
-        return Overview.Deployments
-            .Where(x => x.IsActive && x.Capability == capability)
-            .OrderBy(x => x.Alias)
-            .ToList();
+    private AiModelDeploymentDto? GetSelectedDeployment(BindingFormModel binding)
+        => Overview?.Deployments.FirstOrDefault(x => x.Id == binding.DeploymentId);
+
+    private bool HasEmbeddingDimensionChange(BindingFormModel binding)
+    {
+        if (Overview == null || binding.Usage != AiModelUsage.KnowledgeEmbedding || binding.OriginalDeploymentId == binding.DeploymentId)
+        {
+            return false;
+        }
+
+        var current = Overview.Deployments.FirstOrDefault(x => x.Id == binding.OriginalDeploymentId);
+        var selected = GetSelectedDeployment(binding);
+        return current?.EmbeddingDimension != selected?.EmbeddingDimension;
+    }
+
+    private bool CanSaveBinding(BindingFormModel binding)
+    {
+        if (!CanSwitchDefaults || binding.DeploymentId == Guid.Empty || HasEmbeddingDimensionChange(binding))
+        {
+            return false;
+        }
+
+        if (binding.OriginalDeploymentId == binding.DeploymentId)
+        {
+            return true;
+        }
+
+        return GetSelectedDeployment(binding)?.HealthStatus == AiModelHealthStatus.Healthy;
+    }
+
+    private string GetBindingHint(BindingFormModel binding)
+    {
+        if (HasEmbeddingDimensionChange(binding))
+        {
+            return "向量维度发生变化，需先重建知识索引，当前不能直接生效。";
+        }
+
+        if (binding.OriginalDeploymentId == binding.DeploymentId)
+        {
+            return "当前生效配置";
+        }
+
+        return GetSelectedDeployment(binding)?.HealthStatus == AiModelHealthStatus.Healthy
+            ? "健康检查已通过，可以切换"
+            : "切换默认模型前请先完成健康检查";
+    }
+
+    private string GetBindingHintCss(BindingFormModel binding)
+        => CanSaveBinding(binding) ? "is-ready" : binding.OriginalDeploymentId == binding.DeploymentId ? "is-current" : "is-warning";
+
+    private string GetModelUsageText(Guid deploymentId)
+    {
+        if (Overview == null)
+        {
+            return "未绑定";
+        }
+
+        var usages = Overview.Bindings.Where(x => x.DeploymentId == deploymentId).Select(x => GetUsageText(x.Usage)).ToList();
+        return usages.Count == 0 ? "未绑定" : string.Join("、", usages);
     }
 
     private async Task RunBusyAsync(Func<Task> action, string? successMessage)
@@ -510,14 +629,13 @@ else
             .Select(usage =>
             {
                 var existing = overview.Bindings.FirstOrDefault(x => x.Usage == usage);
-                var firstDeployment = overview.Deployments.FirstOrDefault(x =>
-                    x.IsActive &&
-                    x.Capability == (usage == AiModelUsage.KnowledgeEmbedding ? AiModelCapability.Embedding : AiModelCapability.Chat));
-
+                var firstDeployment = overview.Deployments.FirstOrDefault(x => x.IsActive && x.Capability == (usage == AiModelUsage.KnowledgeEmbedding ? AiModelCapability.Embedding : AiModelCapability.Chat));
+                var deploymentId = existing?.DeploymentId ?? firstDeployment?.Id ?? Guid.Empty;
                 return new BindingFormModel
                 {
                     Usage = usage,
-                    DeploymentId = existing?.DeploymentId ?? firstDeployment?.Id ?? Guid.Empty,
+                    OriginalDeploymentId = deploymentId,
+                    DeploymentId = deploymentId,
                     BusinessModelVersion = existing?.BusinessModelVersion ?? string.Empty,
                     MaxOutputTokens = existing?.MaxOutputTokens ?? (usage == AiModelUsage.KnowledgeEmbedding ? 0 : 800),
                     Temperature = existing?.Temperature ?? 0.2,
@@ -536,6 +654,30 @@ else
         _ => usage.ToString()
     };
 
+    private static string GetUsageDescription(AiModelUsage usage) => usage switch
+    {
+        AiModelUsage.RagAnswerChat => "生成有引用依据的知识回答",
+        AiModelUsage.AiQuestionGeneration => "根据知识内容生成待审核题目",
+        AiModelUsage.KnowledgeEmbedding => "将知识转换为向量并写入索引",
+        _ => "业务模型用途"
+    };
+
+    private static string GetUsageIcon(AiModelUsage usage) => usage switch
+    {
+        AiModelUsage.RagAnswerChat => "fa-comments",
+        AiModelUsage.AiQuestionGeneration => "fa-list-alt",
+        AiModelUsage.KnowledgeEmbedding => "fa-layer-group",
+        _ => "fa-cube"
+    };
+
+    private static string GetUsageIconCss(AiModelUsage usage) => usage switch
+    {
+        AiModelUsage.RagAnswerChat => "is-chat",
+        AiModelUsage.AiQuestionGeneration => "is-question",
+        AiModelUsage.KnowledgeEmbedding => "is-embedding",
+        _ => string.Empty
+    };
+
     private static string GetCapabilityText(AiModelCapability capability) => capability switch
     {
         AiModelCapability.Chat => "Chat",
@@ -545,42 +687,47 @@ else
 
     private static string GetHealthText(AiModelHealthStatus status) => status switch
     {
-        AiModelHealthStatus.Unknown => "未知",
-        AiModelHealthStatus.Healthy => "正常",
-        AiModelHealthStatus.Failed => "失败",
-        AiModelHealthStatus.MissingKey => "缺 key",
-        AiModelHealthStatus.Disabled => "停用",
+        AiModelHealthStatus.Unknown => "待检查",
+        AiModelHealthStatus.Healthy => "已就绪",
+        AiModelHealthStatus.Failed => "检查失败",
+        AiModelHealthStatus.MissingKey => "缺少凭据",
+        AiModelHealthStatus.Disabled => "已停用",
         _ => status.ToString()
     };
 
-    private static string GetHealthBadge(AiModelHealthStatus status) => status switch
+    private static string GetHealthStatusCss(AiModelHealthStatus status) => status switch
     {
-        AiModelHealthStatus.Healthy => "bg-success",
-        AiModelHealthStatus.MissingKey => "bg-warning text-dark",
-        AiModelHealthStatus.Failed => "bg-danger",
-        AiModelHealthStatus.Disabled => "bg-secondary",
-        _ => "bg-light text-dark"
+        AiModelHealthStatus.Healthy => "is-ready",
+        AiModelHealthStatus.MissingKey => "is-warning",
+        AiModelHealthStatus.Failed => "is-error",
+        AiModelHealthStatus.Disabled => "is-muted",
+        _ => "is-pending"
     };
 
-    private class ModelFormModel
+    private enum ModelWorkspaceSection
+    {
+        Bindings,
+        Catalog,
+        Health
+    }
+
+    private sealed class ModelFormModel
     {
         public Guid? Id { get; set; }
-
         public bool IsEditing { get; set; }
 
-        [Required]
+        [Required(ErrorMessage = "请输入 Alias。")]
         [StringLength(AiModelConsts.MaxAliasLength)]
         public string Alias { get; set; } = string.Empty;
 
         public AiModelProviderType ProviderType { get; set; } = AiModelProviderType.LiteLLM;
-
         public AiModelCapability Capability { get; set; } = AiModelCapability.Chat;
 
-        [Required]
+        [Required(ErrorMessage = "请输入上游模型。")]
         [StringLength(AiModelConsts.MaxUpstreamModelNameLength)]
         public string UpstreamModelName { get; set; } = string.Empty;
 
-        [Required]
+        [Required(ErrorMessage = "请输入业务版本。")]
         [StringLength(AiModelConsts.MaxModelVersionLength)]
         public string ModelVersion { get; set; } = string.Empty;
 
@@ -591,54 +738,42 @@ else
         public string? BaseUrl { get; set; }
 
         public int? ContextWindowTokens { get; set; }
-
         public int? MaxOutputTokens { get; set; }
-
         public int? EmbeddingDimension { get; set; }
-
         public decimal? PromptTokenPriceUsd { get; set; }
-
         public decimal? CompletionTokenPriceUsd { get; set; }
-
         public bool IsActive { get; set; } = true;
 
         [StringLength(AiModelConsts.MaxDescriptionLength)]
         public string? Description { get; set; }
 
-        public CreateUpdateAiModelDeploymentDto ToDto()
+        public CreateUpdateAiModelDeploymentDto ToDto() => new()
         {
-            return new CreateUpdateAiModelDeploymentDto
-            {
-                Alias = Alias,
-                ProviderType = ProviderType,
-                Capability = Capability,
-                UpstreamModelName = UpstreamModelName,
-                ModelVersion = ModelVersion,
-                ApiKeyEnvironmentVariable = ApiKeyEnvironmentVariable,
-                BaseUrl = BaseUrl,
-                ContextWindowTokens = ContextWindowTokens,
-                MaxOutputTokens = MaxOutputTokens,
-                EmbeddingDimension = EmbeddingDimension,
-                PromptTokenPriceUsd = PromptTokenPriceUsd,
-                CompletionTokenPriceUsd = CompletionTokenPriceUsd,
-                IsActive = IsActive,
-                Description = Description
-            };
-        }
+            Alias = Alias,
+            ProviderType = ProviderType,
+            Capability = Capability,
+            UpstreamModelName = UpstreamModelName,
+            ModelVersion = ModelVersion,
+            ApiKeyEnvironmentVariable = ApiKeyEnvironmentVariable,
+            BaseUrl = BaseUrl,
+            ContextWindowTokens = ContextWindowTokens,
+            MaxOutputTokens = MaxOutputTokens,
+            EmbeddingDimension = EmbeddingDimension,
+            PromptTokenPriceUsd = PromptTokenPriceUsd,
+            CompletionTokenPriceUsd = CompletionTokenPriceUsd,
+            IsActive = IsActive,
+            Description = Description
+        };
     }
 
-    private class BindingFormModel
+    private sealed class BindingFormModel
     {
         public AiModelUsage Usage { get; set; }
-
+        public Guid OriginalDeploymentId { get; set; }
         public Guid DeploymentId { get; set; }
-
         public string BusinessModelVersion { get; set; } = string.Empty;
-
         public int MaxOutputTokens { get; set; }
-
         public double Temperature { get; set; }
-
         public string FallbackAliasesText { get; set; } = string.Empty;
     }
 }

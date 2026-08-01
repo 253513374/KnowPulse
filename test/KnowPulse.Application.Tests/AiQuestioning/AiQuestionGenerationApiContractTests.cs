@@ -34,7 +34,7 @@ public class AiQuestionGenerationApiContractTests
     }
 
     /// <summary>
-    /// 验证 BE-005 要求的任务创建、任务查询、候选题查看、重试和提交审核 API 均有稳定路由。
+    /// 验证任务创建、任务查询、候选题查看、重试和采纳草稿 API 均有稳定路由。
     /// </summary>
     [Theory]
     [InlineData(nameof(AiQuestionGenerationController.GetListAsync), "GET", "tasks")]
@@ -42,6 +42,7 @@ public class AiQuestionGenerationApiContractTests
     [InlineData(nameof(AiQuestionGenerationController.GetCandidateAsync), "GET", "candidates/{id:guid}")]
     [InlineData(nameof(AiQuestionGenerationController.CreateAsync), "POST", "tasks")]
     [InlineData(nameof(AiQuestionGenerationController.RetryAsync), "POST", "tasks/{id:guid}/retry")]
+    [InlineData("AdoptCandidateAsDraftAsync", "POST", "candidates/{candidateId:guid}/adopt-draft")]
     [InlineData(nameof(AiQuestionGenerationController.SubmitCandidateForReviewAsync), "POST", "candidates/{candidateId:guid}/submit-review")]
     public void Controller_Should_Expose_Be005_Task_And_Candidate_Endpoints(
         string actionName,

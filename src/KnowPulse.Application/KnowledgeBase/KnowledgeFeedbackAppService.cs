@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using KnowPulse.KnowledgeIndexing;
 using KnowPulse.Permissions;
 using Microsoft.AspNetCore.Authorization;
 using Volo.Abp;
@@ -9,6 +10,7 @@ using Volo.Abp.Application.Dtos;
 using Volo.Abp.Authorization;
 using Volo.Abp.Domain.Entities;
 using Volo.Abp.Domain.Repositories;
+using Volo.Abp.Uow;
 
 namespace KnowPulse.KnowledgeBase;
 
@@ -22,6 +24,7 @@ public class KnowledgeFeedbackAppService : KnowPulseAppService, IKnowledgeFeedba
     private readonly IRepository<KnowledgeFeedback, Guid> _feedbackRepository;
     private readonly IRepository<KnowledgeItem, Guid> _itemRepository;
     private readonly IRepository<KnowledgeVersion, Guid> _versionRepository;
+    private readonly IRepository<KnowledgeIndexJob, Guid> _indexJobRepository;
     private readonly IRepository<KnowledgePermissionScope, Guid> _permissionScopeRepository;
     private readonly IKnowledgeAccessContextProvider _accessContextProvider;
 
@@ -29,12 +32,14 @@ public class KnowledgeFeedbackAppService : KnowPulseAppService, IKnowledgeFeedba
         IRepository<KnowledgeFeedback, Guid> feedbackRepository,
         IRepository<KnowledgeItem, Guid> itemRepository,
         IRepository<KnowledgeVersion, Guid> versionRepository,
+        IRepository<KnowledgeIndexJob, Guid> indexJobRepository,
         IRepository<KnowledgePermissionScope, Guid> permissionScopeRepository,
         IKnowledgeAccessContextProvider accessContextProvider)
     {
         _feedbackRepository = feedbackRepository;
         _itemRepository = itemRepository;
         _versionRepository = versionRepository;
+        _indexJobRepository = indexJobRepository;
         _permissionScopeRepository = permissionScopeRepository;
         _accessContextProvider = accessContextProvider;
     }
@@ -120,6 +125,57 @@ public class KnowledgeFeedbackAppService : KnowPulseAppService, IKnowledgeFeedba
     }
 
     /// <summary>
+    /// 从已接手反馈创建修订草稿，并在同一工作单元内自动关联反馈。
+    /// 新草稿复制来源版本正文；附件不自动复制，避免旧附件被误认为已完成修订。
+    /// </summary>
+    [Authorize(KnowPulsePermissions.KnowledgeBase.Feedback)]
+    [UnitOfWork]
+    public virtual async Task<KnowledgeFeedbackDto> CreateRevisionAsync(Guid id)
+    {
+        await CheckMvpPermissionAsync(KnowPulsePermissions.KnowledgeBase.Feedback);
+        await CheckMvpPermissionAsync(KnowPulsePermissions.KnowledgeBase.Versions);
+
+        var feedback = await _feedbackRepository.GetAsync(id);
+        if (feedback.Status != KnowledgeFeedbackStatus.Processing)
+        {
+            throw new BusinessException(KnowPulseDomainErrorCodes.KnowledgeFeedbackRevisionRequiresProcessing);
+        }
+
+        if (feedback.LinkedKnowledgeVersionId.HasValue)
+        {
+            throw new BusinessException(KnowPulseDomainErrorCodes.KnowledgeFeedbackRevisionAlreadyLinked);
+        }
+
+        var item = await _itemRepository.GetAsync(feedback.KnowledgeItemId);
+        var queryable = await _versionRepository.GetQueryableAsync();
+        var versions = await AsyncExecuter.ToListAsync(
+            queryable.Where(x => x.KnowledgeItemId == item.Id).OrderByDescending(x => x.VersionNumber));
+        var sourceVersion = feedback.KnowledgeVersionId.HasValue
+            ? versions.FirstOrDefault(x => x.Id == feedback.KnowledgeVersionId.Value)
+            : versions.FirstOrDefault(x => x.Id == item.CurrentPublishedVersionId) ?? versions.FirstOrDefault();
+        var nextVersionNumber = versions.Count == 0 ? 1 : versions.Max(x => x.VersionNumber) + 1;
+
+        var revision = await _versionRepository.InsertAsync(
+            new KnowledgeVersion(
+                GuidGenerator.Create(),
+                CurrentTenant.Id,
+                item.Id,
+                nextVersionNumber,
+                sourceVersion?.Title ?? item.Title,
+                sourceVersion?.ContentText),
+            autoSave: false);
+
+        feedback.LinkKnowledgeVersion(
+            GetCurrentUserId(),
+            DateTime.UtcNow,
+            revision.Id,
+            feedback.Resolution ?? "已从反馈创建修订草稿");
+        feedback = await _feedbackRepository.UpdateAsync(feedback, autoSave: true);
+
+        return await MapToDtoAsync(feedback);
+    }
+
+    /// <summary>
     /// 管理员标记反馈已处理，可关联同一知识下的修订版本。
     /// </summary>
     /// <param name="id">反馈 ID。</param>
@@ -130,13 +186,32 @@ public class KnowledgeFeedbackAppService : KnowPulseAppService, IKnowledgeFeedba
     {
         await CheckMvpPermissionAsync(KnowPulsePermissions.KnowledgeBase.Feedback);
         var feedback = await _feedbackRepository.GetAsync(id);
-        await EnsureLinkedVersionBelongsToFeedbackItemAsync(feedback, input.LinkedKnowledgeVersionId);
+        var linkedVersionId = feedback.LinkedKnowledgeVersionId;
+        if (!linkedVersionId.HasValue)
+        {
+            throw new BusinessException(KnowPulseDomainErrorCodes.KnowledgeFeedbackRevisionRequired);
+        }
+
+        var linkedVersion = await EnsureLinkedVersionBelongsToFeedbackItemAsync(feedback, linkedVersionId);
+        if (linkedVersion.Status != KnowledgeVersionStatus.Published || !linkedVersion.IsCurrentPublished)
+        {
+            throw new BusinessException(KnowPulseDomainErrorCodes.KnowledgeFeedbackRevisionNotPublished);
+        }
+
+        var indexQueryable = await _indexJobRepository.GetQueryableAsync();
+        var latestIndexJob = await AsyncExecuter.FirstOrDefaultAsync(indexQueryable
+            .Where(x => x.KnowledgeVersionId == linkedVersion.Id)
+            .OrderByDescending(x => x.CreationTime));
+        if (latestIndexJob?.Status != KnowledgeIndexJobStatus.Indexed)
+        {
+            throw new BusinessException(KnowPulseDomainErrorCodes.KnowledgeFeedbackRevisionNotIndexed);
+        }
 
         feedback.Resolve(
             GetCurrentUserId(),
             DateTime.UtcNow,
             input.Resolution.Trim(),
-            input.LinkedKnowledgeVersionId);
+            linkedVersion.Id);
         feedback = await _feedbackRepository.UpdateAsync(feedback, autoSave: true);
 
         return await MapToDtoAsync(feedback);
@@ -254,11 +329,11 @@ public class KnowledgeFeedbackAppService : KnowPulseAppService, IKnowledgeFeedba
         }
     }
 
-    private async Task EnsureLinkedVersionBelongsToFeedbackItemAsync(KnowledgeFeedback feedback, Guid? linkedVersionId)
+    private async Task<KnowledgeVersion> EnsureLinkedVersionBelongsToFeedbackItemAsync(KnowledgeFeedback feedback, Guid? linkedVersionId)
     {
         if (!linkedVersionId.HasValue)
         {
-            return;
+            throw new BusinessException(KnowPulseDomainErrorCodes.KnowledgeFeedbackRevisionRequired);
         }
 
         var version = await _versionRepository.GetAsync(linkedVersionId.Value);
@@ -266,6 +341,8 @@ public class KnowledgeFeedbackAppService : KnowPulseAppService, IKnowledgeFeedba
         {
             throw new BusinessException(KnowPulseDomainErrorCodes.KnowledgeFeedbackVersionItemMismatch);
         }
+
+        return version;
     }
 
     private async Task<List<KnowledgeFeedbackDto>> MapToDtosAsync(IReadOnlyCollection<KnowledgeFeedback> feedbacks)
@@ -288,6 +365,14 @@ public class KnowledgeFeedbackAppService : KnowPulseAppService, IKnowledgeFeedba
         var linkedVersion = feedback.LinkedKnowledgeVersionId.HasValue
             ? await _versionRepository.FindAsync(feedback.LinkedKnowledgeVersionId.Value)
             : null;
+        KnowledgeIndexJob? linkedVersionLatestIndexJob = null;
+        if (linkedVersion != null)
+        {
+            var indexQueryable = await _indexJobRepository.GetQueryableAsync();
+            linkedVersionLatestIndexJob = await AsyncExecuter.FirstOrDefaultAsync(indexQueryable
+                .Where(x => x.KnowledgeVersionId == linkedVersion.Id)
+                .OrderByDescending(x => x.CreationTime));
+        }
 
         return new KnowledgeFeedbackDto
         {
@@ -315,6 +400,9 @@ public class KnowledgeFeedbackAppService : KnowPulseAppService, IKnowledgeFeedba
             LinkedKnowledgeVersionId = feedback.LinkedKnowledgeVersionId,
             LinkedKnowledgeVersionTitle = linkedVersion?.Title,
             LinkedKnowledgeVersionNumber = linkedVersion?.VersionNumber,
+            LinkedKnowledgeVersionStatus = linkedVersion?.Status,
+            LinkedKnowledgeVersionIsCurrentPublished = linkedVersion?.IsCurrentPublished == true,
+            LinkedKnowledgeVersionIndexStatus = linkedVersionLatestIndexJob?.Status,
             ClosedTime = feedback.ClosedTime,
             CloseReason = feedback.CloseReason
         };

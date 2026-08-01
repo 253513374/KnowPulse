@@ -20,7 +20,7 @@ namespace KnowPulse.EntityFrameworkCore.Applications;
 /// <summary>
 /// MVP-2 AI 候选题生成应用服务集成测试。
 /// 测试覆盖生成链路的主要安全边界：必须有授权 RAG 上下文、必须有 citation、模型坏格式或失败要安全降级，
-/// 候选题只能提交为待审核题，并且相似题提示需要可落库追溯。
+/// 候选题只能先采纳为可编辑草稿，并且相似题提示需要可落库追溯。
 /// </summary>
 [Collection(KnowPulseTestConsts.CollectionDefinitionName)]
 public class Mvp2AiQuestionGenerationAppServiceTests : KnowPulseEntityFrameworkCoreTestBase
@@ -30,6 +30,7 @@ public class Mvp2AiQuestionGenerationAppServiceTests : KnowPulseEntityFrameworkC
 
     // 题库应用服务，用于准备相似题基线并验证候选题提交后的审核状态。
     private readonly IQuestionAppService _questionAppService;
+    private readonly IQuestionWorkflowAppService _questionWorkflowAppService;
 
     // 知识库分类和条目服务，用于构造可检索的 RAG 测试数据。
     private readonly IKnowledgeCategoryAppService _categoryAppService;
@@ -56,6 +57,7 @@ public class Mvp2AiQuestionGenerationAppServiceTests : KnowPulseEntityFrameworkC
     {
         _generationAppService = GetRequiredService<IAiQuestionGenerationAppService>();
         _questionAppService = GetRequiredService<IQuestionAppService>();
+        _questionWorkflowAppService = GetRequiredService<IQuestionWorkflowAppService>();
         _categoryAppService = GetRequiredService<IKnowledgeCategoryAppService>();
         _itemAppService = GetRequiredService<IKnowledgeItemAppService>();
         _ingestionPipeline = GetRequiredService<IKnowledgeIngestionPipeline>();
@@ -164,10 +166,10 @@ public class Mvp2AiQuestionGenerationAppServiceTests : KnowPulseEntityFrameworkC
 
     /// <summary>
     /// 验证正常生成链路：
-    /// 授权 chunk 会进入 prompt，候选题保存 citation，提交后只生成待审核题且不可直接用于考试。
+    /// 授权 chunk 会进入 prompt，候选题保存 citation，采纳后只生成可编辑草稿且不可直接用于考试。
     /// </summary>
     [Fact]
-    public async Task CreateAsync_Should_Generate_Candidate_With_Traceable_Citation_And_Submit_For_Review()
+    public async Task CreateAsync_Should_Generate_Candidate_With_Traceable_Citation_And_Adopt_As_Draft()
     {
         var chunk = await CreateIndexedChunkAsync(
             "AI Question Grounded",
@@ -198,22 +200,19 @@ public class Mvp2AiQuestionGenerationAppServiceTests : KnowPulseEntityFrameworkC
         _chatClient.CallCount.ShouldBe(1);
         _chatClient.Requests[0].UserPrompt.ShouldContain(chunk.Id.ToString());
 
-        var submitted = await _generationAppService.SubmitCandidateForReviewAsync(candidate.Id, new SubmitAiQuestionCandidateDto
-        {
-            Comment = "Submit from test"
-        });
+        var adopted = await _questionWorkflowAppService.AdoptAiCandidateAsync(candidate.Id);
 
-        submitted.CreationSource.ShouldBe(QuestionCreationSource.AiGenerated);
-        submitted.Status.ShouldBe(QuestionStatus.PendingReview);
-        submitted.IsUsableForExam.ShouldBeFalse();
-        submitted.Sources.Count.ShouldBe(1);
-        submitted.Sources[0].KnowledgeVersionId.ShouldBe(chunk.KnowledgeVersionId);
-        submitted.Sources[0].ChunkId.ShouldBe(chunk.Id);
-        submitted.Sources[0].SourceHash.ShouldBe(candidate.Citations[0].SourceHash);
+        adopted.CreationSource.ShouldBe(QuestionCreationSource.AiGenerated);
+        adopted.Status.ShouldBe(QuestionStatus.Draft);
+        adopted.IsUsableForExam.ShouldBeFalse();
+        adopted.Sources.Count.ShouldBe(1);
+        adopted.Sources[0].KnowledgeVersionId.ShouldBe(chunk.KnowledgeVersionId);
+        adopted.Sources[0].ChunkId.ShouldBe(chunk.Id);
+        adopted.Sources[0].SourceHash.ShouldBe(candidate.Citations[0].SourceHash);
 
         var refreshedCandidate = await _generationAppService.GetCandidateAsync(candidate.Id);
-        refreshedCandidate.LinkedQuestionId.ShouldBe(submitted.Id);
-        refreshedCandidate.Status.ShouldBe(AiQuestionCandidateStatus.SubmittedForReview);
+        refreshedCandidate.LinkedQuestionId.ShouldBe(adopted.Id);
+        refreshedCandidate.Status.ShouldBe(AiQuestionCandidateStatus.AdoptedAsDraft);
 
         var logs = await GetCallLogsAsync(task.Id);
         logs.Count.ShouldBe(1);
@@ -259,11 +258,8 @@ public class Mvp2AiQuestionGenerationAppServiceTests : KnowPulseEntityFrameworkC
         citation.SourceExcerpt.ShouldNotContain(tailMarker);
         citation.SourceExcerpt.ShouldNotContain("Vector payload content should not be authoritative.");
 
-        var submitted = await _generationAppService.SubmitCandidateForReviewAsync(candidate.Id, new SubmitAiQuestionCandidateDto
-        {
-            Comment = "QA-002 citation traceability"
-        });
-        var source = submitted.Sources.Single();
+        var adopted = await _generationAppService.AdoptCandidateAsDraftAsync(candidate.Id);
+        var source = adopted.Sources.Single();
 
         source.KnowledgeItemId.ShouldBe(chunk.KnowledgeItemId);
         source.KnowledgeVersionId.ShouldBe(chunk.KnowledgeVersionId);
@@ -420,12 +416,12 @@ public class Mvp2AiQuestionGenerationAppServiceTests : KnowPulseEntityFrameworkC
         candidate.ValidationErrors!.ShouldContain(expectedValidationError);
 
         await Should.ThrowAsync<BusinessException>(
-            () => _generationAppService.SubmitCandidateForReviewAsync(candidate.Id, new SubmitAiQuestionCandidateDto()));
+            () => _generationAppService.AdoptCandidateAsDraftAsync(candidate.Id));
     }
 
     /// <summary>
     /// 验证候选题相似题提示。
-    /// 与已有已审核题高度相似时，候选题保存最高相似题，提交审核后记录 QuestionSimilarityCheck。
+    /// 与已有已审核题高度相似时，候选题保存最高相似题，采纳为草稿后记录 QuestionSimilarityCheck。
     /// </summary>
     [Fact]
     public async Task CreateAsync_Should_Record_Similar_Question_Warnings()
@@ -452,11 +448,11 @@ public class Mvp2AiQuestionGenerationAppServiceTests : KnowPulseEntityFrameworkC
         candidate.HighestSimilarityScore.ShouldNotBeNull();
         candidate.HighestSimilarityScore!.Value.ShouldBeGreaterThanOrEqualTo(0.7);
 
-        var submitted = await _generationAppService.SubmitCandidateForReviewAsync(candidate.Id, new SubmitAiQuestionCandidateDto());
+        var adopted = await _generationAppService.AdoptCandidateAsDraftAsync(candidate.Id);
         var similarityCount = await WithUnitOfWorkAsync(async () =>
         {
             var queryable = await _similarityRepository.GetQueryableAsync();
-            return queryable.Count(x => x.QuestionId == submitted.Id && x.SimilarQuestionId == existing.Id);
+            return queryable.Count(x => x.QuestionId == adopted.Id && x.SimilarQuestionId == existing.Id);
         });
         similarityCount.ShouldBe(1);
     }

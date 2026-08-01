@@ -9,11 +9,13 @@
 
 <PageTitle>AI 候选题</PageTitle>
 
-@* 页面头部只提供刷新入口；候选题生成和审核动作集中在下方任务/详情区域。 *@
+<QuestionBankFlowNav ActiveStage="create" />
+
+@* 页面只负责生成和采纳候选题；审核动作统一在题库审核队列处理。 *@
 <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
     <div>
         <h1 class="h4 mb-1">AI 候选题</h1>
-        <div class="text-muted small">QuestionBank / AI Candidates</div>
+        <div class="text-muted small">从知识库生成备选题，先人工确认并采纳为草稿，再进入审核。</div>
     </div>
     <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="LoadTasksAsync" disabled="@IsBusy">刷新</button>
 </div>
@@ -33,22 +35,27 @@
 
 <div class="row g-3">
     <div class="col-xl-4">
+        <div class="alert alert-primary qb-ai-guardrail" role="note">
+            <i class="fa-solid fa-shield-halved"></i>
+            <div><strong>AI 结果不会直接入库</strong><span>采纳后仍可编辑，并且必须经过人工审核。</span></div>
+        </div>
         @* 左侧表单负责创建 AI 出题任务，用户输入的是生成约束，真正依据仍由服务端 RAG 检索决定。 *@
         <div class="card mb-3">
             <div class="card-body">
-                <h2 class="h6 mb-3">创建生成任务</h2>
+                <h2 class="h6 mb-1">从知识库生成候选题</h2>
+                <div class="small text-muted mb-3">描述要覆盖的内容，系统会检索可引用的知识。</div>
                 <EditForm Model="@FormModel" OnValidSubmit="@GenerateAsync">
                     <DataAnnotationsValidator />
 
                     <div class="mb-3">
-                        <label class="form-label" for="ai-scope">知识范围</label>
-                        <textarea id="ai-scope" class="form-control" rows="3" @bind="FormModel.KnowledgeScope" @bind:event="oninput"></textarea>
+                        <label class="form-label" for="ai-scope">想考察什么</label>
+                        <textarea id="ai-scope" class="form-control" rows="3" @bind="FormModel.KnowledgeScope" @bind:event="oninput" placeholder="例如：新员工信息安全制度中的账号与密码要求"></textarea>
                         <ValidationMessage For="@(() => FormModel.KnowledgeScope)" />
                     </div>
 
                     <div class="mb-3">
-                        <label class="form-label" for="ai-points">知识点</label>
-                        <input id="ai-points" class="form-control" @bind="FormModel.KnowledgePointText" @bind:event="oninput" />
+                        <label class="form-label" for="ai-points">知识点标签</label>
+                        <input id="ai-points" class="form-control" @bind="FormModel.KnowledgePointText" @bind:event="oninput" placeholder="例如：账号安全、密码规范" />
                     </div>
 
                     <div class="row g-2">
@@ -71,15 +78,9 @@
                         </div>
                     </div>
 
-                    <div class="row g-2 mt-1">
-                        <div class="col-md-6">
-                            <label class="form-label" for="ai-count">数量</label>
-                            <InputNumber id="ai-count" class="form-control" @bind-Value="FormModel.RequestedCount" />
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label" for="ai-topk">引用 TopK</label>
-                            <InputNumber id="ai-topk" class="form-control" @bind-Value="FormModel.TopK" />
-                        </div>
+                    <div class="mt-3">
+                        <label class="form-label" for="ai-count">生成数量</label>
+                        <InputNumber id="ai-count" class="form-control" @bind-Value="FormModel.RequestedCount" />
                     </div>
 
                     <div class="mt-3">
@@ -93,24 +94,32 @@
                         </select>
                     </div>
 
-                    <div class="row g-2 mt-1">
-                        <div class="col-md-6">
-                            <label class="form-label" for="ai-security">安全等级</label>
-                            <InputNumber id="ai-security" class="form-control" @bind-Value="FormModel.SecurityLevel" />
+                    <details class="mt-3 qb-ai-advanced">
+                        <summary>高级设置</summary>
+                        <div class="row g-2 mt-1">
+                            <div class="col-md-6">
+                                <label class="form-label" for="ai-topk">检索依据数量</label>
+                                <InputNumber id="ai-topk" class="form-control" @bind-Value="FormModel.TopK" />
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label" for="ai-security">安全等级</label>
+                                <InputNumber id="ai-security" class="form-control" @bind-Value="FormModel.SecurityLevel" />
+                            </div>
                         </div>
-                        <div class="col-md-6">
+                        <div class="mt-2">
                             <label class="form-label" for="ai-tags">标签</label>
                             <input id="ai-tags" class="form-control" @bind="FormModel.Tags" @bind:event="oninput" />
                         </div>
-                    </div>
+                    </details>
 
-                    <button class="btn btn-primary w-100 mt-3" type="submit" disabled="@IsBusy">生成候选题</button>
+                    <button class="btn btn-primary w-100 mt-3" type="submit" disabled="@IsBusy">@(IsBusy ? "正在生成…" : "开始生成候选题")</button>
                 </EditForm>
             </div>
         </div>
 
         @* 左侧任务列表展示最近生成任务，失败任务允许重试，点击任务后右侧展示候选题和引用。 *@
-        <div class="card">
+        <div class="card qb-task-card">
+            <div class="card-header bg-transparent border-0 fw-semibold pt-3">最近生成</div>
             <div class="table-responsive">
                 <table class="table table-hover align-middle mb-0">
                     <thead>
@@ -164,19 +173,23 @@
         @* 右侧详情区展示任务状态、失败原因、候选题、citation 和审核操作。 *@
         @if (SelectedTask == null)
         {
-            <div class="card">
-                <div class="card-body text-center text-muted py-5">请选择或创建 AI 出题任务</div>
+            <div class="card qb-ai-empty">
+                <div class="card-body text-center py-5">
+                    <span class="qb-ai-empty__icon"><i class="fa-solid fa-wand-magic-sparkles"></i></span>
+                    <div class="fw-semibold mt-3">生成后在这里逐题确认</div>
+                    <div class="text-muted small mt-1">查看答案和引用依据，只采纳质量合格的候选题。</div>
+                </div>
             </div>
         }
         else
         {
-            @* 任务摘要卡展示 prompt/model 版本，方便审核人员确认生成环境。 *@
+            @* 任务摘要只展示业务信息；模型和 prompt 版本继续保留在后端审计记录中。 *@
             <div class="card mb-3">
                 <div class="card-body">
                     <div class="d-flex flex-wrap align-items-start justify-content-between gap-2">
                         <div>
                             <h2 class="h6 mb-1">@SelectedTask.KnowledgeScope</h2>
-                            <div class="small text-muted">Prompt @SelectedTask.PromptVersion / @SelectedTask.ModelName / @SelectedTask.ModelVersion</div>
+                            <div class="small text-muted">已生成 @SelectedTask.GeneratedCount / @SelectedTask.RequestedCount 道 · @GetTypeText(SelectedTask.Type) · @GetDifficultyText(SelectedTask.Difficulty)</div>
                         </div>
                         <span class="badge @GetTaskStatusBadge(SelectedTask.Status)">@GetTaskStatusText(SelectedTask.Status)</span>
                     </div>
@@ -219,7 +232,7 @@
                                             var linkedQuestion = GetLinkedQuestion(candidate);
                                             if (linkedQuestion == null)
                                             {
-                                                <span class="badge bg-light text-dark">已进入题库审核流</span>
+                                                <span class="badge bg-light text-dark">已采纳为题库草稿</span>
                                             }
                                             else
                                             {
@@ -276,7 +289,7 @@
 
                                 <div class="mt-3">
                                     <div class="fw-semibold small mb-2">引用来源</div>
-                                    @* citation 是候选题可提交审核的必要条件，无 citation 时只允许排查，不允许提交。 *@
+                                    @* citation 是候选题可采纳的必要条件，无 citation 时只允许排查。 *@
                                     @if (candidate.Citations.Count == 0)
                                     {
                                         <div class="text-muted small">无 citation</div>
@@ -289,7 +302,7 @@
                                                 <div class="border rounded p-2 small">
                                                     <div class="fw-semibold">[@citation.Rank] @citation.SourceTitle @GetPageText(citation.SourcePage)</div>
                                                     <div class="text-muted">@citation.SourceExcerpt</div>
-                                                    <div class="text-muted">chunk @citation.ChunkId / hash @Trim(citation.SourceHash, 16)</div>
+                                                    <div class="text-muted">来自知识库检索依据</div>
                                                 </div>
                                             }
                                         </div>
@@ -297,19 +310,13 @@
                                 </div>
 
                                 <div class="d-flex flex-wrap gap-2 mt-3">
-                                    @* 提交审核只会创建待审核题；审核通过/驳回按钮针对已关联的题库草稿。 *@
-                                    @if (CanSubmit(candidate))
+                                    @if (CanAdopt(candidate))
                                     {
-                                        <button class="btn btn-primary btn-sm" type="button" @onclick="() => SubmitCandidateAsync(candidate)" disabled="@IsBusy">提交审核</button>
+                                        <button class="btn btn-primary btn-sm" type="button" @onclick="() => AdoptCandidateAsync(candidate)" disabled="@IsBusy">采纳为草稿</button>
                                     }
-                                    @if (CanReview(candidate))
+                                    @if (candidate.LinkedQuestionId.HasValue)
                                     {
-                                        <button class="btn btn-outline-success btn-sm" type="button" @onclick="() => ApproveLinkedQuestionAsync(candidate)" disabled="@IsBusy">审核通过</button>
-                                        <button class="btn btn-outline-danger btn-sm" type="button" @onclick="() => RejectLinkedQuestionAsync(candidate)" disabled="@IsBusy">驳回</button>
-                                    }
-                                    else if (IsPendingLinkedQuestion(candidate) && !CanReviewQuestions)
-                                    {
-                                        <span class="text-muted small align-self-center">需要题目审核权限处理</span>
+                                        <a class="btn btn-outline-secondary btn-sm" href="@($"/question-bank/questions/{candidate.LinkedQuestionId.Value}/edit")">打开题目草稿</a>
                                     }
                                 </div>
                             </div>
@@ -331,7 +338,7 @@
     // 岗位下拉选项，用于给生成任务指定适用岗位。
     private readonly List<PositionDto> PositionList = new();
 
-    // 已提交审核的候选题关联题库草稿；用于判断是否展示审核通过/驳回按钮。
+    // 已采纳候选题关联的题库草稿，用于展示草稿状态。
     private readonly Dictionary<Guid, QuestionDto> LinkedQuestions = new();
 
     // 当前右侧正在查看的 AI 出题任务。
@@ -340,7 +347,7 @@
     // 创建任务表单模型，和后端 CreateAiQuestionGenerationTaskDto 保持字段语义一致。
     private GenerationFormModel FormModel { get; set; } = new();
 
-    // 全局忙碌状态，防止生成、重试、提交审核等操作重复点击。
+    // 全局忙碌状态，防止生成、重试、采纳等操作重复点击。
     private bool IsBusy { get; set; }
 
     // 首次或刷新任务列表时的加载状态。
@@ -352,17 +359,13 @@
     // 页面级成功提示，操作完成后短文本反馈给审核人员。
     private string? SuccessMessage { get; set; }
 
-    // 当前用户是否可读取题库草稿详情，用于展示候选题提交审核后的题库状态。
+    // 当前用户是否可读取题库草稿详情，用于展示候选题采纳后的题库状态。
     private bool CanViewQuestions { get; set; }
-
-    // 当前用户是否可执行题目审核动作，用于控制审核通过/驳回按钮显示。
-    private bool CanReviewQuestions { get; set; }
 
     // 页面初始化时先加载岗位，再加载任务列表；这样表单下拉和默认任务详情都能一次展示。
     protected override async Task OnInitializedAsync()
     {
         CanViewQuestions = await PermissionChecker.IsGrantedAsync(KnowPulsePermissions.QuestionBank.Questions);
-        CanReviewQuestions = await PermissionChecker.IsGrantedAsync(KnowPulsePermissions.QuestionBank.Reviews);
         await LoadPositionsAsync();
         await LoadTasksAsync();
     }
@@ -412,7 +415,7 @@
         await LoadLinkedQuestionsAsync();
     }
 
-    // 加载候选题已经提交出的题库草稿。加载失败不阻断页面，只隐藏对应审核按钮。
+    // 加载候选题已经采纳出的题库草稿。加载失败不阻断候选题查看。
     private async Task LoadLinkedQuestionsAsync()
     {
         LinkedQuestions.Clear();
@@ -432,7 +435,7 @@
             }
             catch
             {
-                // Linked question status is only used to show action buttons.
+                // 关联题状态只用于展示采纳结果。
             }
         }
     }
@@ -471,7 +474,7 @@
         });
     }
 
-    // 重新加载任务列表并选中指定任务，用于生成、重试或提交审核后的页面刷新。
+    // 重新加载任务列表并选中指定任务，用于生成、重试或采纳后的页面刷新。
     private async Task LoadTasksCoreAsync(Guid selectedTaskId)
     {
         var result = await AiQuestionGenerationAppService.GetListAsync(new GetAiQuestionGenerationTaskListInput
@@ -484,53 +487,18 @@
         await SelectTaskCoreAsync(selectedTaskId);
     }
 
-    // 将可提交候选题转换为题库待审核草稿。该动作不会让题目直接进入可考试状态。
-    private async Task SubmitCandidateAsync(AiQuestionCandidateDto candidate)
+    // 将可用候选题采纳为可编辑草稿，用户仍需进入草稿页确认并主动提交审核。
+    private async Task AdoptCandidateAsync(AiQuestionCandidateDto candidate)
     {
-        if (!await ConfirmAsync("确定提交该 AI 候选题进入题库审核吗？"))
+        if (!await ConfirmAsync("确定采纳该 AI 候选题为可编辑草稿吗？"))
         {
             return;
         }
 
         await RunBusyAsync(async () =>
         {
-            await AiQuestionGenerationAppService.SubmitCandidateForReviewAsync(candidate.Id, new SubmitAiQuestionCandidateDto
-            {
-                Comment = "AI 候选题页面提交审核"
-            });
-            SuccessMessage = "候选题已提交审核";
-            await SelectTaskCoreAsync(candidate.TaskId);
-        });
-    }
-
-    // 对已经提交审核的题库草稿执行审核通过，仍复用题库应用服务的审核规则。
-    private async Task ApproveLinkedQuestionAsync(AiQuestionCandidateDto candidate)
-    {
-        if (!candidate.LinkedQuestionId.HasValue || !await ConfirmAsync("确定审核通过该题目吗？"))
-        {
-            return;
-        }
-
-        await RunBusyAsync(async () =>
-        {
-            await QuestionAppService.ApproveAsync(candidate.LinkedQuestionId.Value, new ReviewQuestionDto { Comment = "AI 候选题页面审核通过" });
-            SuccessMessage = "题目已审核通过";
-            await SelectTaskCoreAsync(candidate.TaskId);
-        });
-    }
-
-    // 对已经提交审核的题库草稿执行驳回，候选题本身保留追溯信息。
-    private async Task RejectLinkedQuestionAsync(AiQuestionCandidateDto candidate)
-    {
-        if (!candidate.LinkedQuestionId.HasValue || !await ConfirmAsync("确定驳回该题目吗？"))
-        {
-            return;
-        }
-
-        await RunBusyAsync(async () =>
-        {
-            await QuestionAppService.RejectAsync(candidate.LinkedQuestionId.Value, new ReviewQuestionDto { Comment = "AI 候选题页面驳回" });
-            SuccessMessage = "题目已驳回";
+            await AiQuestionGenerationAppService.AdoptCandidateAsDraftAsync(candidate.Id);
+            SuccessMessage = "候选题已采纳为草稿，请检查后再提交审核";
             await SelectTaskCoreAsync(candidate.TaskId);
         });
     }
@@ -562,33 +530,21 @@
         return await JSRuntime.InvokeAsync<bool>("confirm", message);
     }
 
-    // 候选题只有生成成功、未提交过且没有校验错误时，才允许提交到题库审核流。
-    private bool CanSubmit(AiQuestionCandidateDto candidate)
+    // 候选题只有生成成功、未采纳且没有校验错误时，才允许采纳为草稿。
+    private bool CanAdopt(AiQuestionCandidateDto candidate)
     {
         return candidate.Status == AiQuestionCandidateStatus.Generated &&
                !candidate.LinkedQuestionId.HasValue &&
                string.IsNullOrWhiteSpace(candidate.ValidationErrors);
     }
 
-    // 只有候选题已经关联题库草稿，并且该草稿仍处于待审核状态时，才显示审核按钮。
-    private bool CanReview(AiQuestionCandidateDto candidate)
-    {
-        return CanReviewQuestions && IsPendingLinkedQuestion(candidate);
-    }
-
-    // 获取候选题已经提交出的题库草稿；无题库查看权限时返回 null。
+    // 获取候选题已经采纳出的题库草稿；无题库查看权限时返回 null。
     private QuestionDto? GetLinkedQuestion(AiQuestionCandidateDto candidate)
     {
         return candidate.LinkedQuestionId.HasValue &&
                LinkedQuestions.TryGetValue(candidate.LinkedQuestionId.Value, out var question)
             ? question
             : null;
-    }
-
-    // 判断候选题关联的题库草稿是否仍处于待审核状态。
-    private bool IsPendingLinkedQuestion(AiQuestionCandidateDto candidate)
-    {
-        return GetLinkedQuestion(candidate)?.Status == QuestionStatus.PendingReview;
     }
 
     // 将岗位下拉的字符串值转换为可空 Guid。
@@ -653,9 +609,9 @@
     // AI 候选题状态中文展示。
     private static string GetCandidateStatusText(AiQuestionCandidateStatus status) => status switch
     {
-        AiQuestionCandidateStatus.Generated => "可提交",
+        AiQuestionCandidateStatus.Generated => "可采纳",
         AiQuestionCandidateStatus.ValidationFailed => "校验失败",
-        AiQuestionCandidateStatus.SubmittedForReview => "已提交审核",
+        AiQuestionCandidateStatus.AdoptedAsDraft => "已采纳草稿",
         AiQuestionCandidateStatus.Rejected => "已驳回",
         _ => status.ToString()
     };
@@ -665,12 +621,12 @@
     {
         AiQuestionCandidateStatus.Generated => "bg-success",
         AiQuestionCandidateStatus.ValidationFailed => "bg-danger",
-        AiQuestionCandidateStatus.SubmittedForReview => "bg-info",
+        AiQuestionCandidateStatus.AdoptedAsDraft => "bg-info",
         AiQuestionCandidateStatus.Rejected => "bg-warning text-dark",
         _ => "bg-secondary"
     };
 
-    // 候选题提交审核后对应题库草稿的状态中文展示。
+    // 候选题采纳后对应题库草稿的状态中文展示。
     private static string GetQuestionStatusText(QuestionStatus status) => status switch
     {
         QuestionStatus.Draft => "草稿",
@@ -683,7 +639,7 @@
         _ => status.ToString()
     };
 
-    // 候选题提交审核后对应题库草稿的状态 badge 样式。
+    // 候选题采纳后对应题库草稿的状态 badge 样式。
     private static string GetQuestionStatusBadge(QuestionStatus status) => status switch
     {
         QuestionStatus.Draft => "bg-secondary",

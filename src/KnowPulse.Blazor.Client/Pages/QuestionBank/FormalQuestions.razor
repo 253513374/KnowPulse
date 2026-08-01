@@ -1,0 +1,5 @@
+@page "/question-bank/formal"
+@attribute [Authorize(KnowPulsePermissions.QuestionBank.Questions)]
+
+<PageTitle>正式题库</PageTitle>
+<QuestionWorklist Worklist="QuestionWorklistKind.Formal" />

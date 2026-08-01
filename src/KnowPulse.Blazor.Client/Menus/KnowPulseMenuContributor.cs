@@ -134,27 +134,6 @@ public class KnowPulseMenuContributor : IMenuContributor
             icon: "fas fa-tags"
         ).RequirePermissions(KnowPulsePermissions.KnowledgeBase.Tags));
 
-        knowledgeBase.AddItem(new ApplicationMenuItem(
-            KnowPulseMenus.KnowledgePermissionScopes,
-            l["Menu:KnowledgePermissionScopes"],
-            "/knowledge/permission-scopes",
-            icon: "fas fa-shield-halved"
-        ).RequirePermissions(KnowPulsePermissions.KnowledgeBase.PermissionScopes));
-
-        knowledgeBase.AddItem(new ApplicationMenuItem(
-            KnowPulseMenus.KnowledgeIndexJobs,
-            l["Menu:KnowledgeIndexJobs"],
-            "/knowledge/index-jobs",
-            icon: "fas fa-list-check"
-        ).RequirePermissions(KnowPulsePermissions.KnowledgeIndexing.IndexJobs));
-
-        knowledgeBase.AddItem(new ApplicationMenuItem(
-            KnowPulseMenus.KnowledgeFeedback,
-            l["Menu:KnowledgeFeedback"],
-            "/knowledge/feedback",
-            icon: "fas fa-comment-dots"
-        ).RequirePermissions(KnowPulsePermissions.KnowledgeBase.Feedback));
-
         context.Menu.AddItem(knowledgeBase);
 
         var rag = new ApplicationMenuItem(
@@ -186,18 +165,32 @@ public class KnowPulseMenuContributor : IMenuContributor
         ).RequirePermissions(KnowPulsePermissions.QuestionBank.Default);
 
         questionBank.AddItem(new ApplicationMenuItem(
-            KnowPulseMenus.Questions,
-            l["Menu:Questions"],
-            "/question-bank/questions",
-            icon: "fas fa-list-check"
+            KnowPulseMenus.QuestionBankWorkbench,
+            l["Menu:QuestionBankWorkbench"],
+            "/question-bank",
+            icon: "fas fa-table-columns"
         ).RequirePermissions(KnowPulsePermissions.QuestionBank.Questions));
 
         questionBank.AddItem(new ApplicationMenuItem(
-            KnowPulseMenus.AiQuestionCandidates,
-            l["Menu:AiQuestionCandidates"],
-            "/question-bank/ai-candidates",
-            icon: "fas fa-wand-magic-sparkles"
-        ).RequirePermissions(KnowPulsePermissions.QuestionBank.AiGeneration));
+            KnowPulseMenus.Questions,
+            l["Menu:QuestionDrafts"],
+            "/question-bank/drafts",
+            icon: "fas fa-pen-to-square"
+        ).RequirePermissions(KnowPulsePermissions.QuestionBank.Questions));
+
+        questionBank.AddItem(new ApplicationMenuItem(
+            KnowPulseMenus.QuestionReviews,
+            l["Menu:QuestionReviews"],
+            "/question-bank/reviews",
+            icon: "fas fa-clipboard-check"
+        ).RequirePermissions(KnowPulsePermissions.QuestionBank.Reviews));
+
+        questionBank.AddItem(new ApplicationMenuItem(
+            KnowPulseMenus.FormalQuestions,
+            l["Menu:FormalQuestions"],
+            "/question-bank/formal",
+            icon: "fas fa-book"
+        ).RequirePermissions(KnowPulsePermissions.QuestionBank.Questions));
 
         context.Menu.AddItem(questionBank);
 

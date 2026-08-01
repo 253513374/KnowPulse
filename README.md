@@ -1,11 +1,12 @@
 # KnowPulse
 
-KnowPulse is an enterprise knowledge base and exam-system foundation built on ABP Framework, ASP.NET Core, Blazor, PostgreSQL, MinIO, Qdrant, and LiteLLM.
+KnowPulse is an enterprise knowledge, learning, and exam system built on ABP Framework, ASP.NET Core, Blazor, PostgreSQL, MinIO, Qdrant, and LiteLLM.
 
-MVP-0 focuses on the ABP + Blazor foundation, local dependency environment, identity/permission baseline, organization data, knowledge lifecycle, file storage, and auditability. RAG, AI question generation, question bank, and exam workflows are intentionally out of MVP-0.
+The current application includes organization and permission management, knowledge lifecycle and ingestion, permission-aware RAG, AI model management, question review, AI-assisted question generation, exams, learning paths, and knowledge feedback.
 
-## KnowPulse development docs
+## KnowPulse docs
 
+* [详细使用操作手册](docs/user-operation-guide.md)
 * [Development environment](docs/development-environment.md)
 * [MVP-0 task breakdown](docs/mvp-0-task-breakdown.md)
 * [Module boundaries](docs/module-boundaries.md)

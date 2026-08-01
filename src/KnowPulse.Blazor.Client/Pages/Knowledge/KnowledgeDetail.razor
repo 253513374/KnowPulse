@@ -267,7 +267,10 @@
             <section class="card knowledge-detail-card">
                 <div class="card-header d-flex align-items-center justify-content-between gap-3">
                     <div><h2 class="h6 mb-1">访问策略</h2><small class="text-muted">已发布知识应持久化至少一条显式访问规则。</small></div>
-                    <button class="btn btn-outline-primary btn-sm" type="button" @onclick="OpenPermissionManagement">管理访问范围</button>
+                    @if (CanManageAccessPolicy)
+                    {
+                        <button class="btn btn-outline-primary btn-sm" type="button" @onclick="OpenPermissionManagement">调整访问策略</button>
+                    }
                 </div>
                 <div class="card-body">
                     <div class="knowledge-access-summary mb-4">
@@ -348,8 +351,11 @@
         {
             <section class="card knowledge-detail-card">
                 <div class="card-header d-flex align-items-center justify-content-between gap-3">
-                    <div><h2 class="h6 mb-1">反馈与修订</h2><small class="text-muted">展示最近 10 条反馈，完整处理继续使用反馈工作台。</small></div>
-                    <button class="btn btn-outline-primary btn-sm" type="button" @onclick="OpenFeedbackManagement">打开反馈工作台</button>
+                    <div><h2 class="h6 mb-1">反馈与修订</h2><small class="text-muted">在当前知识上下文中接手反馈、创建修订并验证发布结果。</small></div>
+                    @if (CanManageFeedback)
+                    {
+                        <button class="btn btn-outline-primary btn-sm" type="button" @onclick="OpenFeedbackManagement">处理当前知识反馈</button>
+                    }
                 </div>
                 @if (Detail.RecentFeedback.Count == 0)
                 {
@@ -393,12 +399,17 @@
     [Parameter]
     public Guid Id { get; set; }
 
+    [Parameter]
+    [SupplyParameterFromQuery(Name = "tab")]
+    public string? QueryTab { get; set; }
+
     private KnowledgeManagementDetailDto? Detail { get; set; }
     private KnowledgeVersionDto? PublishCandidate { get; set; }
     private DetailTab ActiveTab { get; set; } = DetailTab.Overview;
     private bool CanManageIndexJobs { get; set; }
     private bool CanManageVersions { get; set; }
     private bool CanManageAccessPolicy { get; set; }
+    private bool CanManageFeedback { get; set; }
     private bool AccessPolicyConfirmed { get; set; }
     private bool IsLoading { get; set; }
     private bool IsBusy { get; set; }
@@ -407,9 +418,11 @@
 
     protected override async Task OnParametersSetAsync()
     {
+        ActiveTab = ParseTab(QueryTab);
         CanManageIndexJobs = await PermissionChecker.IsGrantedAsync(KnowPulsePermissions.KnowledgeIndexing.IndexJobs);
         CanManageVersions = await PermissionChecker.IsGrantedAsync(KnowPulsePermissions.KnowledgeBase.Versions);
         CanManageAccessPolicy = await PermissionChecker.IsGrantedAsync(KnowPulsePermissions.KnowledgeBase.PermissionScopes);
+        CanManageFeedback = await PermissionChecker.IsGrantedAsync(KnowPulsePermissions.KnowledgeBase.Feedback);
         await LoadAsync();
     }
 
@@ -433,6 +446,16 @@
     private void OpenRevision() => OpenAdvanced();
     private void OpenPermissionManagement() => NavigationManager.NavigateTo($"/knowledge/permission-scopes?itemId={Id:D}");
     private void OpenFeedbackManagement() => NavigationManager.NavigateTo($"/knowledge/feedback?itemId={Id:D}");
+
+    private static DetailTab ParseTab(string? tab) => tab?.Trim().ToLowerInvariant() switch
+    {
+        "versions" => DetailTab.Versions,
+        "access" => DetailTab.Access,
+        "index" => DetailTab.Index,
+        "feedback" => DetailTab.Feedback,
+        "activity" => DetailTab.Activity,
+        _ => DetailTab.Overview
+    };
 
     private bool CanPublishKnowledge => CanManageVersions && CanManageAccessPolicy;
 

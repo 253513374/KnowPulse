@@ -18,14 +18,18 @@ namespace KnowPulse.Controllers.QuestionBank;
 public class QuestionsController : KnowPulseController
 {
     private readonly IQuestionAppService _questionAppService;
+    private readonly IQuestionWorkflowAppService _questionWorkflowAppService;
 
     /// <summary>
     /// 创建题库题目控制器。
     /// </summary>
     /// <param name="questionAppService">题库应用服务。</param>
-    public QuestionsController(IQuestionAppService questionAppService)
+    public QuestionsController(
+        IQuestionAppService questionAppService,
+        IQuestionWorkflowAppService questionWorkflowAppService)
     {
         _questionAppService = questionAppService;
+        _questionWorkflowAppService = questionWorkflowAppService;
     }
 
     /// <summary>
@@ -91,7 +95,7 @@ public class QuestionsController : KnowPulseController
     [HttpPost]
     public Task<QuestionDto> CreateAsync([FromBody] CreateQuestionDto input)
     {
-        return _questionAppService.CreateAsync(input);
+        return _questionWorkflowAppService.CreateManualDraftAsync(input);
     }
 
     /// <summary>
@@ -103,7 +107,7 @@ public class QuestionsController : KnowPulseController
     [HttpPut("{id:guid}")]
     public Task<QuestionDto> UpdateAsync(Guid id, [FromBody] UpdateQuestionDto input)
     {
-        return _questionAppService.UpdateAsync(id, input);
+        return _questionWorkflowAppService.SaveDraftAsync(id, input);
     }
 
     /// <summary>
@@ -125,7 +129,7 @@ public class QuestionsController : KnowPulseController
     [HttpPost("{id:guid}/submit-review")]
     public Task<QuestionDto> SubmitReviewAsync(Guid id)
     {
-        return _questionAppService.SubmitReviewAsync(id);
+        return _questionWorkflowAppService.SubmitAsync(id);
     }
 
     /// <summary>
@@ -138,7 +142,11 @@ public class QuestionsController : KnowPulseController
     [HttpPost("{id:guid}/approve")]
     public Task<QuestionDto> ApproveAsync(Guid id, [FromBody] ReviewQuestionDto input)
     {
-        return _questionAppService.ApproveAsync(id, input);
+        return _questionWorkflowAppService.DecideReviewAsync(id, new DecideQuestionReviewDto
+        {
+            Decision = QuestionReviewDecision.Approve,
+            Comment = input.Comment
+        });
     }
 
     /// <summary>
@@ -151,7 +159,11 @@ public class QuestionsController : KnowPulseController
     [HttpPost("{id:guid}/reject")]
     public Task<QuestionDto> RejectAsync(Guid id, [FromBody] ReviewQuestionDto input)
     {
-        return _questionAppService.RejectAsync(id, input);
+        return _questionWorkflowAppService.DecideReviewAsync(id, new DecideQuestionReviewDto
+        {
+            Decision = QuestionReviewDecision.Reject,
+            Comment = input.Comment
+        });
     }
 
     /// <summary>
@@ -164,7 +176,11 @@ public class QuestionsController : KnowPulseController
     [HttpPost("{id:guid}/return-for-revision")]
     public Task<QuestionDto> ReturnForRevisionAsync(Guid id, [FromBody] ReviewQuestionDto input)
     {
-        return _questionAppService.ReturnForRevisionAsync(id, input);
+        return _questionWorkflowAppService.DecideReviewAsync(id, new DecideQuestionReviewDto
+        {
+            Decision = QuestionReviewDecision.ReturnForRevision,
+            Comment = input.Comment
+        });
     }
 
     /// <summary>
@@ -175,7 +191,10 @@ public class QuestionsController : KnowPulseController
     [HttpPost("{id:guid}/disable")]
     public Task<QuestionDto> DisableAsync(Guid id)
     {
-        return _questionAppService.DisableAsync(id);
+        return _questionWorkflowAppService.ChangeAvailabilityAsync(id, new ChangeQuestionAvailabilityDto
+        {
+            Action = QuestionAvailabilityAction.Disable
+        });
     }
 
     /// <summary>
@@ -186,6 +205,9 @@ public class QuestionsController : KnowPulseController
     [HttpPost("{id:guid}/archive")]
     public Task<QuestionDto> ArchiveAsync(Guid id)
     {
-        return _questionAppService.ArchiveAsync(id);
+        return _questionWorkflowAppService.ChangeAvailabilityAsync(id, new ChangeQuestionAvailabilityDto
+        {
+            Action = QuestionAvailabilityAction.Archive
+        });
     }
 }

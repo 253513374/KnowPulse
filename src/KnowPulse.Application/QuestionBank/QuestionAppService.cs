@@ -1,10 +1,13 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json;
 using System.Threading.Tasks;
+using KnowPulse.AiQuestioning;
 using KnowPulse.Permissions;
 using Microsoft.AspNetCore.Authorization;
 using Volo.Abp.Application.Dtos;
+using Volo.Abp.DependencyInjection;
 using Volo.Abp.Domain.Repositories;
 
 namespace KnowPulse.QuestionBank;
@@ -14,8 +17,14 @@ namespace KnowPulse.QuestionBank;
 /// 服务层负责显式权限检查、领域状态流转、题目定义校验、来源/知识点/选项/答案替换和 DTO 组装。
 /// </summary>
 [Authorize(KnowPulsePermissions.QuestionBank.Questions)]
-public class QuestionAppService : KnowPulseAppService, IQuestionAppService
+[ExposeServices(typeof(IQuestionAppService), typeof(IQuestionWorkflowAppService), IncludeSelf = true)]
+public class QuestionAppService : KnowPulseAppService, IQuestionAppService, IQuestionWorkflowAppService
 {
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
+    {
+        PropertyNameCaseInsensitive = true
+    };
+
     private readonly IRepository<Question, Guid> _questionRepository;
     private readonly IRepository<QuestionOption, Guid> _optionRepository;
     private readonly IRepository<QuestionAnswer, Guid> _answerRepository;
@@ -23,6 +32,9 @@ public class QuestionAppService : KnowPulseAppService, IQuestionAppService
     private readonly IRepository<QuestionKnowledgePoint, Guid> _knowledgePointRepository;
     private readonly IRepository<QuestionSource, Guid> _sourceRepository;
     private readonly IRepository<QuestionReview, Guid> _reviewRepository;
+    private readonly IRepository<QuestionSimilarityCheck, Guid> _similarityRepository;
+    private readonly IRepository<AiQuestionCandidate, Guid> _candidateRepository;
+    private readonly IRepository<AiQuestionCandidateCitation, Guid> _candidateCitationRepository;
 
     /// <summary>
     /// 创建题库应用服务。
@@ -41,7 +53,10 @@ public class QuestionAppService : KnowPulseAppService, IQuestionAppService
         IRepository<QuestionAnalysis, Guid> analysisRepository,
         IRepository<QuestionKnowledgePoint, Guid> knowledgePointRepository,
         IRepository<QuestionSource, Guid> sourceRepository,
-        IRepository<QuestionReview, Guid> reviewRepository)
+        IRepository<QuestionReview, Guid> reviewRepository,
+        IRepository<QuestionSimilarityCheck, Guid> similarityRepository,
+        IRepository<AiQuestionCandidate, Guid> candidateRepository,
+        IRepository<AiQuestionCandidateCitation, Guid> candidateCitationRepository)
     {
         _questionRepository = questionRepository;
         _optionRepository = optionRepository;
@@ -50,6 +65,9 @@ public class QuestionAppService : KnowPulseAppService, IQuestionAppService
         _knowledgePointRepository = knowledgePointRepository;
         _sourceRepository = sourceRepository;
         _reviewRepository = reviewRepository;
+        _similarityRepository = similarityRepository;
+        _candidateRepository = candidateRepository;
+        _candidateCitationRepository = candidateCitationRepository;
     }
 
     /// <summary>
@@ -148,14 +166,211 @@ public class QuestionAppService : KnowPulseAppService, IQuestionAppService
     /// <returns>创建后的题目详情。</returns>
     public virtual async Task<QuestionDto> CreateAsync(CreateQuestionDto input)
     {
+        return await CreateManualDraftAsync(input);
+    }
+
+    /// <inheritdoc />
+    public virtual async Task<QuestionDto> CreateManualDraftAsync(SaveQuestionDraftDto input)
+    {
+        await CheckMvpPermissionAsync(KnowPulsePermissions.QuestionBank.Questions);
+        return await CreateDraftAsync(input, QuestionCreationSource.Manual);
+    }
+
+    /// <inheritdoc />
+    public virtual async Task<QuestionDto> AdoptAiCandidateAsync(Guid candidateId)
+    {
+        await CheckMvpPermissionAsync(KnowPulsePermissions.QuestionBank.AiGeneration);
         await CheckMvpPermissionAsync(KnowPulsePermissions.QuestionBank.Questions);
 
+        var candidate = await _candidateRepository.GetAsync(candidateId);
+        if (candidate.LinkedQuestionId.HasValue)
+        {
+            throw new Volo.Abp.BusinessException(KnowPulseDomainErrorCodes.AiQuestionCandidateAlreadySubmitted);
+        }
+
+        if (candidate.Status != AiQuestionCandidateStatus.Generated ||
+            !string.IsNullOrWhiteSpace(candidate.ValidationErrors))
+        {
+            throw new Volo.Abp.BusinessException(KnowPulseDomainErrorCodes.AiQuestionCandidateNotReady);
+        }
+
+        var citations = await GetCandidateCitationsAsync(candidate.Id);
+        if (citations.Count == 0)
+        {
+            throw new Volo.Abp.BusinessException(KnowPulseDomainErrorCodes.AiQuestionCandidateCitationRequired);
+        }
+
+        var input = new SaveQuestionDraftDto
+        {
+            Type = candidate.Type,
+            Difficulty = candidate.Difficulty,
+            Title = candidate.Title,
+            Stem = candidate.Stem,
+            ApplicablePositionId = candidate.ApplicablePositionId,
+            SecurityLevel = candidate.SecurityLevel,
+            Tags = candidate.Tags,
+            Analysis = candidate.Analysis,
+            Options = Deserialize<List<AiQuestionOptionDto>>(candidate.OptionsJson)
+                .Select(x => new CreateUpdateQuestionOptionDto
+                {
+                    OptionKey = x.OptionKey,
+                    Content = x.Content,
+                    DisplayOrder = x.DisplayOrder
+                }).ToList(),
+            Answers = Deserialize<List<AiQuestionAnswerDto>>(candidate.AnswersJson)
+                .Select(x => new CreateUpdateQuestionAnswerDto
+                {
+                    Value = x.Value,
+                    DisplayOrder = x.DisplayOrder
+                }).ToList(),
+            KnowledgePointNames = Deserialize<List<string>>(candidate.KnowledgePointsJson),
+            Sources = citations.Select(x => new CreateUpdateQuestionSourceDto
+            {
+                KnowledgeItemId = x.KnowledgeItemId,
+                KnowledgeVersionId = x.KnowledgeVersionId,
+                ChunkId = x.ChunkId,
+                SourceTitle = x.SourceTitle,
+                SourceExcerpt = x.SourceExcerpt,
+                SourceHash = x.SourceHash
+            }).ToList()
+        };
+
+        var question = await CreateDraftAsync(input, QuestionCreationSource.AiGenerated);
+        if (candidate.HighestSimilarQuestionId.HasValue && candidate.HighestSimilarityScore.HasValue)
+        {
+            await _similarityRepository.InsertAsync(
+                new QuestionSimilarityCheck(
+                    GuidGenerator.Create(),
+                    CurrentTenant.Id,
+                    question.Id,
+                    candidate.HighestSimilarQuestionId,
+                    candidate.HighestSimilarityScore.Value,
+                    candidate.SimilaritySummary),
+                autoSave: true);
+        }
+
+        candidate.MarkAdoptedAsDraft(question.Id);
+        await _candidateRepository.UpdateAsync(candidate, autoSave: true);
+
+        return question;
+    }
+
+    /// <inheritdoc />
+    public virtual async Task<QuestionDto> SaveDraftAsync(Guid id, SaveQuestionDraftDto input)
+    {
+        await CheckMvpPermissionAsync(KnowPulsePermissions.QuestionBank.Questions);
+
+        var question = await _questionRepository.GetAsync(id);
+        question.UpdateDraft(
+            input.Type,
+            input.Difficulty,
+            input.Title,
+            input.Stem,
+            input.ApplicablePositionId,
+            input.SecurityLevel,
+            NormalizeTags(input.Tags));
+
+        await ReplaceDetailsAsync(id, input);
+        await _questionRepository.UpdateAsync(question, autoSave: true);
+
+        return await MapToDtoAsync(question);
+    }
+
+    /// <inheritdoc />
+    public virtual async Task<QuestionDto> SubmitAsync(Guid id)
+    {
+        await CheckMvpPermissionAsync(KnowPulsePermissions.QuestionBank.Questions);
+        var question = await _questionRepository.GetAsync(id);
+        var options = await GetOptionsAsync(id);
+        var answers = await GetAnswersAsync(id);
+        var fromStatus = question.Status;
+
+        question.SubmitForReview(options, answers, DateTime.UtcNow);
+        await _questionRepository.UpdateAsync(question, autoSave: true);
+        await AddReviewAsync(question, QuestionReviewAction.Submitted, fromStatus, question.Status, "Submitted for review.");
+
+        return await MapToDtoAsync(question);
+    }
+
+    /// <inheritdoc />
+    public virtual async Task<QuestionDto> DecideReviewAsync(Guid id, DecideQuestionReviewDto input)
+    {
+        await CheckMvpPermissionAsync(KnowPulsePermissions.QuestionBank.Reviews);
+
+        if (input.Decision is QuestionReviewDecision.ReturnForRevision or QuestionReviewDecision.Reject &&
+            string.IsNullOrWhiteSpace(input.Comment))
+        {
+            throw new Volo.Abp.BusinessException(KnowPulseDomainErrorCodes.QuestionReviewCommentRequired);
+        }
+
+        var question = await _questionRepository.GetAsync(id);
+        var fromStatus = question.Status;
+        var now = DateTime.UtcNow;
+        QuestionReviewAction action;
+
+        switch (input.Decision)
+        {
+            case QuestionReviewDecision.Approve:
+                question.Approve(CurrentUser.Id, now);
+                action = QuestionReviewAction.Approved;
+                break;
+            case QuestionReviewDecision.ReturnForRevision:
+                question.ReturnForRevision(CurrentUser.Id, now);
+                action = QuestionReviewAction.ReturnedForRevision;
+                break;
+            case QuestionReviewDecision.Reject:
+                question.Reject(CurrentUser.Id, now);
+                action = QuestionReviewAction.Rejected;
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(input.Decision));
+        }
+
+        await _questionRepository.UpdateAsync(question, autoSave: true);
+        await AddReviewAsync(question, action, fromStatus, question.Status, input.Comment);
+        return await MapToDtoAsync(question);
+    }
+
+    /// <inheritdoc />
+    public virtual async Task<QuestionDto> ChangeAvailabilityAsync(Guid id, ChangeQuestionAvailabilityDto input)
+    {
+        await CheckMvpPermissionAsync(KnowPulsePermissions.QuestionBank.Questions);
+        var question = await _questionRepository.GetAsync(id);
+        var fromStatus = question.Status;
+        QuestionReviewAction reviewAction;
+        string comment;
+
+        switch (input.Action)
+        {
+            case QuestionAvailabilityAction.Disable:
+                question.Disable(DateTime.UtcNow);
+                reviewAction = QuestionReviewAction.Disabled;
+                comment = "Disabled.";
+                break;
+            case QuestionAvailabilityAction.Archive:
+                question.Archive(DateTime.UtcNow);
+                reviewAction = QuestionReviewAction.Archived;
+                comment = "Archived.";
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(input.Action));
+        }
+
+        await _questionRepository.UpdateAsync(question, autoSave: true);
+        await AddReviewAsync(question, reviewAction, fromStatus, question.Status, comment);
+        return await MapToDtoAsync(question);
+    }
+
+    private async Task<QuestionDto> CreateDraftAsync(
+        SaveQuestionDraftDto input,
+        QuestionCreationSource creationSource)
+    {
         var question = new Question(
             GuidGenerator.Create(),
             CurrentTenant.Id,
             input.Type,
             input.Difficulty,
-            input.CreationSource,
+            creationSource,
             input.Title,
             input.Stem,
             input.ApplicablePositionId,
@@ -177,22 +392,7 @@ public class QuestionAppService : KnowPulseAppService, IQuestionAppService
     /// <returns>更新后的题目详情。</returns>
     public virtual async Task<QuestionDto> UpdateAsync(Guid id, UpdateQuestionDto input)
     {
-        await CheckMvpPermissionAsync(KnowPulsePermissions.QuestionBank.Questions);
-
-        var question = await _questionRepository.GetAsync(id);
-        question.UpdateDraft(
-            input.Type,
-            input.Difficulty,
-            input.Title,
-            input.Stem,
-            input.ApplicablePositionId,
-            input.SecurityLevel,
-            NormalizeTags(input.Tags));
-
-        await ReplaceDetailsAsync(id, input);
-        await _questionRepository.UpdateAsync(question, autoSave: true);
-
-        return await MapToDtoAsync(question);
+        return await SaveDraftAsync(id, input);
     }
 
     /// <summary>
@@ -215,17 +415,7 @@ public class QuestionAppService : KnowPulseAppService, IQuestionAppService
     /// <returns>提交审核后的题目详情。</returns>
     public virtual async Task<QuestionDto> SubmitReviewAsync(Guid id)
     {
-        await CheckMvpPermissionAsync(KnowPulsePermissions.QuestionBank.Questions);
-        var question = await _questionRepository.GetAsync(id);
-        var options = await GetOptionsAsync(id);
-        var answers = await GetAnswersAsync(id);
-        var fromStatus = question.Status;
-
-        question.SubmitForReview(options, answers, DateTime.UtcNow);
-        await _questionRepository.UpdateAsync(question, autoSave: true);
-        await AddReviewAsync(question, QuestionReviewAction.Submitted, fromStatus, question.Status, "Submitted for review.");
-
-        return await MapToDtoAsync(question);
+        return await SubmitAsync(id);
     }
 
     /// <summary>
@@ -238,14 +428,11 @@ public class QuestionAppService : KnowPulseAppService, IQuestionAppService
     [Authorize(KnowPulsePermissions.QuestionBank.Reviews)]
     public virtual async Task<QuestionDto> ApproveAsync(Guid id, ReviewQuestionDto input)
     {
-        await CheckMvpPermissionAsync(KnowPulsePermissions.QuestionBank.Reviews);
-        var question = await _questionRepository.GetAsync(id);
-        var fromStatus = question.Status;
-        question.Approve(CurrentUser.Id, DateTime.UtcNow);
-
-        await _questionRepository.UpdateAsync(question, autoSave: true);
-        await AddReviewAsync(question, QuestionReviewAction.Approved, fromStatus, question.Status, input.Comment);
-        return await MapToDtoAsync(question);
+        return await DecideReviewAsync(id, new DecideQuestionReviewDto
+        {
+            Decision = QuestionReviewDecision.Approve,
+            Comment = input.Comment
+        });
     }
 
     /// <summary>
@@ -258,14 +445,11 @@ public class QuestionAppService : KnowPulseAppService, IQuestionAppService
     [Authorize(KnowPulsePermissions.QuestionBank.Reviews)]
     public virtual async Task<QuestionDto> RejectAsync(Guid id, ReviewQuestionDto input)
     {
-        await CheckMvpPermissionAsync(KnowPulsePermissions.QuestionBank.Reviews);
-        var question = await _questionRepository.GetAsync(id);
-        var fromStatus = question.Status;
-        question.Reject(CurrentUser.Id, DateTime.UtcNow);
-
-        await _questionRepository.UpdateAsync(question, autoSave: true);
-        await AddReviewAsync(question, QuestionReviewAction.Rejected, fromStatus, question.Status, input.Comment);
-        return await MapToDtoAsync(question);
+        return await DecideReviewAsync(id, new DecideQuestionReviewDto
+        {
+            Decision = QuestionReviewDecision.Reject,
+            Comment = input.Comment
+        });
     }
 
     /// <summary>
@@ -278,14 +462,11 @@ public class QuestionAppService : KnowPulseAppService, IQuestionAppService
     [Authorize(KnowPulsePermissions.QuestionBank.Reviews)]
     public virtual async Task<QuestionDto> ReturnForRevisionAsync(Guid id, ReviewQuestionDto input)
     {
-        await CheckMvpPermissionAsync(KnowPulsePermissions.QuestionBank.Reviews);
-        var question = await _questionRepository.GetAsync(id);
-        var fromStatus = question.Status;
-        question.ReturnForRevision(CurrentUser.Id, DateTime.UtcNow);
-
-        await _questionRepository.UpdateAsync(question, autoSave: true);
-        await AddReviewAsync(question, QuestionReviewAction.ReturnedForRevision, fromStatus, question.Status, input.Comment);
-        return await MapToDtoAsync(question);
+        return await DecideReviewAsync(id, new DecideQuestionReviewDto
+        {
+            Decision = QuestionReviewDecision.ReturnForRevision,
+            Comment = input.Comment
+        });
     }
 
     /// <summary>
@@ -296,14 +477,10 @@ public class QuestionAppService : KnowPulseAppService, IQuestionAppService
     /// <returns>停用后的题目详情。</returns>
     public virtual async Task<QuestionDto> DisableAsync(Guid id)
     {
-        await CheckMvpPermissionAsync(KnowPulsePermissions.QuestionBank.Questions);
-        var question = await _questionRepository.GetAsync(id);
-        var fromStatus = question.Status;
-        question.Disable(DateTime.UtcNow);
-
-        await _questionRepository.UpdateAsync(question, autoSave: true);
-        await AddReviewAsync(question, QuestionReviewAction.Disabled, fromStatus, question.Status, "Disabled.");
-        return await MapToDtoAsync(question);
+        return await ChangeAvailabilityAsync(id, new ChangeQuestionAvailabilityDto
+        {
+            Action = QuestionAvailabilityAction.Disable
+        });
     }
 
     /// <summary>
@@ -314,18 +491,28 @@ public class QuestionAppService : KnowPulseAppService, IQuestionAppService
     /// <returns>归档后的题目详情。</returns>
     public virtual async Task<QuestionDto> ArchiveAsync(Guid id)
     {
-        await CheckMvpPermissionAsync(KnowPulsePermissions.QuestionBank.Questions);
-        var question = await _questionRepository.GetAsync(id);
-        var fromStatus = question.Status;
-        question.Archive(DateTime.UtcNow);
-
-        await _questionRepository.UpdateAsync(question, autoSave: true);
-        await AddReviewAsync(question, QuestionReviewAction.Archived, fromStatus, question.Status, "Archived.");
-        return await MapToDtoAsync(question);
+        return await ChangeAvailabilityAsync(id, new ChangeQuestionAvailabilityDto
+        {
+            Action = QuestionAvailabilityAction.Archive
+        });
     }
 
     private IQueryable<Question> ApplyFilters(IQueryable<Question> queryable, GetQuestionListInput input)
     {
+        if (input.Worklist.HasValue)
+        {
+            queryable = input.Worklist.Value switch
+            {
+                QuestionWorklistKind.Drafts => queryable.Where(x =>
+                    x.Status == QuestionStatus.Draft ||
+                    x.Status == QuestionStatus.ReturnedForRevision ||
+                    x.Status == QuestionStatus.Rejected),
+                QuestionWorklistKind.ReviewQueue => queryable.Where(x => x.Status == QuestionStatus.PendingReview),
+                QuestionWorklistKind.Formal => queryable.Where(x => x.Status == QuestionStatus.Approved),
+                _ => throw new ArgumentOutOfRangeException(nameof(input.Worklist))
+            };
+        }
+
         if (input.Type.HasValue)
         {
             queryable = queryable.Where(x => x.Type == input.Type.Value);
@@ -368,7 +555,7 @@ public class QuestionAppService : KnowPulseAppService, IQuestionAppService
         return queryable;
     }
 
-    private async Task ReplaceDetailsAsync(Guid questionId, CreateQuestionDto input)
+    private async Task ReplaceDetailsAsync(Guid questionId, SaveQuestionDraftDto input)
     {
         await DeleteExistingDetailsAsync(questionId);
 
@@ -524,6 +711,13 @@ public class QuestionAppService : KnowPulseAppService, IQuestionAppService
         return await AsyncExecuter.ToListAsync(queryable.Where(x => x.QuestionId == questionId).OrderBy(x => x.CreationTime));
     }
 
+    private async Task<List<AiQuestionCandidateCitation>> GetCandidateCitationsAsync(Guid candidateId)
+    {
+        var queryable = await _candidateCitationRepository.GetQueryableAsync();
+        return await AsyncExecuter.ToListAsync(
+            queryable.Where(x => x.CandidateId == candidateId).OrderBy(x => x.Rank));
+    }
+
     private async Task<List<QuestionDto>> MapToDtosAsync(IReadOnlyCollection<Question> questions)
     {
         var result = new List<QuestionDto>();
@@ -595,6 +789,7 @@ public class QuestionAppService : KnowPulseAppService, IQuestionAppService
     {
         return new GetQuestionListInput
         {
+            Worklist = QuestionWorklistKind.Formal,
             Type = input.Type,
             Status = QuestionStatus.Approved,
             Difficulty = input.Difficulty,
@@ -675,5 +870,11 @@ public class QuestionAppService : KnowPulseAppService, IQuestionAppService
     private static string? TrimToNull(string? value)
     {
         return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    }
+
+    private static T Deserialize<T>(string value)
+        where T : new()
+    {
+        return JsonSerializer.Deserialize<T>(value, JsonOptions) ?? new T();
     }
 }

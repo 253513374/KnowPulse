@@ -1,0 +1,285 @@
+@page "/question-bank/reviews/{Id:guid}"
+@attribute [Authorize(KnowPulsePermissions.QuestionBank.Reviews)]
+@inherits KnowPulseComponentBase
+@inject IQuestionAppService QuestionAppService
+@inject NavigationManager Navigation
+@inject IJSRuntime JSRuntime
+
+<PageTitle>题目审核</PageTitle>
+
+<QuestionBankFlowNav ActiveStage="review" />
+
+<div class="d-flex flex-wrap align-items-start justify-content-between gap-3 mb-3">
+    <div>
+        <h1 class="h4 mb-1">题目审核</h1>
+        <div class="text-muted small">按内容、答案和依据三项完成复核，再决定是否进入正式题库。</div>
+    </div>
+    <a class="btn btn-outline-secondary btn-sm" href="/question-bank/reviews">返回审核队列</a>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(ErrorMessage))
+{
+    <div class="alert alert-danger" role="alert">@ErrorMessage</div>
+}
+
+@if (IsLoading)
+{
+    <div class="card"><div class="card-body text-center text-muted py-5">加载中</div></div>
+}
+else if (Question == null)
+{
+    <div class="card"><div class="card-body text-center text-muted py-5">题目不存在或无法访问</div></div>
+}
+else
+{
+    <div class="row g-3">
+        <div class="col-xl-8">
+            <div class="card mb-3 qb-review-checklist">
+                <div class="card-body">
+                    <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+                        <h2 class="h6 mb-0">审核清单</h2>
+                        <span class="small text-muted">三项都确认后再通过</span>
+                    </div>
+                    <div class="qb-review-checks">
+                        <div class="@(HasCompleteDefinition ? "is-ready" : null)"><i class="fa-solid @(HasCompleteDefinition ? "fa-check" : "fa-exclamation")"></i><span><strong>题目完整</strong><small>题干、选项和答案一致</small></span></div>
+                        <div class="@(HasAnalysis ? "is-ready" : null)"><i class="fa-solid @(HasAnalysis ? "fa-check" : "fa-exclamation")"></i><span><strong>解析清楚</strong><small>能解释答案为什么正确</small></span></div>
+                        <div class="@(HasEvidence ? "is-ready" : null)"><i class="fa-solid @(HasEvidence ? "fa-check" : "fa-exclamation")"></i><span><strong>依据可追溯</strong><small>能回看制度或知识来源</small></span></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card mb-3">
+                <div class="card-body">
+                    <div class="d-flex flex-wrap justify-content-between gap-2">
+                        <div>
+                            <h2 class="h5 mb-1">@Question.Title</h2>
+                            <div class="text-muted small">@GetTypeText(Question.Type) / @GetDifficultyText(Question.Difficulty) / @GetSourceText(Question.CreationSource)</div>
+                        </div>
+                        <span class="badge bg-info align-self-start">待审核</span>
+                    </div>
+
+                    <div class="mt-4">
+                        <div class="text-muted small mb-1">题干</div>
+                        <div>@Question.Stem</div>
+                    </div>
+
+                    @if (Question.Options.Count > 0)
+                    {
+                        <div class="list-group list-group-flush mt-3">
+                            @foreach (var option in Question.Options.OrderBy(x => x.DisplayOrder))
+                            {
+                                <div class="list-group-item px-0"><span class="fw-semibold">@option.OptionKey.</span> @option.Content</div>
+                            }
+                        </div>
+                    }
+
+                    <div class="row g-3 mt-1">
+                        <div class="col-md-6">
+                            <div class="text-muted small">标准答案</div>
+                            <div class="fw-semibold">@string.Join(", ", Question.Answers.OrderBy(x => x.DisplayOrder).Select(x => x.Value))</div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="text-muted small">知识点</div>
+                            <div>@(Question.KnowledgePoints.Count == 0 ? "-" : string.Join(", ", Question.KnowledgePoints.Select(x => x.Name)))</div>
+                        </div>
+                    </div>
+
+                    @if (!string.IsNullOrWhiteSpace(Question.Analysis))
+                    {
+                        <div class="mt-3">
+                            <div class="text-muted small">解析</div>
+                            <div>@Question.Analysis</div>
+                        </div>
+                    }
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-body">
+                    <h2 class="h6">来源依据</h2>
+                    @if (Question.Sources.Count == 0)
+                    {
+                        <div class="alert alert-warning mb-0">该题没有可展示的来源依据。</div>
+                    }
+                    else
+                    {
+                        @foreach (var source in Question.Sources)
+                        {
+                            <div class="border rounded p-3 mt-2">
+                                <div class="fw-semibold">@(source.SourceTitle ?? source.ManualSourceDescription ?? "题目来源")</div>
+                                @if (!string.IsNullOrWhiteSpace(source.SourceExcerpt))
+                                {
+                                    <div class="text-muted small mt-1">@source.SourceExcerpt</div>
+                                }
+                                <div class="small text-success mt-2"><i class="fa-solid fa-link me-1"></i>@(source.KnowledgeVersionId.HasValue ? "知识库依据已保留" : "人工来源说明")</div>
+                            </div>
+                        }
+                    }
+                </div>
+            </div>
+        </div>
+
+        <div class="col-xl-4">
+            <div class="card mb-3 qb-decision-card">
+                <div class="card-body">
+                    <h2 class="h6">审核决策</h2>
+                    <label class="form-label mt-2" for="review-comment">审核意见</label>
+                    <textarea id="review-comment" class="form-control" rows="6" @bind="ReviewComment" @bind:event="oninput" placeholder="说明通过结论，或清楚写出需要修改的内容"></textarea>
+                    <div class="form-text">退回或不采用时必须填写原因，出题人会据此处理。</div>
+
+                    <div class="d-grid gap-2 mt-3">
+                        <button class="btn btn-success" type="button" @onclick="ApproveAsync" disabled="@IsBusy"><i class="fa-solid fa-check me-1"></i>通过并加入正式题库</button>
+                        <button class="btn btn-warning" type="button" @onclick="ReturnAsync" disabled="@IsBusy"><i class="fa-solid fa-rotate-left me-1"></i>退回给出题人修改</button>
+                        <button class="btn btn-outline-danger" type="button" @onclick="RejectAsync" disabled="@IsBusy">不采用此题</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-body">
+                    <h2 class="h6">操作记录</h2>
+                    @foreach (var review in Question.Reviews.OrderByDescending(x => x.ReviewTime))
+                    {
+                        <div class="border-start ps-3 mb-3">
+                            <div class="fw-semibold small">@GetReviewActionText(review.Action)</div>
+                            <div class="text-muted small">@review.ReviewTime.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</div>
+                            @if (!string.IsNullOrWhiteSpace(review.Comment))
+                            {
+                                <div class="small mt-1">@GetReviewCommentText(review.Comment)</div>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter]
+    public Guid Id { get; set; }
+
+    private QuestionDto? Question { get; set; }
+    private string? ReviewComment { get; set; }
+    private bool IsLoading { get; set; }
+    private bool IsBusy { get; set; }
+    private string? ErrorMessage { get; set; }
+    private bool HasCompleteDefinition => Question != null && !string.IsNullOrWhiteSpace(Question.Stem) && Question.Answers.Count > 0 && (Question.Type is not (QuestionType.SingleChoice or QuestionType.MultipleChoice) || Question.Options.Count >= 2);
+    private bool HasAnalysis => !string.IsNullOrWhiteSpace(Question?.Analysis);
+    private bool HasEvidence => Question?.Sources.Count > 0;
+
+    protected override async Task OnInitializedAsync()
+    {
+        IsLoading = true;
+        try
+        {
+            Question = await QuestionAppService.GetAsync(Id);
+            if (Question.Status != QuestionStatus.PendingReview)
+            {
+                ErrorMessage = "该题已经不在待审核状态，请返回审核队列刷新。";
+            }
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = GetUserFriendlyErrorMessage(ex);
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+
+    private Task ApproveAsync() => DecideAsync(QuestionReviewDecision.Approve);
+    private Task ReturnAsync() => DecideAsync(QuestionReviewDecision.ReturnForRevision);
+    private Task RejectAsync() => DecideAsync(QuestionReviewDecision.Reject);
+
+    private async Task DecideAsync(QuestionReviewDecision decision)
+    {
+        if (decision is QuestionReviewDecision.ReturnForRevision or QuestionReviewDecision.Reject && string.IsNullOrWhiteSpace(ReviewComment))
+        {
+            ErrorMessage = "退回或驳回时必须填写审核原因。";
+            return;
+        }
+
+        var decisionText = decision switch
+        {
+            QuestionReviewDecision.Approve => "审核通过",
+            QuestionReviewDecision.ReturnForRevision => "退回修改",
+            QuestionReviewDecision.Reject => "驳回",
+            _ => "处理"
+        };
+
+        if (!await JSRuntime.InvokeAsync<bool>("confirm", $"确定{decisionText}该题目吗？"))
+        {
+            return;
+        }
+
+        try
+        {
+            ErrorMessage = null;
+            IsBusy = true;
+            var input = new ReviewQuestionDto { Comment = ReviewComment };
+            if (decision == QuestionReviewDecision.Approve)
+            {
+                await QuestionAppService.ApproveAsync(Id, input);
+            }
+            else if (decision == QuestionReviewDecision.ReturnForRevision)
+            {
+                await QuestionAppService.ReturnForRevisionAsync(Id, input);
+            }
+            else
+            {
+                await QuestionAppService.RejectAsync(Id, input);
+            }
+
+            Navigation.NavigateTo("/question-bank/reviews");
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = GetUserFriendlyErrorMessage(ex);
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    private static string GetTypeText(QuestionType type) => type switch
+    {
+        QuestionType.SingleChoice => "单选",
+        QuestionType.MultipleChoice => "多选",
+        QuestionType.TrueFalse => "判断",
+        QuestionType.FillBlank => "填空",
+        _ => type.ToString()
+    };
+
+    private static string GetDifficultyText(QuestionDifficulty difficulty) => difficulty switch
+    {
+        QuestionDifficulty.Easy => "简单",
+        QuestionDifficulty.Normal => "普通",
+        QuestionDifficulty.Hard => "困难",
+        _ => difficulty.ToString()
+    };
+
+    private static string GetSourceText(QuestionCreationSource source)
+        => source == QuestionCreationSource.AiGenerated ? "AI 采纳" : "人工创建";
+
+    private static string GetReviewActionText(QuestionReviewAction action) => action switch
+    {
+        QuestionReviewAction.Submitted => "提交审核",
+        QuestionReviewAction.Approved => "审核通过",
+        QuestionReviewAction.Rejected => "驳回",
+        QuestionReviewAction.ReturnedForRevision => "退回修改",
+        QuestionReviewAction.Disabled => "停用",
+        QuestionReviewAction.Archived => "归档",
+        _ => action.ToString()
+    };
+
+    private static string GetReviewCommentText(string comment) => comment switch
+    {
+        "Submitted for review." => "题目已提交，等待审核。",
+        "Question disabled." => "题目已停用，不再进入新试卷。",
+        "Question archived." => "题目已归档。",
+        _ => comment
+    };
+}

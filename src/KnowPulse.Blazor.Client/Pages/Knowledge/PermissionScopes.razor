@@ -6,16 +6,24 @@
 @inject IPositionAppService PositionAppService
 @inject IIdentityRoleAppService IdentityRoleAppService
 @inject IIdentityUserAppService IdentityUserAppService
+@inject NavigationManager NavigationManager
+@inject IJSRuntime JSRuntime
 
 @* 知识权限范围管理页：配置某个知识文档对全员、部门、岗位、角色或指定用户的可见规则。 *@
 <PageTitle>权限范围</PageTitle>
 
 <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
     <div>
-        <h1 class="h4 mb-1">权限范围</h1>
-        <div class="text-muted small">全员模式与定向模式互斥；已发布知识必须保留至少一条显式规则。</div>
+        <h1 class="h4 mb-1">访问策略@(SelectedItem == null ? null : $" · {SelectedItem.Title}")</h1>
+        <div class="text-muted small">从知识详情进入后调整可见对象；全员模式与定向模式互斥。</div>
     </div>
-    <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="LoadAsync" disabled="@IsBusy">刷新</button>
+    <div class="d-flex gap-2">
+        @if (SelectedItemId.HasValue)
+        {
+            <button class="btn btn-outline-primary btn-sm" type="button" @onclick="BackToKnowledge">返回知识详情</button>
+        }
+        <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="LoadAsync" disabled="@IsBusy">刷新</button>
+    </div>
 </div>
 
 @if (!string.IsNullOrWhiteSpace(ErrorMessage))
@@ -24,6 +32,11 @@
         <span>@ErrorMessage</span>
         <button class="btn btn-sm btn-outline-danger" type="button" @onclick="LoadAsync" disabled="@IsBusy">重试</button>
     </div>
+}
+
+@if (!string.IsNullOrWhiteSpace(SuccessMessage))
+{
+    <div class="alert alert-success" role="status">@SuccessMessage</div>
 }
 
 <div class="row g-3">
@@ -128,6 +141,19 @@
                         <InputNumber id="scope-security" class="form-control" @bind-Value="FormModel.MinimumSecurityLevel" />
                     </div>
 
+                    @if (SelectedItem != null)
+                    {
+                        <div class="alert alert-warning small">
+                            <strong class="d-block mb-1">变更影响预览</strong>
+                            <span class="d-block">当前：@GetCurrentPolicySummary()</span>
+                            <span class="d-block">本次：@GetProposedChangeText()</span>
+                            @if (SelectedItem.CurrentPublishedVersionId.HasValue)
+                            {
+                                <span class="d-block mt-2">保存后旧检索结果会立即失效，并自动创建权限变更索引任务；新索引完成前问答暂不可用。</span>
+                            }
+                        </div>
+                    }
+
                     <div class="d-flex gap-2">
                         <button class="btn btn-primary" type="submit" disabled="@(IsBusy || SelectedItemId == null)">保存</button>
                         <button class="btn btn-outline-secondary" type="button" @onclick="ResetForm" disabled="@IsBusy">取消</button>
@@ -184,7 +210,7 @@
                                         </span>
                                     </td>
                                     <td class="text-end">
-                                        <button class="btn btn-link btn-sm text-danger" type="button" @onclick="() => DeleteAsync(scope.Id)" disabled="@IsBusy">删除</button>
+                                        <button class="btn btn-link btn-sm text-danger" type="button" @onclick="() => DeleteAsync(scope.Id)" disabled="@(IsBusy || IsLastPublishedScope(scope))">删除</button>
                                     </td>
                                 </tr>
                             }
@@ -215,7 +241,11 @@
     private bool IsLoading { get; set; }
     private bool IsBusy { get; set; }
     private string? ErrorMessage { get; set; }
+    private string? SuccessMessage { get; set; }
     private KnowledgePermissionScopeType CurrentScopeType => ParseScopeType(FormModel.ScopeTypeText);
+    private KnowledgeItemDto? SelectedItem => SelectedItemId.HasValue
+        ? KnowledgeItemList.FirstOrDefault(x => x.Id == SelectedItemId.Value)
+        : null;
 
     protected override async Task OnInitializedAsync()
     {
@@ -282,6 +312,7 @@
     {
         SelectedItemIdText = args.Value?.ToString();
         SelectedItemId = ParseNullableGuid(SelectedItemIdText);
+        SuccessMessage = null;
         await RunBusyAsync(LoadScopesAsync);
     }
 
@@ -310,6 +341,14 @@
                 return;
             }
 
+            var impact = SelectedItem?.CurrentPublishedVersionId.HasValue == true
+                ? "旧检索结果会立即失效，并自动创建权限变更索引任务；重建完成前问答暂不可用。"
+                : "该策略会在后续发布时作为知识可见范围。";
+            if (!await ConfirmAsync($"确认{GetProposedChangeText()}吗？{impact}"))
+            {
+                return;
+            }
+
             await KnowledgeItemAppService.CreatePermissionScopeAsync(SelectedItemId.Value, new CreateKnowledgePermissionScopeDto
             {
                 ScopeType = scopeType,
@@ -319,6 +358,7 @@
 
             ResetForm();
             await LoadScopesAsync();
+            SuccessMessage = "访问策略已保存。" + (SelectedItem?.CurrentPublishedVersionId.HasValue == true ? "权限变更索引任务已创建。" : string.Empty);
         });
     }
 
@@ -330,10 +370,20 @@
             return;
         }
 
+        var scope = ScopeList.FirstOrDefault(x => x.Id == scopeId);
+        var impact = SelectedItem?.CurrentPublishedVersionId.HasValue == true
+            ? "删除后可见范围会立即变化，旧检索结果失效并自动重建索引。"
+            : "删除后将更新后续发布使用的访问策略。";
+        if (scope == null || !await ConfirmAsync($"确认删除“{GetScopeTypeText(scope.ScopeType)} · {GetScopeTargetText(scope)}”吗？{impact}"))
+        {
+            return;
+        }
+
         await RunBusyAsync(async () =>
         {
             await KnowledgeItemAppService.DeletePermissionScopeAsync(SelectedItemId.Value, scopeId);
             await LoadScopesAsync();
+            SuccessMessage = "访问规则已删除，权限变更索引任务已创建。";
         });
     }
 
@@ -354,6 +404,69 @@
     private void ResetForm()
     {
         FormModel = new PermissionScopeFormModel();
+    }
+
+    private void BackToKnowledge()
+    {
+        if (SelectedItemId.HasValue)
+        {
+            NavigationManager.NavigateTo($"/knowledge/{SelectedItemId.Value:D}?tab=access");
+        }
+    }
+
+    private bool IsLastPublishedScope(KnowledgePermissionScopeDto scope) =>
+        scope.IsEnabled && SelectedItem?.CurrentPublishedVersionId.HasValue == true && ScopeList.Count(x => x.IsEnabled) == 1;
+
+    private string GetCurrentPolicySummary()
+    {
+        var enabledScopes = ScopeList.Where(x => x.IsEnabled).ToList();
+        if (enabledScopes.Count == 0)
+        {
+            return "历史兼容全员可见（尚未保存显式规则）";
+        }
+
+        if (enabledScopes.Any(x => x.ScopeType == KnowledgePermissionScopeType.All))
+        {
+            return enabledScopes[0].MinimumSecurityLevel.HasValue
+                ? $"全员，安全等级 ≥ {enabledScopes[0].MinimumSecurityLevel}"
+                : "全员可见";
+        }
+
+        return string.Join("；", enabledScopes.Select(x => $"{GetScopeTypeText(x.ScopeType)} · {GetScopeTargetText(x)}"));
+    }
+
+    private string GetProposedChangeText()
+    {
+        var security = FormModel.MinimumSecurityLevel.HasValue ? $"，安全等级 ≥ {FormModel.MinimumSecurityLevel}" : string.Empty;
+        if (CurrentScopeType == KnowledgePermissionScopeType.All)
+        {
+            return $"切换为全员可见{security}";
+        }
+
+        var target = CurrentScopeType == KnowledgePermissionScopeType.All
+            ? "全员"
+            : GetSelectedTargetText(CurrentScopeType, ParseNullableGuid(FormModel.TargetIdText));
+        var mode = ScopeList.Any(x => x.ScopeType == KnowledgePermissionScopeType.All)
+                ? "从全员可见切换为定向访问"
+                : "新增定向访问规则";
+        return $"{mode}：{GetScopeTypeText(CurrentScopeType)} · {target}{security}";
+    }
+
+    private string GetSelectedTargetText(KnowledgePermissionScopeType scopeType, Guid? targetId)
+    {
+        if (!targetId.HasValue)
+        {
+            return "尚未选择目标";
+        }
+
+        return scopeType switch
+        {
+            KnowledgePermissionScopeType.Department => DepartmentList.FirstOrDefault(x => x.Id == targetId.Value)?.Name ?? targetId.Value.ToString("N"),
+            KnowledgePermissionScopeType.Position => PositionList.FirstOrDefault(x => x.Id == targetId.Value)?.Name ?? targetId.Value.ToString("N"),
+            KnowledgePermissionScopeType.Role => RoleList.FirstOrDefault(x => x.Id == targetId.Value)?.Name ?? targetId.Value.ToString("N"),
+            KnowledgePermissionScopeType.User => UserList.FirstOrDefault(x => x.Id == targetId.Value) is { } user ? GetUserDisplayName(user) : targetId.Value.ToString("N"),
+            _ => "全员"
+        };
     }
 
     // 将权限范围目标编号翻译成业务名称，找不到时显示编号便于排查数据漂移。
@@ -424,6 +537,7 @@
         try
         {
             ErrorMessage = null;
+            SuccessMessage = null;
             IsBusy = true;
             await action();
         }
@@ -436,6 +550,11 @@
             IsBusy = false;
             IsLoading = false;
         }
+    }
+
+    private async Task<bool> ConfirmAsync(string message)
+    {
+        return await JSRuntime.InvokeAsync<bool>("confirm", message);
     }
 
     // 权限范围表单模型。All 类型允许 TargetIdText 为空，其他类型由保存逻辑校验。

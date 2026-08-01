@@ -1,0 +1,5 @@
+@page "/question-bank/drafts"
+@attribute [Authorize(KnowPulsePermissions.QuestionBank.Questions)]
+
+<PageTitle>出题与草稿</PageTitle>
+<QuestionWorklist Worklist="QuestionWorklistKind.Drafts" />

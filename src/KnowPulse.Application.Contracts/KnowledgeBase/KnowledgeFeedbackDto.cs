@@ -1,4 +1,5 @@
 using System;
+using KnowPulse.KnowledgeIndexing;
 using Volo.Abp.Application.Dtos;
 
 namespace KnowPulse.KnowledgeBase;
@@ -87,6 +88,21 @@ public class KnowledgeFeedbackDto : FullAuditedEntityDto<Guid>
     /// 关联修订版本号。
     /// </summary>
     public int? LinkedKnowledgeVersionNumber { get; set; }
+
+    /// <summary>
+    /// 关联修订版本的生命周期状态。
+    /// </summary>
+    public KnowledgeVersionStatus? LinkedKnowledgeVersionStatus { get; set; }
+
+    /// <summary>
+    /// 关联修订版本是否为当前发布版本。
+    /// </summary>
+    public bool LinkedKnowledgeVersionIsCurrentPublished { get; set; }
+
+    /// <summary>
+    /// 关联修订版本最近一次索引任务状态。
+    /// </summary>
+    public KnowledgeIndexJobStatus? LinkedKnowledgeVersionIndexStatus { get; set; }
 
     /// <summary>
     /// 反馈关闭时间。

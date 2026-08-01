@@ -1172,7 +1172,12 @@
 
     private void ViewIndexJobs()
     {
-        NavigationManager.NavigateTo("/knowledge/index-jobs");
+        if (!CreatedItemId.HasValue)
+        {
+            return;
+        }
+
+        NavigationManager.NavigateTo($"/knowledge/{CreatedItemId.Value:D}?tab=index");
     }
 
     private void ClearError()

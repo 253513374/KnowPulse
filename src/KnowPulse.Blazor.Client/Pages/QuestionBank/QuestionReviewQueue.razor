@@ -1,0 +1,5 @@
+@page "/question-bank/reviews"
+@attribute [Authorize(KnowPulsePermissions.QuestionBank.Reviews)]
+
+<PageTitle>审核入库</PageTitle>
+<QuestionWorklist Worklist="QuestionWorklistKind.ReviewQueue" />

@@ -46,7 +46,16 @@ public interface IKnowledgeFeedbackAppService : IApplicationService
     Task<KnowledgeFeedbackDto> ProcessAsync(Guid id, ProcessKnowledgeFeedbackDto input);
 
     /// <summary>
-    /// 管理员标记反馈已处理，可同时关联同一知识下的修订版本。
+    /// 从已接手的反馈创建修订草稿。系统复制来源版本正文并自动关联反馈，
+    /// 管理员不需要查找或填写版本 ID。
+    /// </summary>
+    /// <param name="id">反馈 ID。</param>
+    /// <returns>已关联新修订草稿的反馈详情。</returns>
+    [Authorize(KnowPulsePermissions.KnowledgeBase.Feedback)]
+    Task<KnowledgeFeedbackDto> CreateRevisionAsync(Guid id);
+
+    /// <summary>
+    /// 管理员在关联修订版本已经发布并完成索引后标记反馈已处理。
     /// </summary>
     /// <param name="id">反馈 ID。</param>
     /// <param name="input">完成处理输入。</param>

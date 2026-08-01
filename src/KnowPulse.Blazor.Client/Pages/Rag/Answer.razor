@@ -2,173 +2,276 @@
 @attribute [Authorize(KnowPulsePermissions.Rag.Answer)]
 @inherits KnowPulseComponentBase
 @inject IRagAnswerService RagAnswerService
+@inject IAiModelCatalogAppService AiModelCatalogAppService
+@inject IPermissionChecker PermissionChecker
 
-@* MVP-1 基础问答页只展示回答、置信度、人审提示和 citation；不展示内部 prompt 或未授权候选 chunk。 *@
-<PageTitle>知识问答</PageTitle>
+<PageTitle>问答验证</PageTitle>
 
-<div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
-    <div>
-        <h1 class="h4 mb-1">知识问答</h1>
-        <div class="text-muted small">RAG / Answer</div>
-    </div>
-</div>
+<div class="rag-console">
+    <header class="rag-console-header">
+        <div>
+            <h1>RAG 运行控制台 · 问答验证</h1>
+            <p>验证当前配置下的知识问答效果，确保答案有依据、可追溯。</p>
+        </div>
+        <div class="rag-console-header-actions">
+            <span class="rag-console-date">今天是 @DateTime.Now.ToString("yyyy-MM-dd")</span>
+            @if (CanViewModels)
+            {
+                <a class="btn btn-outline-primary" href="/rag/models">
+                    <i class="fa fa-sliders-h" aria-hidden="true"></i>
+                    查看配置
+                </a>
+            }
+        </div>
+    </header>
 
-@if (!string.IsNullOrWhiteSpace(ErrorMessage))
-{
-    <div class="alert alert-danger" role="alert">@ErrorMessage</div>
-}
-
-<div class="row g-3">
-    <div class="col-xl-5">
-        <div class="card">
-            <div class="card-body">
-                <EditForm Model="@FormModel" OnValidSubmit="@AskAsync">
-                    <DataAnnotationsValidator />
-
-                    <div class="mb-3">
-                        <label class="form-label" for="rag-question">问题</label>
-                        <textarea id="rag-question" class="form-control" rows="8" @bind="FormModel.Question" @bind:event="oninput"></textarea>
-                    </div>
-
-                    <div class="mb-3">
-                        <label class="form-label" for="rag-topk">引用数量</label>
-                        <InputNumber id="rag-topk" class="form-control" @bind-Value="FormModel.TopK" />
-                    </div>
-
-                    <div class="d-flex gap-2">
-                        <button class="btn btn-primary" type="submit" disabled="@IsBusy">提问</button>
-                        <button class="btn btn-outline-secondary" type="button" @onclick="ResetAsync" disabled="@IsBusy">清空</button>
-                    </div>
-                </EditForm>
+    <section class="rag-readiness" aria-label="RAG 运行状态">
+        <div class="rag-readiness-item">
+            <span class="rag-readiness-icon is-knowledge"><i class="fa fa-book-open" aria-hidden="true"></i></span>
+            <div class="rag-readiness-copy">
+                <div class="rag-readiness-title">
+                    <span>知识可用性</span>
+                    <span class="rag-status is-ready"><span aria-hidden="true"></span>运行中</span>
+                </div>
+                <div class="rag-readiness-value">仅检索你有权访问的知识</div>
             </div>
         </div>
-    </div>
 
-    <div class="col-xl-7">
-        <div class="card mb-3">
-            <div class="card-body">
-                <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
-                    <h2 class="h6 mb-0">回答</h2>
-                    @if (AnswerResult != null)
+        <div class="rag-readiness-item">
+            <span class="rag-readiness-icon is-chat"><i class="fa fa-comments" aria-hidden="true"></i></span>
+            <div class="rag-readiness-copy">
+                <div class="rag-readiness-title">
+                    <span>当前问答模型</span>
+                    <span class="rag-status @GetHealthCss(GetUsageHealth(AiModelUsage.RagAnswerChat))">
+                        <span aria-hidden="true"></span>@GetHealthText(GetUsageHealth(AiModelUsage.RagAnswerChat))
+                    </span>
+                </div>
+                <div class="rag-readiness-value">@GetUsageAlias(AiModelUsage.RagAnswerChat)</div>
+            </div>
+        </div>
+
+        <div class="rag-readiness-item">
+            <span class="rag-readiness-icon is-embedding"><i class="fa fa-layer-group" aria-hidden="true"></i></span>
+            <div class="rag-readiness-copy">
+                <div class="rag-readiness-title">
+                    <span>当前 Embedding</span>
+                    <span class="rag-status @GetHealthCss(GetUsageHealth(AiModelUsage.KnowledgeEmbedding))">
+                        <span aria-hidden="true"></span>@GetHealthText(GetUsageHealth(AiModelUsage.KnowledgeEmbedding))
+                    </span>
+                </div>
+                <div class="rag-readiness-value">@GetUsageAlias(AiModelUsage.KnowledgeEmbedding)</div>
+            </div>
+        </div>
+    </section>
+
+    @if (!string.IsNullOrWhiteSpace(ErrorMessage))
+    {
+        <div class="alert alert-danger" role="alert">@ErrorMessage</div>
+    }
+
+    <main class="rag-conversation" aria-live="polite" aria-busy="@IsBusy.ToString().ToLowerInvariant()">
+        @if (string.IsNullOrWhiteSpace(SubmittedQuestion) && AnswerResult == null && !IsBusy)
+        {
+            <section class="rag-empty-state">
+                <span class="rag-empty-icon"><i class="fa fa-comment-dots" aria-hidden="true"></i></span>
+                <h2>开始一次问答验证</h2>
+                <p>系统只会使用你有权限访问的知识生成答案，并在回答下方列出引用依据。</p>
+                <div class="rag-example-list" aria-label="示例问题">
+                    @foreach (var example in ExampleQuestions)
                     {
-                        <div class="d-flex flex-wrap gap-2">
-                            <span class="badge bg-primary">置信度 @AnswerResult.Confidence.ToString("0.##")</span>
-                            <span class="badge @(AnswerResult.NeedHumanReview ? "bg-warning text-dark" : "bg-success")">
-                                @(AnswerResult.NeedHumanReview ? "需要复核" : "可用")
-                            </span>
-                        </div>
+                        <button type="button" class="rag-example-button" @onclick="() => UseExampleAsync(example)">@example</button>
                     }
                 </div>
+            </section>
+        }
+        else
+        {
+            @if (!string.IsNullOrWhiteSpace(SubmittedQuestion))
+            {
+                <section class="rag-message is-user">
+                    <span class="rag-message-avatar is-user" aria-hidden="true"><i class="fa fa-user"></i></span>
+                    <div class="rag-message-body">
+                        <div class="rag-message-meta"><strong>我</strong><span>@SubmittedTime.ToString("HH:mm")</span></div>
+                        <div class="rag-question-text">@SubmittedQuestion</div>
+                    </div>
+                </section>
+            }
 
-                @if (IsBusy)
-                {
-                    <div class="text-muted py-4">生成中</div>
-                }
-                else if (AnswerResult == null)
-                {
-                    <div class="text-muted py-4">暂无回答</div>
-                }
-                else
-                {
-                    <pre class="mb-0 rag-answer-text">@AnswerResult.Answer</pre>
-                }
-            </div>
-        </div>
+            <section class="rag-message is-assistant">
+                <span class="rag-message-avatar is-assistant" aria-hidden="true">
+                    <img src="/images/logo/leptonx/logo-light-thumbnail.png" alt="" />
+                </span>
+                <div class="rag-message-body">
+                    <div class="rag-message-meta"><strong>助手</strong><span>@SubmittedTime.ToString("HH:mm")</span></div>
 
-        <div class="card">
-            <div class="card-body border-bottom">
-                <h2 class="h6 mb-0">引用</h2>
-            </div>
-            <div class="table-responsive">
-                <table class="table table-hover align-middle mb-0">
-                    <thead>
-                        <tr>
-                            <th>来源</th>
-                            <th>版本</th>
-                            <th>片段</th>
-                            <th>摘录</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @if (AnswerResult == null)
+                    @if (IsBusy)
+                    {
+                        <div class="rag-generating" role="status">
+                            <span class="spinner-border spinner-border-sm" aria-hidden="true"></span>
+                            <div>
+                                <strong>正在检索可访问知识</strong>
+                                <span>随后会核对引用并组织回答，请稍候。</span>
+                            </div>
+                        </div>
+                    }
+                    else if (AnswerResult != null)
+                    {
+                        <div class="rag-answer-content">@AnswerResult.Answer</div>
+
+                        <div class="rag-answer-trust">
+                            <div>
+                                <i class="fa @(AnswerResult.Citations.Count > 0 ? "fa-check-circle" : "fa-exclamation-circle")" aria-hidden="true"></i>
+                                @GetAnswerEvidenceText()
+                            </div>
+                            <div>当前模型：@GetUsageAlias(AiModelUsage.RagAnswerChat)</div>
+                        </div>
+
+                        @if (AnswerResult.Citations.Count > 0)
                         {
-                            <tr>
-                                <td colspan="4" class="text-center py-4 text-muted">暂无引用</td>
-                            </tr>
-                        }
-                        else if (AnswerResult.Citations.Count == 0)
-                        {
-                            <tr>
-                                <td colspan="4" class="text-center py-4 text-muted">无可引用依据</td>
-                            </tr>
+                            <div class="rag-citation-list" aria-label="回答引用依据">
+                                @for (var index = 0; index < AnswerResult.Citations.Count; index++)
+                                {
+                                    var citation = AnswerResult.Citations[index];
+                                    <article class="rag-citation-row">
+                                        <span class="rag-citation-number">@(index + 1)</span>
+                                        <span class="rag-citation-document" aria-hidden="true"><i class="fa fa-file-alt"></i></span>
+                                        <div class="rag-citation-source">
+                                            <strong>@citation.Title</strong>
+                                            @if (citation.Page.HasValue)
+                                            {
+                                                <span>第 @citation.Page.Value 页</span>
+                                            }
+                                        </div>
+                                        <p>@citation.Quote</p>
+                                        @if (citation.KnowledgeItemId != Guid.Empty)
+                                        {
+                                            <a href="/knowledge/@citation.KnowledgeItemId">查看原文 <i class="fa fa-external-link-alt" aria-hidden="true"></i></a>
+                                        }
+                                    </article>
+                                }
+                            </div>
                         }
                         else
                         {
-                            @foreach (var citation in AnswerResult.Citations)
-                            {
-                                <tr>
-                                    <td>
-                                        <div class="fw-semibold">@citation.Title</div>
-                                        @if (citation.Page.HasValue)
-                                        {
-                                            <div class="text-muted small">第 @citation.Page.Value 页</div>
-                                        }
-                                    </td>
-                                    <td><code>@citation.KnowledgeVersionId.ToString("N")</code></td>
-                                    <td><code>@citation.ChunkId.ToString("N")</code></td>
-                                    <td>@citation.Quote</td>
-                                </tr>
-                            }
+                            <div class="rag-recovery">
+                                <div>
+                                    <strong>当前没有找到足够的可引用依据</strong>
+                                    <span>可能是知识尚未发布、当前账号无访问权限，或问题与知识内容不匹配。</span>
+                                </div>
+                                <div class="rag-recovery-actions">
+                                    <a class="btn btn-sm btn-outline-secondary" href="/knowledge">浏览可用知识</a>
+                                    @if (CanViewModels)
+                                    {
+                                        <a class="btn btn-sm btn-outline-primary" href="/rag/models">检查模型状态</a>
+                                    }
+                                </div>
+                            </div>
                         }
-                    </tbody>
-                </table>
+                    }
+                </div>
+            </section>
+        }
+    </main>
+
+    <section class="rag-composer" aria-label="输入问题">
+        <EditForm Model="@FormModel" OnValidSubmit="@AskAsync">
+            <DataAnnotationsValidator />
+            <label class="visually-hidden" for="rag-question">输入需要验证的问题</label>
+            <textarea id="rag-question"
+                      class="form-control rag-composer-input"
+                      rows="2"
+                      placeholder="请输入你的问题"
+                      aria-describedby="rag-question-help"
+                      disabled="@IsBusy"
+                      @bind="FormModel.Question"
+                      @bind:event="oninput"></textarea>
+            <ValidationMessage For="@(() => FormModel.Question)" />
+            <div class="rag-composer-footer">
+                <span id="rag-question-help">答案仅基于当前账号可访问的知识；知识不足时系统会明确拒答。</span>
+                <div class="rag-composer-actions">
+                    <a href="/knowledge"><i class="fa fa-book-open" aria-hidden="true"></i> 浏览可用知识</a>
+                    @if (CanViewModels)
+                    {
+                        <a href="/rag/models"><i class="fa fa-wave-square" aria-hidden="true"></i> 检查模型状态</a>
+                    }
+                    <button class="btn btn-primary" type="submit" disabled="@IsBusy">
+                        <i class="fa fa-paper-plane" aria-hidden="true"></i>
+                        发送
+                    </button>
+                </div>
             </div>
-        </div>
-    </div>
+        </EditForm>
+    </section>
 </div>
 
 @code {
-    // 前端只维护问题表单和结果展示，不缓存检索候选或内部 prompt。
+    private static readonly string[] ExampleQuestions =
+    {
+        "员工申请年假需要满足什么条件？",
+        "差旅费用报销需要提交哪些材料？",
+        "新员工如何申请系统权限？"
+    };
+
+    [SupplyParameterFromQuery(Name = "preview")]
+    public string? PreviewState { get; set; }
+
     private RagQuestionFormModel FormModel { get; set; } = new();
     private RagAnswerResult? AnswerResult { get; set; }
+    private AiModelCatalogOverviewDto? ModelOverview { get; set; }
+    private string? SubmittedQuestion { get; set; }
+    private DateTime SubmittedTime { get; set; } = DateTime.Now;
+    private bool CanViewModels { get; set; }
     private bool IsBusy { get; set; }
     private string? ErrorMessage { get; set; }
 
-    /// <summary>
-    /// 提交问题并调用后端 RAG 问答服务。
-    /// </summary>
+    protected override async Task OnInitializedAsync()
+    {
+        CanViewModels = await PermissionChecker.IsGrantedAsync(KnowPulsePermissions.AiModels.View);
+        if (CanViewModels)
+        {
+            try
+            {
+                ModelOverview = await AiModelCatalogAppService.GetOverviewAsync();
+            }
+            catch
+            {
+                // 问答能力不能因为管理员运行状态卡加载失败而不可用。
+                ModelOverview = null;
+            }
+        }
+
+#if DEBUG
+        if (string.Equals(PreviewState, "grounded", StringComparison.OrdinalIgnoreCase))
+        {
+            LoadGroundedPreview();
+        }
+#endif
+    }
+
+    private Task UseExampleAsync(string question)
+    {
+        FormModel.Question = question;
+        return Task.CompletedTask;
+    }
+
     private async Task AskAsync()
     {
+        SubmittedQuestion = FormModel.Question.Trim();
+        SubmittedTime = DateTime.Now;
+        AnswerResult = null;
+
         await RunBusyAsync(async () =>
         {
-            // 后端会重新根据当前登录用户构建权限上下文。前端只提交问题和期望引用数量，
-            // 不传用户/租户身份，避免浏览器端自报访问范围。
             AnswerResult = await RagAnswerService.AnswerAsync(new RagAnswerRequest
             {
-                Question = FormModel.Question.Trim(),
+                Question = SubmittedQuestion,
                 TopK = FormModel.TopK
             });
         });
     }
 
-    /// <summary>
-    /// 清空当前问题、回答和错误提示。
-    /// </summary>
-    private Task ResetAsync()
-    {
-        // 清空仅重置浏览器端状态，不影响后端审计日志。
-        FormModel = new RagQuestionFormModel();
-        AnswerResult = null;
-        ErrorMessage = null;
-        return Task.CompletedTask;
-    }
-
-    /// <summary>
-    /// 执行带 busy 状态和错误展示的页面操作。
-    /// </summary>
     private async Task RunBusyAsync(Func<Task> action)
     {
-        // 问答页所有交互都走同一套 busy/error 处理，避免重复提交导致 UI 状态错乱。
         try
         {
             ErrorMessage = null;
@@ -185,14 +288,77 @@
         }
     }
 
-    private class RagQuestionFormModel
+    private string GetUsageAlias(AiModelUsage usage)
     {
-        // 限制问题长度，避免浏览器端误提交超长 prompt；后端仍会做自己的安全边界控制。
-        [Required]
-        [StringLength(1024)]
+        return ModelOverview?.Bindings.FirstOrDefault(x => x.Usage == usage)?.DeploymentAlias
+               ?? (usage == AiModelUsage.KnowledgeEmbedding ? "由系统管理" : "系统默认配置");
+    }
+
+    private AiModelHealthStatus GetUsageHealth(AiModelUsage usage)
+    {
+        var deploymentId = ModelOverview?.Bindings.FirstOrDefault(x => x.Usage == usage)?.DeploymentId;
+        return deploymentId.HasValue
+            ? ModelOverview?.Deployments.FirstOrDefault(x => x.Id == deploymentId.Value)?.HealthStatus ?? AiModelHealthStatus.Unknown
+            : AiModelHealthStatus.Unknown;
+    }
+
+    private static string GetHealthText(AiModelHealthStatus status) => status switch
+    {
+        AiModelHealthStatus.Healthy => "已就绪",
+        AiModelHealthStatus.Failed => "异常",
+        AiModelHealthStatus.MissingKey => "缺少凭据",
+        AiModelHealthStatus.Disabled => "已停用",
+        _ => "待检查"
+    };
+
+    private static string GetHealthCss(AiModelHealthStatus status) => status switch
+    {
+        AiModelHealthStatus.Healthy => "is-ready",
+        AiModelHealthStatus.Failed => "is-error",
+        AiModelHealthStatus.MissingKey => "is-warning",
+        AiModelHealthStatus.Disabled => "is-muted",
+        _ => "is-pending"
+    };
+
+    private string GetAnswerEvidenceText()
+    {
+        if (AnswerResult == null || AnswerResult.Citations.Count == 0)
+        {
+            return "未找到足够的知识依据";
+        }
+
+        return AnswerResult.NeedHumanReview
+            ? $"已找到 {AnswerResult.Citations.Count} 条依据，建议核对后使用"
+            : $"已核对 {AnswerResult.Citations.Count} 条知识依据";
+    }
+
+#if DEBUG
+    private void LoadGroundedPreview()
+    {
+        SubmittedQuestion = "员工申请年假需要满足什么条件？";
+        SubmittedTime = DateTime.Today.AddHours(10).AddMinutes(15);
+        FormModel.Question = string.Empty;
+        AnswerResult = new RagAnswerResult
+        {
+            Answer = "根据公司《员工手册（2025版）》的相关规定，员工申请年假需满足以下条件：\n\n• 入职满 6 个月；\n• 近 12 个月内无严重违纪记录；\n• 提前至少 5 个工作日提交申请，并由部门负责人审批通过。\n\n年假天数按入职年限计算，具体标准详见《员工手册（2025版）》第 3.2 节。",
+            Confidence = 0.91,
+            NeedHumanReview = false,
+            Citations = new[]
+            {
+                new RagCitation { KnowledgeItemId = Guid.Parse("11111111-1111-1111-1111-111111111111"), Title = "员工手册（2025版）", Page = 7, Quote = "3.1 年假申请条件：员工入职满 6 个月，近 12 个月内无严重违纪记录，并需提前至少 5 个工作日提交申请。" },
+                new RagCitation { KnowledgeItemId = Guid.Parse("22222222-2222-2222-2222-222222222222"), Title = "员工手册（2025版）", Page = 8, Quote = "3.2 年假天数按入职年限计算：入职满 1 年不满 3 年的员工，年假 5 天。" },
+                new RagCitation { KnowledgeItemId = Guid.Parse("33333333-3333-3333-3333-333333333333"), Title = "员工假期管理办法", Page = 4, Quote = "年假申请依次由员工提交、部门负责人审批，并在人力资源部门备案。" }
+            }
+        };
+    }
+#endif
+
+    private sealed class RagQuestionFormModel
+    {
+        [Required(ErrorMessage = "请输入需要验证的问题。")]
+        [StringLength(1024, ErrorMessage = "问题长度不能超过 1024 个字符。")]
         public string Question { get; set; } = string.Empty;
 
-        // 前端允许用户选择更少引用，但实际最大上下文数由后端服务再次限制。
         [Range(1, 10)]
         public int TopK { get; set; } = 5;
     }

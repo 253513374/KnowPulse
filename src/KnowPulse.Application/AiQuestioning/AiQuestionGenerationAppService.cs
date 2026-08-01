@@ -42,11 +42,10 @@ public class AiQuestionGenerationAppService : KnowPulseAppService, IAiQuestionGe
     private readonly IRepository<AiQuestionCandidate, Guid> _candidateRepository;
     private readonly IRepository<AiQuestionCandidateCitation, Guid> _candidateCitationRepository;
     private readonly IRepository<AiQuestionModelCallLog, Guid> _modelCallLogRepository;
-    private readonly IRepository<QuestionSimilarityCheck, Guid> _questionSimilarityRepository;
     private readonly IKnowledgeRetriever _knowledgeRetriever;
     private readonly IRagChatClient _chatClient;
     private readonly IAiModelResolver _modelResolver;
-    private readonly IQuestionAppService _questionAppService;
+    private readonly IQuestionWorkflowAppService _questionWorkflowAppService;
     private readonly IQuestionSimilarityService _similarityService;
     private readonly RagAiOptions _options;
 
@@ -60,11 +59,10 @@ public class AiQuestionGenerationAppService : KnowPulseAppService, IAiQuestionGe
         IRepository<AiQuestionCandidate, Guid> candidateRepository,
         IRepository<AiQuestionCandidateCitation, Guid> candidateCitationRepository,
         IRepository<AiQuestionModelCallLog, Guid> modelCallLogRepository,
-        IRepository<QuestionSimilarityCheck, Guid> questionSimilarityRepository,
         IKnowledgeRetriever knowledgeRetriever,
         IRagChatClient chatClient,
         IAiModelResolver modelResolver,
-        IQuestionAppService questionAppService,
+        IQuestionWorkflowAppService questionWorkflowAppService,
         IQuestionSimilarityService similarityService,
         IOptions<RagAiOptions> options)
     {
@@ -73,11 +71,10 @@ public class AiQuestionGenerationAppService : KnowPulseAppService, IAiQuestionGe
         _candidateRepository = candidateRepository;
         _candidateCitationRepository = candidateCitationRepository;
         _modelCallLogRepository = modelCallLogRepository;
-        _questionSimilarityRepository = questionSimilarityRepository;
         _knowledgeRetriever = knowledgeRetriever;
         _chatClient = chatClient;
         _modelResolver = modelResolver;
-        _questionAppService = questionAppService;
+        _questionWorkflowAppService = questionWorkflowAppService;
         _similarityService = similarityService;
         _options = options.Value;
     }
@@ -347,90 +344,22 @@ public class AiQuestionGenerationAppService : KnowPulseAppService, IAiQuestionGe
     }
 
     /// <summary>
-    /// 将 AI 候选题提交到题库审核流。
-    /// 该方法会创建 AI 来源的题库草稿并提交审核，仍不允许直接进入正式题库或考试。
+    /// 将 AI 候选题采纳为题库草稿。
+    /// 草稿保留 AI 来源和 citation，但不会自动提交审核。
     /// </summary>
-    public virtual async Task<QuestionDto> SubmitCandidateForReviewAsync(Guid candidateId, SubmitAiQuestionCandidateDto input)
+    public virtual async Task<QuestionDto> AdoptCandidateAsDraftAsync(Guid candidateId)
     {
         await CheckMvpPermissionAsync(KnowPulsePermissions.QuestionBank.AiGeneration);
         await CheckMvpPermissionAsync(KnowPulsePermissions.QuestionBank.Questions);
+        return await _questionWorkflowAppService.AdoptAiCandidateAsync(candidateId);
+    }
 
-        var candidate = await _candidateRepository.GetAsync(candidateId);
-        if (candidate.LinkedQuestionId.HasValue)
-        {
-            throw new BusinessException(KnowPulseDomainErrorCodes.AiQuestionCandidateAlreadySubmitted);
-        }
-
-        // 校验失败候选题即使已经落库，也只能作为排查对象，不能提交题库审核。
-        if (candidate.Status != AiQuestionCandidateStatus.Generated ||
-            !string.IsNullOrWhiteSpace(candidate.ValidationErrors))
-        {
-            throw new BusinessException(KnowPulseDomainErrorCodes.AiQuestionCandidateNotReady);
-        }
-
-        var citations = await GetCandidateCitationsAsync(candidate.Id);
-        if (citations.Count == 0)
-        {
-            throw new BusinessException(KnowPulseDomainErrorCodes.AiQuestionCandidateCitationRequired);
-        }
-
-        // 候选题在这里转换为正式题库的待审核草稿；题库服务会继续执行题型结构和权限校验。
-        var questionInput = new CreateQuestionDto
-        {
-            Type = candidate.Type,
-            Difficulty = candidate.Difficulty,
-            CreationSource = QuestionCreationSource.AiGenerated,
-            Title = candidate.Title,
-            Stem = candidate.Stem,
-            ApplicablePositionId = candidate.ApplicablePositionId,
-            SecurityLevel = candidate.SecurityLevel,
-            Tags = candidate.Tags,
-            Analysis = candidate.Analysis,
-            Options = Deserialize<List<AiQuestionOptionDto>>(candidate.OptionsJson)
-                .Select(x => new CreateUpdateQuestionOptionDto
-                {
-                    OptionKey = x.OptionKey,
-                    Content = x.Content,
-                    DisplayOrder = x.DisplayOrder
-                }).ToList(),
-            Answers = Deserialize<List<AiQuestionAnswerDto>>(candidate.AnswersJson)
-                .Select(x => new CreateUpdateQuestionAnswerDto
-                {
-                    Value = x.Value,
-                    DisplayOrder = x.DisplayOrder
-                }).ToList(),
-            KnowledgePointNames = Deserialize<List<string>>(candidate.KnowledgePointsJson),
-            Sources = citations.Select(x => new CreateUpdateQuestionSourceDto
-            {
-                KnowledgeItemId = x.KnowledgeItemId,
-                KnowledgeVersionId = x.KnowledgeVersionId,
-                ChunkId = x.ChunkId,
-                SourceTitle = x.SourceTitle,
-                SourceExcerpt = x.SourceExcerpt,
-                SourceHash = x.SourceHash
-            }).ToList()
-        };
-
-        var question = await _questionAppService.CreateAsync(questionInput);
-        var submitted = await _questionAppService.SubmitReviewAsync(question.Id);
-
-        if (candidate.HighestSimilarQuestionId.HasValue && candidate.HighestSimilarityScore.HasValue)
-        {
-            await _questionSimilarityRepository.InsertAsync(
-                new QuestionSimilarityCheck(
-                    GuidGenerator.Create(),
-                    CurrentTenant.Id,
-                    submitted.Id,
-                    candidate.HighestSimilarQuestionId,
-                    candidate.HighestSimilarityScore.Value,
-                    candidate.SimilaritySummary),
-                autoSave: true);
-        }
-
-        candidate.MarkSubmittedForReview(submitted.Id);
-        await _candidateRepository.UpdateAsync(candidate, autoSave: true);
-
-        return submitted;
+    /// <summary>
+    /// 兼容旧版调用方：该入口现在只采纳为草稿，不再自动提交审核。
+    /// </summary>
+    public virtual Task<QuestionDto> SubmitCandidateForReviewAsync(Guid candidateId, SubmitAiQuestionCandidateDto input)
+    {
+        return AdoptCandidateAsDraftAsync(candidateId);
     }
 
     /// <summary>

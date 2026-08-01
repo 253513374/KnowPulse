@@ -9,7 +9,7 @@ namespace KnowPulse.AiQuestioning;
 /// <summary>
 /// AI 模型输出的候选题实体。
 /// 候选题是正式题库之前的隔离区：它保存模型结构化输出、校验结果、citation 和相似题提示，
-/// 但只有通过提交审核动作后才会转换为题库中的待审核题。
+/// 只有被人工采纳后才会转换为题库草稿，草稿仍需单独提交审核。
 /// </summary>
 public class AiQuestionCandidate : FullAuditedEntity<Guid>, IMultiTenant
 {
@@ -124,7 +124,7 @@ public class AiQuestionCandidate : FullAuditedEntity<Guid>, IMultiTenant
     public string? ValidationErrors { get; private set; }
 
     /// <summary>
-    /// 候选题提交审核后生成的题库题目 ID。
+    /// 候选题采纳后生成的题库草稿 ID。
     /// 为空表示该候选题仍停留在候选区。
     /// </summary>
     public Guid? LinkedQuestionId { get; private set; }
@@ -219,12 +219,12 @@ public class AiQuestionCandidate : FullAuditedEntity<Guid>, IMultiTenant
     }
 
     /// <summary>
-    /// 标记候选题已经转换为题库草稿并提交审核。
-    /// 该方法只记录关联和状态，不代表题目已经审核通过或可用于考试。
+    /// 标记候选题已经被人工采纳为题库草稿。
+    /// 该方法只记录关联和状态，草稿仍需编辑确认后主动提交审核。
     /// </summary>
-    public void MarkSubmittedForReview(Guid questionId)
+    public void MarkAdoptedAsDraft(Guid questionId)
     {
         LinkedQuestionId = questionId;
-        Status = AiQuestionCandidateStatus.SubmittedForReview;
+        Status = AiQuestionCandidateStatus.AdoptedAsDraft;
     }
 }

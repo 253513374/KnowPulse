@@ -1,0 +1,97 @@
+.feedback-workflow {
+    display: flex;
+    align-items: flex-start;
+    padding: .85rem 1rem;
+    border: 1px solid #e7eaee;
+    border-radius: .75rem;
+    background: #fbfcfd;
+}
+
+.feedback-workflow-step {
+    display: grid;
+    min-width: 3.75rem;
+    justify-items: center;
+    gap: .35rem;
+    color: #8a929b;
+    text-align: center;
+}
+
+.feedback-workflow-step > span {
+    width: 1.8rem;
+    height: 1.8rem;
+    display: grid;
+    place-items: center;
+    border: 1px solid #d7dce1;
+    border-radius: 50%;
+    background: #fff;
+    font-size: .72rem;
+    font-weight: 700;
+}
+
+.feedback-workflow-step small { font-size: .7rem; }
+
+.feedback-workflow-step.is-current { color: #0d6efd; }
+.feedback-workflow-step.is-current > span { border-color: #0d6efd; color: #fff; background: #0d6efd; }
+.feedback-workflow-step.is-done { color: #198754; }
+.feedback-workflow-step.is-done > span { border-color: #198754; color: #fff; background: #198754; }
+.feedback-workflow-step.is-closed { color: #8a929b; }
+
+.feedback-workflow-line {
+    height: 2px;
+    flex: 1;
+    margin-top: .88rem;
+    background: #dfe3e7;
+}
+
+.feedback-workflow-line.is-done { background: #8bd2ac; }
+
+.feedback-action-card {
+    padding: 1rem;
+    border: 1px solid #e1e5e9;
+    border-radius: .7rem;
+    background: #fff;
+}
+
+.feedback-action-card.is-primary {
+    border-color: #b9d2ff;
+    background: #f7faff;
+}
+
+.feedback-action-card.is-complete {
+    border-color: #b8dfc9;
+    background: #f7fcf9;
+}
+
+.feedback-action-card strong { display: block; }
+.feedback-action-card p { margin: .25rem 0 1rem; color: #6c757d; font-size: .8rem; }
+
+.feedback-revision-summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: .75rem;
+    border-radius: .5rem;
+    background: rgba(255, 255, 255, .8);
+}
+
+.feedback-revision-summary small,
+.feedback-revision-summary strong { display: block; }
+.feedback-revision-summary small { color: #6c757d; font-size: .72rem; }
+
+.feedback-close-panel {
+    padding: .8rem 1rem;
+    border: 1px solid #e5e8eb;
+    border-radius: .65rem;
+    color: #6c757d;
+    background: #fafbfc;
+}
+
+.feedback-close-panel summary { cursor: pointer; font-size: .8rem; font-weight: 600; }
+
+@media (max-width: 575.98px) {
+    .feedback-workflow { padding-inline: .5rem; }
+    .feedback-workflow-step { min-width: 3rem; }
+    .feedback-workflow-step small { font-size: .62rem; }
+    .feedback-revision-summary { align-items: flex-start; flex-direction: column; }
+}

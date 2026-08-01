@@ -16,11 +16,15 @@
     "Menu:KnowledgePermissionScopes": "Permission Scopes",
     "Menu:KnowledgeIndexJobs": "Index Jobs",
     "Menu:KnowledgeFeedback": "Knowledge Feedback",
-    "Menu:Rag": "RAG",
-    "Menu:RagAnswer": "Knowledge Q&A",
+    "Menu:Rag": "RAG Management",
+    "Menu:RagAnswer": "Q&A Validation",
     "Menu:AiModels": "Model Management",
     "Menu:QuestionBank": "Question Bank",
+    "Menu:QuestionBankWorkbench": "Question Bank Workspace",
     "Menu:Questions": "Questions",
+    "Menu:QuestionDrafts": "Create & Drafts",
+    "Menu:QuestionReviews": "Review & Publish",
+    "Menu:FormalQuestions": "Formal Questions",
     "Menu:AiQuestionCandidates": "AI Candidates",
     "Menu:Exam": "Exam",
     "Menu:ExamManagement": "Exam Management",
@@ -73,6 +77,12 @@
     "KnowPulse:00013": "The index job cannot start or continue from its current status.",
     "KnowPulse:00014": "The index job has exhausted its automatic retries. Fix the cause and create a new rebuild job.",
     "KnowPulse:00015": "Only a processing index job can be recovered.",
-    "KnowPulse:00016": "The index job does not belong to the knowledge version being processed."
+    "KnowPulse:00016": "The index job does not belong to the knowledge version being processed.",
+    "KnowPulse:00017": "Take ownership of the feedback before creating a revision draft.",
+    "KnowPulse:00018": "This feedback already has a linked revision. Continue editing, publishing, and validating it.",
+    "KnowPulse:00019": "A linked revision is required before completing feedback.",
+    "KnowPulse:00020": "The linked revision is not the current published version. Publish it first.",
+    "KnowPulse:00021": "The linked revision has not finished indexing. Wait until retrieval status is indexed.",
+    "KnowPulse:01012": "A review reason is required when returning or rejecting a question."
   }
 }

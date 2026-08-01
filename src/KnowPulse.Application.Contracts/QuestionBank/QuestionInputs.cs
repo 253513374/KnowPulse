@@ -12,6 +12,12 @@ namespace KnowPulse.QuestionBank;
 public class GetQuestionListInput : PagedAndSortedResultRequestDto
 {
     /// <summary>
+    /// 按草稿、审核队列或正式题库任务视图筛选。
+    /// 指定后由服务端统一映射状态，避免页面复制状态组合判断。
+    /// </summary>
+    public QuestionWorklistKind? Worklist { get; set; }
+
+    /// <summary>
     /// 题型筛选。
     /// 为空表示不过滤题型。
     /// </summary>
@@ -64,7 +70,7 @@ public class GetQuestionListInput : PagedAndSortedResultRequestDto
 /// 创建题目输入。
 /// 包含题目基础信息、题目定义、标准解析、知识点和来源引用。
 /// </summary>
-public class CreateQuestionDto
+public class SaveQuestionDraftDto
 {
     /// <summary>
     /// 题型。
@@ -79,13 +85,6 @@ public class CreateQuestionDto
     /// </summary>
     [Required]
     public QuestionDifficulty Difficulty { get; set; } = QuestionDifficulty.Normal;
-
-    /// <summary>
-    /// 创建来源。
-    /// 人工新建题通常使用 <see cref="QuestionCreationSource.Manual"/>。
-    /// </summary>
-    [Required]
-    public QuestionCreationSource CreationSource { get; set; } = QuestionCreationSource.Manual;
 
     /// <summary>
     /// 题目标题，最长 256 个字符。
@@ -152,11 +151,54 @@ public class CreateQuestionDto
 }
 
 /// <summary>
+/// 兼容现有题目创建接口的输入。
+/// <see cref="CreationSource"/> 仅用于旧客户端兼容，服务端创建人工草稿时不会采用调用方传入值。
+/// </summary>
+public class CreateQuestionDto : SaveQuestionDraftDto
+{
+    /// <summary>
+    /// 旧版调用方提交的创建来源。新工作流会由服务端按入口确定真实来源。
+    /// </summary>
+    [Required]
+    public QuestionCreationSource CreationSource { get; set; } = QuestionCreationSource.Manual;
+}
+
+/// <summary>
 /// 更新题目输入。
 /// 与创建题目输入保持一致；更新已通过、已驳回、已退回修改或已停用题目会让题目回到草稿状态。
 /// </summary>
 public class UpdateQuestionDto : CreateQuestionDto
 {
+}
+
+/// <summary>
+/// 题目审核决策输入。
+/// </summary>
+public class DecideQuestionReviewDto
+{
+    /// <summary>
+    /// 审核决策。
+    /// </summary>
+    [Required]
+    public QuestionReviewDecision Decision { get; set; }
+
+    /// <summary>
+    /// 审核意见。退回或驳回时必须填写。
+    /// </summary>
+    [StringLength(512)]
+    public string? Comment { get; set; }
+}
+
+/// <summary>
+/// 题目可用性变更输入。
+/// </summary>
+public class ChangeQuestionAvailabilityDto
+{
+    /// <summary>
+    /// 可用性变更动作。
+    /// </summary>
+    [Required]
+    public QuestionAvailabilityAction Action { get; set; }
 }
 
 /// <summary>

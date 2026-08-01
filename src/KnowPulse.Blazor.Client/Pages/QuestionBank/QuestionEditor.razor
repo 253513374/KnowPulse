@@ -1,0 +1,536 @@
+@page "/question-bank/questions/new"
+@page "/question-bank/questions/{Id:guid}/edit"
+@attribute [Authorize(KnowPulsePermissions.QuestionBank.Questions)]
+@inherits KnowPulseComponentBase
+@inject IQuestionAppService QuestionAppService
+@inject IPositionAppService PositionAppService
+@inject NavigationManager Navigation
+
+<PageTitle>@(Id.HasValue ? "编辑题目草稿" : "新建人工题")</PageTitle>
+
+<QuestionBankFlowNav ActiveStage="drafts" />
+
+<div class="d-flex flex-wrap align-items-start justify-content-between gap-3 mb-3">
+    <div>
+        <h1 class="h4 mb-1">@(Id.HasValue ? "编辑题目草稿" : "新建人工题")</h1>
+        <div class="text-muted small">先把内容和依据补完整；保存只会更新草稿，不会自动送审。</div>
+    </div>
+    <a class="btn btn-outline-secondary btn-sm" href="/question-bank/drafts">返回出题与草稿</a>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(ErrorMessage))
+{
+    <div class="alert alert-danger" role="alert">@ErrorMessage</div>
+}
+
+@if (IsLoading)
+{
+    <div class="card"><div class="card-body text-center text-muted py-5">加载中</div></div>
+}
+else
+{
+    <EditForm Model="FormModel" OnValidSubmit="SaveAsync">
+        <DataAnnotationsValidator />
+
+        <div class="row g-3">
+            <div class="col-xl-8">
+                <div class="card qb-editor-card">
+                    <div class="card-body p-4">
+                        <div class="d-flex align-items-center justify-content-between gap-2 mb-3">
+                            <div>
+                                <div class="text-primary small fw-semibold mb-1">STEP 1</div>
+                                <h2 class="h6 mb-0">设计题目内容</h2>
+                            </div>
+                            <span class="badge @(FormModel.CreationSource == QuestionCreationSource.AiGenerated ? "bg-info" : "bg-secondary")">
+                                @(FormModel.CreationSource == QuestionCreationSource.AiGenerated ? "AI 采纳草稿" : "人工创建")
+                            </span>
+                        </div>
+
+                        <div class="row g-3">
+                            <div class="col-md-4">
+                                <label class="form-label" for="editor-type">题型</label>
+                                <select id="editor-type" class="form-select" @bind="FormModel.Type" @bind:after="OnQuestionTypeChanged">
+                                    <option value="@QuestionType.SingleChoice">单选</option>
+                                    <option value="@QuestionType.MultipleChoice">多选</option>
+                                    <option value="@QuestionType.TrueFalse">判断</option>
+                                    <option value="@QuestionType.FillBlank">填空</option>
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label" for="editor-difficulty">难度</label>
+                                <select id="editor-difficulty" class="form-select" @bind="FormModel.Difficulty">
+                                    <option value="@QuestionDifficulty.Easy">简单</option>
+                                    <option value="@QuestionDifficulty.Normal">普通</option>
+                                    <option value="@QuestionDifficulty.Hard">困难</option>
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label" for="editor-position">适用岗位</label>
+                                <select id="editor-position" class="form-select" @bind="FormModel.ApplicablePositionIdText">
+                                    <option value="">不限岗位</option>
+                                    @foreach (var position in Positions)
+                                    {
+                                        <option value="@position.Id">@position.Name</option>
+                                    }
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="mt-3">
+                            <label class="form-label" for="editor-title">标题</label>
+                            <input id="editor-title" class="form-control" @bind="FormModel.Title" @bind:event="oninput" placeholder="用于题库检索和审核识别" />
+                            <ValidationMessage For="@(() => FormModel.Title)" />
+                        </div>
+
+                        <div class="mt-3">
+                            <label class="form-label" for="editor-stem">题干</label>
+                            <textarea id="editor-stem" class="form-control" rows="5" @bind="FormModel.Stem" @bind:event="oninput" placeholder="写清楚问题，避免依赖考试之外的上下文"></textarea>
+                            <ValidationMessage For="@(() => FormModel.Stem)" />
+                        </div>
+
+                        <div class="qb-answer-builder mt-4">
+                            <div class="d-flex flex-wrap align-items-start justify-content-between gap-2 mb-3">
+                                <div>
+                                    <h3 class="h6 mb-1">设置选项与答案</h3>
+                                    <div class="small text-muted">直接勾选正确答案，不需要记忆文本格式。</div>
+                                </div>
+                                @if (IsChoiceQuestion)
+                                {
+                                    <button class="btn btn-sm btn-outline-primary" type="button" @onclick="AddOption">添加选项</button>
+                                }
+                            </div>
+
+                            @if (IsChoiceQuestion)
+                            {
+                                <div class="d-flex flex-column gap-2">
+                                    @for (var index = 0; index < FormModel.Options.Count; index++)
+                                    {
+                                        var option = FormModel.Options[index];
+                                        <div class="qb-option-row">
+                                            @if (FormModel.Type == QuestionType.SingleChoice)
+                                            {
+                                                <input class="form-check-input" type="radio" name="correct-option" checked="@option.IsCorrect" @onchange="() => SelectSingleOption(option)" aria-label="设为正确答案" />
+                                            }
+                                            else
+                                            {
+                                                <input class="form-check-input" type="checkbox" checked="@option.IsCorrect" @onchange="args => ToggleMultipleOption(option, args)" aria-label="切换正确答案" />
+                                            }
+                                            <span class="qb-option-key">@GetOptionKey(index)</span>
+                                            <input class="form-control" @bind="option.Content" @bind:event="oninput" placeholder="填写选项内容" aria-label="选项 @GetOptionKey(index)" />
+                                            <button class="btn btn-sm btn-link text-danger" type="button" @onclick="() => RemoveOption(option)" disabled="@(FormModel.Options.Count <= 2)" aria-label="删除选项"><i class="fa-solid fa-trash-can"></i></button>
+                                        </div>
+                                    }
+                                </div>
+                                <div class="form-text mt-2">@(FormModel.Type == QuestionType.SingleChoice ? "选择一个正确答案。" : "至少选择两个正确答案。")</div>
+                            }
+                            else if (FormModel.Type == QuestionType.TrueFalse)
+                            {
+                                <div class="qb-true-false" role="radiogroup" aria-label="判断题答案">
+                                    <button class="@(FormModel.TrueFalseAnswer == "true" ? "is-selected" : null)" type="button" @onclick="SelectTrue"><i class="fa-solid fa-check"></i><span>正确</span></button>
+                                    <button class="@(FormModel.TrueFalseAnswer == "false" ? "is-selected" : null)" type="button" @onclick="SelectFalse"><i class="fa-solid fa-xmark"></i><span>错误</span></button>
+                                </div>
+                            }
+                            else
+                            {
+                                <label class="form-label" for="editor-answers">标准答案</label>
+                                <textarea id="editor-answers" class="form-control" rows="3" @bind="FormModel.AnswerLines" @bind:event="oninput" placeholder="填写一个或多个可接受答案，每行一个"></textarea>
+                                <div class="form-text">多个等价答案可以换行填写。</div>
+                            }
+                        </div>
+
+                        <div class="mt-3">
+                            <label class="form-label" for="editor-analysis">答案解析</label>
+                            <textarea id="editor-analysis" class="form-control" rows="4" @bind="FormModel.Analysis" @bind:event="oninput" placeholder="说明为什么是这个答案，帮助学习者理解"></textarea>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-xl-4">
+                <div class="card mb-3 qb-editor-card">
+                    <div class="card-body p-4">
+                        <div class="text-primary small fw-semibold mb-1">STEP 2</div>
+                        <h2 class="h6">补充适用范围与依据</h2>
+                        <div class="mt-3">
+                            <label class="form-label" for="editor-points">知识点</label>
+                            <input id="editor-points" class="form-control" @bind="FormModel.KnowledgePointText" @bind:event="oninput" placeholder="例如：信息安全、请假制度" />
+                            <div class="form-text">多个知识点用逗号分隔。</div>
+                        </div>
+
+                        <div class="mt-3">
+                            <label class="form-label" for="editor-tags">标签</label>
+                            <input id="editor-tags" class="form-control" @bind="FormModel.Tags" @bind:event="oninput" placeholder="用于搜索和运营分类" />
+                        </div>
+
+                        @if (FormModel.CreationSource == QuestionCreationSource.AiGenerated)
+                        {
+                            <div class="alert alert-info small mt-3 mb-2">AI 引用会随草稿保留，审核人可以回看依据。</div>
+                            @foreach (var source in OriginalSources)
+                            {
+                                <div class="border rounded p-2 small mb-2">
+                                    <div class="fw-semibold">@(source.SourceTitle ?? "知识库引用")</div>
+                                    <div class="text-muted">@source.SourceExcerpt</div>
+                                </div>
+                            }
+                        }
+                        else
+                        {
+                            <div class="mt-3">
+                                <label class="form-label" for="editor-source-title">来源标题</label>
+                                <input id="editor-source-title" class="form-control" @bind="FormModel.SourceTitle" @bind:event="oninput" placeholder="制度、手册或课程名称" />
+                            </div>
+                            <div class="mt-3">
+                                <label class="form-label" for="editor-source-description">来源说明</label>
+                                <textarea id="editor-source-description" class="form-control" rows="4" @bind="FormModel.ManualSourceDescription" @bind:event="oninput" placeholder="写明答案依据，便于审核人复核"></textarea>
+                            </div>
+                        }
+
+                        <details class="mt-3 qb-advanced">
+                            <summary>高级设置</summary>
+                            <div class="mt-3">
+                                <label class="form-label" for="editor-security">安全等级</label>
+                                <InputNumber id="editor-security" class="form-control" @bind-Value="FormModel.SecurityLevel" />
+                                <div class="form-text">0 为默认。仅在题目包含受限内容时调整。</div>
+                            </div>
+                        </details>
+                    </div>
+                </div>
+
+                <div class="card qb-save-card">
+                    <div class="card-body p-4">
+                        <div class="d-flex align-items-center gap-2 fw-semibold mb-2"><i class="fa-regular fa-circle-check text-primary"></i>保存前检查</div>
+                        <ul class="list-unstyled small text-muted mb-3">
+                            <li>题干能独立理解</li>
+                            <li>已经设置标准答案</li>
+                            <li>解析和来源足以支持审核</li>
+                        </ul>
+                        <button class="btn btn-primary w-100" type="submit" disabled="@IsBusy">@(IsBusy ? "正在保存…" : "保存并返回草稿")</button>
+                        <div class="text-center text-muted small mt-2">保存后由你主动提交审核</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </EditForm>
+}
+
+@code {
+    [Parameter]
+    public Guid? Id { get; set; }
+
+    private readonly List<PositionDto> Positions = new();
+    private readonly List<QuestionSourceDto> OriginalSources = new();
+    private QuestionFormModel FormModel { get; set; } = new();
+    private bool IsLoading { get; set; }
+    private bool IsBusy { get; set; }
+    private string? ErrorMessage { get; set; }
+    private bool IsChoiceQuestion => FormModel.Type is QuestionType.SingleChoice or QuestionType.MultipleChoice;
+
+    protected override async Task OnInitializedAsync()
+    {
+        IsLoading = true;
+        try
+        {
+            var positions = await PositionAppService.GetListAsync(new PagedAndSortedResultRequestDto { MaxResultCount = 200 });
+            Positions.AddRange(positions.Items.OrderBy(x => x.Name));
+
+            if (Id.HasValue)
+            {
+                var question = await QuestionAppService.GetAsync(Id.Value);
+                OriginalSources.AddRange(question.Sources);
+                var answerValues = question.Answers.Select(x => x.Value).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                FormModel = new QuestionFormModel
+                {
+                    CreationSource = question.CreationSource,
+                    Type = question.Type,
+                    Difficulty = question.Difficulty,
+                    Title = question.Title,
+                    Stem = question.Stem,
+                    ApplicablePositionIdText = question.ApplicablePositionId?.ToString(),
+                    SecurityLevel = question.SecurityLevel,
+                    Tags = question.Tags,
+                    AnswerLines = question.Type == QuestionType.FillBlank
+                        ? string.Join(Environment.NewLine, question.Answers.OrderBy(x => x.DisplayOrder).Select(x => x.Value))
+                        : null,
+                    TrueFalseAnswer = question.Type == QuestionType.TrueFalse
+                        ? NormalizeTrueFalseAnswer(question.Answers.FirstOrDefault()?.Value)
+                        : "true",
+                    Analysis = question.Analysis,
+                    KnowledgePointText = string.Join(", ", question.KnowledgePoints.Select(x => x.Name)),
+                    SourceTitle = question.Sources.FirstOrDefault()?.SourceTitle,
+                    ManualSourceDescription = question.Sources.FirstOrDefault()?.ManualSourceDescription,
+                    Options = question.Options
+                        .OrderBy(x => x.DisplayOrder)
+                        .Select(x => new OptionEditorRow { Content = x.Content, IsCorrect = answerValues.Contains(x.OptionKey) })
+                        .ToList()
+                };
+            }
+
+            EnsureChoiceOptions();
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = GetUserFriendlyErrorMessage(ex);
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        var validationMessage = ValidateDefinition();
+        if (validationMessage != null)
+        {
+            ErrorMessage = validationMessage;
+            return;
+        }
+
+        try
+        {
+            ErrorMessage = null;
+            IsBusy = true;
+            var input = BuildInput();
+            if (Id.HasValue)
+            {
+                await QuestionAppService.UpdateAsync(Id.Value, input);
+            }
+            else
+            {
+                await QuestionAppService.CreateAsync(input);
+            }
+
+            Navigation.NavigateTo("/question-bank/drafts");
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = GetUserFriendlyErrorMessage(ex);
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    private UpdateQuestionDto BuildInput()
+    {
+        return new UpdateQuestionDto
+        {
+            CreationSource = FormModel.CreationSource,
+            Type = FormModel.Type,
+            Difficulty = FormModel.Difficulty,
+            Title = FormModel.Title.Trim(),
+            Stem = FormModel.Stem.Trim(),
+            ApplicablePositionId = Guid.TryParse(FormModel.ApplicablePositionIdText, out var positionId) ? positionId : null,
+            SecurityLevel = FormModel.SecurityLevel,
+            Tags = FormModel.Tags,
+            Analysis = FormModel.Analysis,
+            Options = BuildOptions(),
+            Answers = BuildAnswers(),
+            KnowledgePointNames = SplitValues(FormModel.KnowledgePointText),
+            Sources = BuildSources()
+        };
+    }
+
+    private List<CreateUpdateQuestionOptionDto> BuildOptions()
+    {
+        if (!IsChoiceQuestion)
+        {
+            return new List<CreateUpdateQuestionOptionDto>();
+        }
+
+        return FormModel.Options
+            .Where(x => !string.IsNullOrWhiteSpace(x.Content))
+            .Select((option, index) => new CreateUpdateQuestionOptionDto
+            {
+                OptionKey = GetOptionKey(index),
+                Content = option.Content.Trim(),
+                DisplayOrder = index + 1
+            })
+            .ToList();
+    }
+
+    private List<CreateUpdateQuestionAnswerDto> BuildAnswers()
+    {
+        IEnumerable<string> values = FormModel.Type switch
+        {
+            QuestionType.SingleChoice or QuestionType.MultipleChoice => FormModel.Options
+                .Select((option, index) => new { option, index })
+                .Where(x => x.option.IsCorrect && !string.IsNullOrWhiteSpace(x.option.Content))
+                .Select(x => GetOptionKey(FormModel.Options
+                    .Where(option => !string.IsNullOrWhiteSpace(option.Content))
+                    .ToList()
+                    .IndexOf(x.option))),
+            QuestionType.TrueFalse => new[] { FormModel.TrueFalseAnswer },
+            _ => SplitValues(FormModel.AnswerLines)
+        };
+
+        return values.Select((answer, index) => new CreateUpdateQuestionAnswerDto
+        {
+            Value = answer,
+            DisplayOrder = index + 1
+        }).ToList();
+    }
+
+    private List<CreateUpdateQuestionSourceDto> BuildSources()
+    {
+        if (FormModel.CreationSource == QuestionCreationSource.AiGenerated)
+        {
+            return OriginalSources.Select(x => new CreateUpdateQuestionSourceDto
+            {
+                KnowledgeItemId = x.KnowledgeItemId,
+                KnowledgeVersionId = x.KnowledgeVersionId,
+                ChunkId = x.ChunkId,
+                SourceTitle = x.SourceTitle,
+                SourceExcerpt = x.SourceExcerpt,
+                SourceHash = x.SourceHash,
+                ManualSourceDescription = x.ManualSourceDescription
+            }).ToList();
+        }
+
+        if (string.IsNullOrWhiteSpace(FormModel.SourceTitle) && string.IsNullOrWhiteSpace(FormModel.ManualSourceDescription))
+        {
+            return new List<CreateUpdateQuestionSourceDto>();
+        }
+
+        return new List<CreateUpdateQuestionSourceDto>
+        {
+            new()
+            {
+                SourceTitle = FormModel.SourceTitle,
+                ManualSourceDescription = FormModel.ManualSourceDescription
+            }
+        };
+    }
+
+    private string? ValidateDefinition()
+    {
+        if (IsChoiceQuestion)
+        {
+            var populated = FormModel.Options.Where(x => !string.IsNullOrWhiteSpace(x.Content)).ToList();
+            if (populated.Count < 2)
+            {
+                return "请至少填写两个选项。";
+            }
+
+            var correctCount = populated.Count(x => x.IsCorrect);
+            if (FormModel.Type == QuestionType.SingleChoice && correctCount != 1)
+            {
+                return "单选题需要选择一个正确答案。";
+            }
+
+            if (FormModel.Type == QuestionType.MultipleChoice && correctCount < 2)
+            {
+                return "多选题需要选择至少两个正确答案。";
+            }
+        }
+        else if (FormModel.Type == QuestionType.FillBlank && SplitValues(FormModel.AnswerLines).Count == 0)
+        {
+            return "请填写至少一个标准答案。";
+        }
+
+        return null;
+    }
+
+    private void OnQuestionTypeChanged()
+    {
+        if (IsChoiceQuestion)
+        {
+            EnsureChoiceOptions();
+            if (FormModel.Type == QuestionType.SingleChoice && FormModel.Options.Count(x => x.IsCorrect) > 1)
+            {
+                var firstCorrect = FormModel.Options.First(x => x.IsCorrect);
+                SelectSingleOption(firstCorrect);
+            }
+        }
+    }
+
+    private void EnsureChoiceOptions()
+    {
+        if (!IsChoiceQuestion)
+        {
+            return;
+        }
+
+        while (FormModel.Options.Count < 4)
+        {
+            FormModel.Options.Add(new OptionEditorRow());
+        }
+    }
+
+    private void AddOption() => FormModel.Options.Add(new OptionEditorRow());
+
+    private void SelectTrue() => FormModel.TrueFalseAnswer = "true";
+
+    private void SelectFalse() => FormModel.TrueFalseAnswer = "false";
+
+    private void RemoveOption(OptionEditorRow option)
+    {
+        if (FormModel.Options.Count > 2)
+        {
+            FormModel.Options.Remove(option);
+        }
+    }
+
+    private void SelectSingleOption(OptionEditorRow selected)
+    {
+        foreach (var option in FormModel.Options)
+        {
+            option.IsCorrect = ReferenceEquals(option, selected);
+        }
+    }
+
+    private static void ToggleMultipleOption(OptionEditorRow option, ChangeEventArgs args)
+    {
+        option.IsCorrect = args.Value is bool selected
+            ? selected
+            : bool.TryParse(args.Value?.ToString(), out var parsed) && parsed;
+    }
+
+    private static string NormalizeTrueFalseAnswer(string? value)
+        => value is "false" or "错" ? "false" : "true";
+
+    private static string GetOptionKey(int index)
+        => ((char)('A' + index)).ToString();
+
+    private static List<string> SplitValues(string? value)
+        => (value ?? string.Empty)
+            .Split(new[] { "\r\n", "\n", ",", "，", ";", "；" }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+    private class OptionEditorRow
+    {
+        public string Content { get; set; } = string.Empty;
+        public bool IsCorrect { get; set; }
+    }
+
+    private class QuestionFormModel
+    {
+        public QuestionCreationSource CreationSource { get; set; } = QuestionCreationSource.Manual;
+        public QuestionType Type { get; set; } = QuestionType.SingleChoice;
+        public QuestionDifficulty Difficulty { get; set; } = QuestionDifficulty.Normal;
+        public string? ApplicablePositionIdText { get; set; }
+
+        [Required, StringLength(256)]
+        public string Title { get; set; } = string.Empty;
+
+        [Required, StringLength(4000)]
+        public string Stem { get; set; } = string.Empty;
+
+        [Range(0, 10)]
+        public int SecurityLevel { get; set; }
+
+        [StringLength(512)]
+        public string? Tags { get; set; }
+
+        public List<OptionEditorRow> Options { get; set; } = new();
+        public string TrueFalseAnswer { get; set; } = "true";
+        public string? AnswerLines { get; set; }
+        public string? Analysis { get; set; }
+        public string? KnowledgePointText { get; set; }
+        public string? SourceTitle { get; set; }
+        public string? ManualSourceDescription { get; set; }
+    }
+}

@@ -72,8 +72,14 @@ public interface IAiQuestionGenerationAppService : IApplicationService
     Task<AiQuestionGenerationTaskDto> RetryAsync(Guid id);
 
     /// <summary>
-    /// 将候选题转换为题库草稿并提交审核。
-    /// 成功返回的题目状态必须是待审核，仍不能直接组卷或进入考试。
+    /// 将候选题采纳为可编辑的题库草稿。
+    /// 采纳不会自动提交审核，用户仍需检查题目内容并主动提交。
+    /// </summary>
+    [Authorize(KnowPulsePermissions.QuestionBank.AiGeneration)]
+    Task<QuestionDto> AdoptCandidateAsDraftAsync(Guid candidateId);
+
+    /// <summary>
+    /// 旧版兼容入口。当前行为与“采纳为草稿”一致，不再自动提交审核。
     /// </summary>
     [Authorize(KnowPulsePermissions.QuestionBank.AiGeneration)]
     Task<QuestionDto> SubmitCandidateForReviewAsync(Guid candidateId, SubmitAiQuestionCandidateDto input);

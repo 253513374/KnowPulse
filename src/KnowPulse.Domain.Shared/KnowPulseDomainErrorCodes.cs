@@ -85,6 +85,31 @@ public static class KnowPulseDomainErrorCodes
     /// </summary>
     public const string KnowledgeIndexJobVersionMismatch = "KnowPulse:00016";
 
+    /// <summary>
+    /// 创建反馈修订前必须先接手反馈。
+    /// </summary>
+    public const string KnowledgeFeedbackRevisionRequiresProcessing = "KnowPulse:00017";
+
+    /// <summary>
+    /// 反馈已经关联修订版本，不能重复创建。
+    /// </summary>
+    public const string KnowledgeFeedbackRevisionAlreadyLinked = "KnowPulse:00018";
+
+    /// <summary>
+    /// 完成反馈前必须存在关联修订版本。
+    /// </summary>
+    public const string KnowledgeFeedbackRevisionRequired = "KnowPulse:00019";
+
+    /// <summary>
+    /// 完成反馈前，关联修订必须成为当前发布版本。
+    /// </summary>
+    public const string KnowledgeFeedbackRevisionNotPublished = "KnowPulse:00020";
+
+    /// <summary>
+    /// 完成反馈前，关联修订必须完成索引。
+    /// </summary>
+    public const string KnowledgeFeedbackRevisionNotIndexed = "KnowPulse:00021";
+
     public const string QuestionAnswerRequired = "KnowPulse:01001";
 
     public const string QuestionChoiceOptionsRequired = "KnowPulse:01002";
@@ -106,6 +131,8 @@ public static class KnowPulseDomainErrorCodes
     public const string QuestionMultipleChoiceRequiresAtLeastTwoAnswers = "KnowPulse:01010";
 
     public const string QuestionSourceRequired = "KnowPulse:01011";
+
+    public const string QuestionReviewCommentRequired = "KnowPulse:01012";
 
     public const string AiQuestionCandidateNotReady = "KnowPulse:02001";
 

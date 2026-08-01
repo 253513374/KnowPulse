@@ -98,9 +98,24 @@ public class KnowPulseMenus
     public const string QuestionBank = Prefix + ".QuestionBank";
 
     /// <summary>
-    /// 题目管理页面菜单项名称。
+    /// 题库工作台菜单项名称。
+    /// </summary>
+    public const string QuestionBankWorkbench = QuestionBank + ".Workbench";
+
+    /// <summary>
+    /// 题目草稿页面菜单项名称。
     /// </summary>
     public const string Questions = QuestionBank + ".Questions";
+
+    /// <summary>
+    /// 题目审核队列菜单项名称。
+    /// </summary>
+    public const string QuestionReviews = QuestionBank + ".Reviews";
+
+    /// <summary>
+    /// 正式题库菜单项名称。
+    /// </summary>
+    public const string FormalQuestions = QuestionBank + ".FormalQuestions";
 
     /// <summary>
     /// AI 候选题页面菜单项名称。

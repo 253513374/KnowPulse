@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using System.Threading.Tasks;
 using KnowPulse.KnowledgeBase;
+using KnowPulse.KnowledgeIndexing;
 using Shouldly;
 using Volo.Abp;
 using Volo.Abp.Domain.Repositories;
@@ -15,12 +16,14 @@ public class Mvp3KnowledgeFeedbackAppServiceTests : KnowPulseEntityFrameworkCore
     private readonly IKnowledgeFeedbackAppService _feedbackAppService;
     private readonly IRepository<KnowledgeItem, Guid> _knowledgeItemRepository;
     private readonly IRepository<KnowledgeVersion, Guid> _knowledgeVersionRepository;
+    private readonly IRepository<KnowledgeIndexJob, Guid> _knowledgeIndexJobRepository;
 
     public Mvp3KnowledgeFeedbackAppServiceTests()
     {
         _feedbackAppService = GetRequiredService<IKnowledgeFeedbackAppService>();
         _knowledgeItemRepository = GetRequiredService<IRepository<KnowledgeItem, Guid>>();
         _knowledgeVersionRepository = GetRequiredService<IRepository<KnowledgeVersion, Guid>>();
+        _knowledgeIndexJobRepository = GetRequiredService<IRepository<KnowledgeIndexJob, Guid>>();
     }
 
     [Fact]
@@ -57,11 +60,10 @@ public class Mvp3KnowledgeFeedbackAppServiceTests : KnowPulseEntityFrameworkCore
     }
 
     [Fact]
-    public async Task Should_Process_Link_Resolve_And_Close_Feedback()
+    public async Task Should_Process_Create_Revision_And_Complete_After_Publish_And_Index()
     {
         var prefix = UniquePrefix();
         var knowledge = await CreatePublishedKnowledgeAsync($"{prefix} handbook", "v1 content");
-        var draft = await CreateDraftVersionAsync(knowledge.Item.Id, $"{prefix} handbook v2", "fixed draft content", versionNumber: 2);
         var feedback = await _feedbackAppService.SubmitAsync(new SubmitKnowledgeFeedbackDto
         {
             KnowledgeItemId = knowledge.Item.Id,
@@ -78,33 +80,66 @@ public class Mvp3KnowledgeFeedbackAppServiceTests : KnowPulseEntityFrameworkCore
         processing.Status.ShouldBe(KnowledgeFeedbackStatus.Processing);
         processing.Resolution.ShouldBe("确认需要修订");
 
-        var linked = await _feedbackAppService.LinkVersionAsync(feedback.Id, new LinkKnowledgeFeedbackVersionDto
-        {
-            LinkedKnowledgeVersionId = draft.Id,
-            Resolution = "已创建修订草稿"
-        });
+        var linked = await _feedbackAppService.CreateRevisionAsync(feedback.Id);
         linked.Status.ShouldBe(KnowledgeFeedbackStatus.Processing);
-        linked.LinkedKnowledgeVersionId.ShouldBe(draft.Id);
+        linked.LinkedKnowledgeVersionId.ShouldNotBeNull();
+        linked.LinkedKnowledgeVersionNumber.ShouldBe(2);
+        linked.LinkedKnowledgeVersionStatus.ShouldBe(KnowledgeVersionStatus.Draft);
+
+        var draft = await _knowledgeVersionRepository.GetAsync(linked.LinkedKnowledgeVersionId!.Value);
+        draft.Title.ShouldBe(knowledge.PublishedVersion.Title);
+        draft.ContentText.ShouldBe("v1 content");
+
+        var notPublished = await Should.ThrowAsync<BusinessException>(() =>
+            _feedbackAppService.ResolveAsync(feedback.Id, new ResolveKnowledgeFeedbackDto
+            {
+                Resolution = "尝试过早完成"
+            }));
+        notPublished.Code.ShouldBe(KnowPulseDomainErrorCodes.KnowledgeFeedbackRevisionNotPublished);
+
+        await PublishRevisionAsync(knowledge, draft);
+
+        var notIndexed = await Should.ThrowAsync<BusinessException>(() =>
+            _feedbackAppService.ResolveAsync(feedback.Id, new ResolveKnowledgeFeedbackDto
+            {
+                Resolution = "发布后但索引尚未完成"
+            }));
+        notIndexed.Code.ShouldBe(KnowPulseDomainErrorCodes.KnowledgeFeedbackRevisionNotIndexed);
+
+        await MarkRevisionIndexedAsync(knowledge.Item.Id, draft.Id);
 
         var resolved = await _feedbackAppService.ResolveAsync(feedback.Id, new ResolveKnowledgeFeedbackDto
         {
-            LinkedKnowledgeVersionId = draft.Id,
-            Resolution = "已在草稿版本修正"
+            Resolution = "修订已发布并完成检索验证"
         });
         resolved.Status.ShouldBe(KnowledgeFeedbackStatus.Resolved);
         resolved.LinkedKnowledgeVersionTitle.ShouldBe(draft.Title);
-        resolved.Resolution.ShouldBe("已在草稿版本修正");
-
-        var closed = await _feedbackAppService.CloseAsync(feedback.Id, new CloseKnowledgeFeedbackDto
-        {
-            CloseReason = "修订已验收"
-        });
-        closed.Status.ShouldBe(KnowledgeFeedbackStatus.Closed);
-        closed.CloseReason.ShouldBe("修订已验收");
+        resolved.LinkedKnowledgeVersionIndexStatus.ShouldBe(KnowledgeIndexJobStatus.Indexed);
+        resolved.Resolution.ShouldBe("修订已发布并完成检索验证");
 
         var publishedVersion = await _knowledgeVersionRepository.GetAsync(knowledge.PublishedVersion.Id);
         publishedVersion.Status.ShouldBe(KnowledgeVersionStatus.Published);
         publishedVersion.ContentText.ShouldBe("v1 content");
+    }
+
+    [Fact]
+    public async Task Should_Require_Taking_Ownership_Before_Creating_Revision()
+    {
+        var prefix = UniquePrefix();
+        var knowledge = await CreatePublishedKnowledgeAsync($"{prefix} ownership", "source content");
+        var feedback = await _feedbackAppService.SubmitAsync(new SubmitKnowledgeFeedbackDto
+        {
+            KnowledgeItemId = knowledge.Item.Id,
+            KnowledgeVersionId = knowledge.PublishedVersion.Id,
+            Type = KnowledgeFeedbackType.Error,
+            Title = "需要修订",
+            Description = "先接手再开始修改"
+        });
+
+        var exception = await Should.ThrowAsync<BusinessException>(() =>
+            _feedbackAppService.CreateRevisionAsync(feedback.Id));
+
+        exception.Code.ShouldBe(KnowPulseDomainErrorCodes.KnowledgeFeedbackRevisionRequiresProcessing);
     }
 
     [Fact]
@@ -153,17 +188,32 @@ public class Mvp3KnowledgeFeedbackAppServiceTests : KnowPulseEntityFrameworkCore
         return new PublishedKnowledge(item, version);
     }
 
-    private async Task<KnowledgeVersion> CreateDraftVersionAsync(Guid itemId, string title, string content, int versionNumber)
+    private async Task PublishRevisionAsync(PublishedKnowledge knowledge, KnowledgeVersion revision)
     {
-        return await _knowledgeVersionRepository.InsertAsync(
-            new KnowledgeVersion(
-                Guid.NewGuid(),
-                null,
-                itemId,
-                versionNumber,
-                title,
-                content),
-            autoSave: true);
+        var original = await _knowledgeVersionRepository.GetAsync(knowledge.PublishedVersion.Id);
+        original.ClearCurrentPublished();
+        await _knowledgeVersionRepository.UpdateAsync(original, autoSave: true);
+
+        revision.Publish(DateTime.UtcNow);
+        await _knowledgeVersionRepository.UpdateAsync(revision, autoSave: true);
+
+        var item = await _knowledgeItemRepository.GetAsync(knowledge.Item.Id);
+        item.SetCurrentPublishedVersion(revision.Id);
+        await _knowledgeItemRepository.UpdateAsync(item, autoSave: true);
+
+    }
+
+    private async Task MarkRevisionIndexedAsync(Guid itemId, Guid revisionId)
+    {
+        var job = new KnowledgeIndexJob(
+            Guid.NewGuid(),
+            null,
+            itemId,
+            revisionId,
+            KnowledgeIndexJobTriggerType.Publish);
+        job.Start(DateTime.UtcNow);
+        job.MarkIndexed(DateTime.UtcNow);
+        await _knowledgeIndexJobRepository.InsertAsync(job, autoSave: true);
     }
 
     private static string UniquePrefix()

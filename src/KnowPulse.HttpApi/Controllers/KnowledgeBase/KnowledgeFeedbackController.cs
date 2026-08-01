@@ -72,6 +72,16 @@ public class KnowledgeFeedbackController : KnowPulseController
     }
 
     /// <summary>
+    /// 从已接手反馈创建并自动关联修订草稿。
+    /// </summary>
+    [Authorize(KnowPulsePermissions.KnowledgeBase.Feedback)]
+    [HttpPost("{id:guid}/create-revision")]
+    public Task<KnowledgeFeedbackDto> CreateRevisionAsync(Guid id)
+    {
+        return _feedbackAppService.CreateRevisionAsync(id);
+    }
+
+    /// <summary>
     /// 标记知识反馈已处理。
     /// </summary>
     /// <param name="id">反馈 ID。</param>

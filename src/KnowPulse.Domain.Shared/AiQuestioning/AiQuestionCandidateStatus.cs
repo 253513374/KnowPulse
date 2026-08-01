@@ -17,10 +17,16 @@ public enum AiQuestionCandidateStatus
     ValidationFailed = 1,
 
     /// <summary>
-    /// 候选题已经被转换为题库草稿并提交到题库审核流。
-    /// 对应正式题仍处于待审核状态，不可直接组卷。
+    /// 候选题已经被人工采纳为题库草稿。
+    /// 草稿仍需编辑确认并由用户主动提交审核，不可直接组卷。
     /// </summary>
-    SubmittedForReview = 2,
+    AdoptedAsDraft = 2,
+
+    /// <summary>
+    /// 旧版名称，仅用于兼容历史调用方；新流程不会在采纳时自动提交审核。
+    /// </summary>
+    [System.Obsolete("Use AdoptedAsDraft. Adoption no longer submits a question for review.")]
+    SubmittedForReview = AdoptedAsDraft,
 
     /// <summary>
     /// 候选题被人工驳回。

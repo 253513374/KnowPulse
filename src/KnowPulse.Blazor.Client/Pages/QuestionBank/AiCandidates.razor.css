@@ -1,0 +1,35 @@
+.qb-ai-guardrail {
+    display: flex;
+    align-items: flex-start;
+    gap: .75rem;
+    border-color: rgba(var(--bs-primary-rgb), .2);
+    background: rgba(var(--bs-primary-rgb), .06);
+}
+
+.qb-ai-guardrail > i { margin-top: .2rem; }
+.qb-ai-guardrail strong,
+.qb-ai-guardrail span { display: block; }
+.qb-ai-guardrail span { margin-top: .15rem; font-size: .82rem; }
+
+.qb-ai-advanced summary {
+    color: var(--bs-secondary-color);
+    cursor: pointer;
+    font-size: .875rem;
+}
+
+.qb-task-card { overflow: hidden; }
+
+.qb-ai-empty {
+    min-height: 14rem;
+    border: 1px dashed var(--bs-border-color);
+}
+
+.qb-ai-empty__icon {
+    display: inline-grid;
+    width: 3rem;
+    height: 3rem;
+    place-items: center;
+    border-radius: 50%;
+    color: var(--bs-primary);
+    background: rgba(var(--bs-primary-rgb), .1);
+}

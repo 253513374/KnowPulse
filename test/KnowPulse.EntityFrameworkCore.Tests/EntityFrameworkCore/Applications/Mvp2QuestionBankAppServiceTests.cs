@@ -13,12 +13,106 @@ namespace KnowPulse.EntityFrameworkCore.Applications;
 public class Mvp2QuestionBankAppServiceTests : KnowPulseEntityFrameworkCoreTestBase
 {
     private readonly IQuestionAppService _questionAppService;
+    private readonly IQuestionWorkflowAppService _questionWorkflowAppService;
     private readonly IRepository<QuestionReview, Guid> _reviewRepository;
 
     public Mvp2QuestionBankAppServiceTests()
     {
         _questionAppService = GetRequiredService<IQuestionAppService>();
+        _questionWorkflowAppService = GetRequiredService<IQuestionWorkflowAppService>();
         _reviewRepository = GetRequiredService<IRepository<QuestionReview, Guid>>();
+    }
+
+    [Fact]
+    public void Question_App_Service_Should_Remain_Resolvable_As_HttpApi_Controller()
+    {
+        GetRequiredService<QuestionAppService>().ShouldNotBeNull();
+    }
+
+    [Fact]
+    public async Task Manual_Draft_Creation_Should_Own_Source_On_Server()
+    {
+        var input = CreateSingleChoiceInput("Server owned manual source", QuestionCreationSource.AiGenerated);
+
+        var question = await _questionWorkflowAppService.CreateManualDraftAsync(input);
+
+        question.Status.ShouldBe(QuestionStatus.Draft);
+        question.CreationSource.ShouldBe(QuestionCreationSource.Manual);
+
+        var saved = await _questionWorkflowAppService.SaveDraftAsync(
+            question.Id,
+            CreateSingleChoiceInput("Server owned manual source updated", QuestionCreationSource.AiGenerated));
+
+        saved.CreationSource.ShouldBe(QuestionCreationSource.Manual);
+    }
+
+    [Fact]
+    public async Task Returning_Question_Should_Require_Review_Reason()
+    {
+        var question = await _questionWorkflowAppService.CreateManualDraftAsync(CreateSingleChoiceInput("Return reason required"));
+        await _questionAppService.SubmitReviewAsync(question.Id);
+
+        var exception = await Should.ThrowAsync<Volo.Abp.BusinessException>(() =>
+            _questionWorkflowAppService.DecideReviewAsync(question.Id, new DecideQuestionReviewDto
+            {
+                Decision = QuestionReviewDecision.ReturnForRevision,
+                Comment = " "
+            }));
+
+        exception.Code.ShouldBe(KnowPulseDomainErrorCodes.QuestionReviewCommentRequired);
+    }
+
+    [Fact]
+    public async Task Rejecting_Question_Should_Require_Review_Reason()
+    {
+        var question = await _questionWorkflowAppService.CreateManualDraftAsync(CreateSingleChoiceInput("Reject reason required"));
+        await _questionAppService.SubmitReviewAsync(question.Id);
+
+        var exception = await Should.ThrowAsync<Volo.Abp.BusinessException>(() =>
+            _questionWorkflowAppService.DecideReviewAsync(question.Id, new DecideQuestionReviewDto
+            {
+                Decision = QuestionReviewDecision.Reject
+            }));
+
+        exception.Code.ShouldBe(KnowPulseDomainErrorCodes.QuestionReviewCommentRequired);
+    }
+
+    [Fact]
+    public async Task Worklists_Should_Map_User_Tasks_To_Server_Side_Statuses()
+    {
+        var draft = await _questionWorkflowAppService.CreateManualDraftAsync(CreateSingleChoiceInput("Worklist draft"));
+        var pending = await _questionWorkflowAppService.CreateManualDraftAsync(CreateSingleChoiceInput("Worklist pending"));
+        await _questionWorkflowAppService.SubmitAsync(pending.Id);
+        var formal = await _questionWorkflowAppService.CreateManualDraftAsync(CreateSingleChoiceInput("Worklist formal"));
+        await _questionWorkflowAppService.SubmitAsync(formal.Id);
+        await _questionWorkflowAppService.DecideReviewAsync(formal.Id, new DecideQuestionReviewDto
+        {
+            Decision = QuestionReviewDecision.Approve,
+            Comment = "Ready for formal library"
+        });
+
+        var drafts = await _questionAppService.GetListAsync(new GetQuestionListInput
+        {
+            Worklist = QuestionWorklistKind.Drafts,
+            MaxResultCount = 100
+        });
+        var reviews = await _questionAppService.GetListAsync(new GetQuestionListInput
+        {
+            Worklist = QuestionWorklistKind.ReviewQueue,
+            MaxResultCount = 100
+        });
+        var formalQuestions = await _questionAppService.GetListAsync(new GetQuestionListInput
+        {
+            Worklist = QuestionWorklistKind.Formal,
+            MaxResultCount = 100
+        });
+
+        drafts.Items.Select(x => x.Id).ShouldContain(draft.Id);
+        drafts.Items.Select(x => x.Id).ShouldNotContain(pending.Id);
+        reviews.Items.Select(x => x.Id).ShouldContain(pending.Id);
+        reviews.Items.Select(x => x.Id).ShouldNotContain(formal.Id);
+        formalQuestions.Items.Select(x => x.Id).ShouldContain(formal.Id);
+        formalQuestions.Items.Select(x => x.Id).ShouldNotContain(draft.Id);
     }
 
     [Fact]

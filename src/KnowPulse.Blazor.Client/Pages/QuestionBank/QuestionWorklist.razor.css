@@ -1,0 +1,19 @@
+.qb-worklist-card { overflow: hidden; }
+
+.qb-empty {
+    display: grid;
+    justify-items: center;
+    padding: 3rem 1rem;
+    text-align: center;
+}
+
+.qb-empty__icon {
+    display: grid;
+    width: 3rem;
+    height: 3rem;
+    place-items: center;
+    border-radius: 50%;
+    color: var(--bs-primary);
+    background: rgba(var(--bs-primary-rgb), .09);
+    font-size: 1.1rem;
+}

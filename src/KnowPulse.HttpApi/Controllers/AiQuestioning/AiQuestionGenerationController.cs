@@ -105,8 +105,16 @@ public class AiQuestionGenerationController : KnowPulseController
     }
 
     /// <summary>
-    /// 将候选题提交到题库审核流。
-    /// 返回的题目仍处于待审核状态，不是可直接考试的正式题。
+    /// 将候选题采纳为可编辑草稿，不自动提交审核。
+    /// </summary>
+    [HttpPost("candidates/{candidateId:guid}/adopt-draft")]
+    public Task<QuestionDto> AdoptCandidateAsDraftAsync(Guid candidateId)
+    {
+        return _generationAppService.AdoptCandidateAsDraftAsync(candidateId);
+    }
+
+    /// <summary>
+    /// 旧版兼容入口。当前只将候选题采纳为草稿，不再自动提交审核。
     /// </summary>
     [HttpPost("candidates/{candidateId:guid}/submit-review")]
     public Task<QuestionDto> SubmitCandidateForReviewAsync(Guid candidateId, [FromBody] SubmitAiQuestionCandidateDto input)

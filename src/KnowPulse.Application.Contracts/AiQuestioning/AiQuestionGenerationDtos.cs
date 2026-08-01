@@ -179,13 +179,13 @@ public class CreateAiQuestionGenerationTaskDto
 }
 
 /// <summary>
-/// 将候选题提交到题库审核流时的输入。
-/// 提交动作只会创建待审核题，不会直接生成正式可考试题。
+/// 旧版候选题提交入口的兼容输入。
+/// 当前入口仅采纳为草稿，字段不再参与审核记录。
 /// </summary>
 public class SubmitAiQuestionCandidateDto
 {
     /// <summary>
-    /// 提交说明，写入后续审核上下文，便于区分页面提交或自动化提交。
+    /// 旧版提交说明。新流程中采纳草稿不会产生审核意见。
     /// </summary>
     [StringLength(512)]
     public string? Comment { get; set; }
@@ -475,8 +475,8 @@ public class AiQuestionCandidateDto : FullAuditedEntityDto<Guid>
     public string? ValidationErrors { get; set; }
 
     /// <summary>
-    /// 候选题提交审核后生成的题库题目 ID。
-    /// 为空表示仍未进入题库审核流。
+    /// 候选题采纳后生成的题库草稿 ID。
+    /// 为空表示仍未进入题库工作流。
     /// </summary>
     public Guid? LinkedQuestionId { get; set; }
 
