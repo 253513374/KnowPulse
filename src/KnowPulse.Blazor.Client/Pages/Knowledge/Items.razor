@@ -11,31 +11,31 @@
 @* 知识文档管理页：同一页面承载文档元数据、版本生命周期和版本附件管理。 *@
 <PageTitle>知识文档</PageTitle>
 
-<div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+<div class="kp-flex kp-flex-wrap kp-align-center kp-justify-between kp-gap-2 kp-mb-3">
     <div>
-        <h1 class="h4 mb-1">知识文档</h1>
-        <div class="text-muted small">文档、版本、附件</div>
+        <h1 class="kp-heading-4 kp-mb-1">知识文档</h1>
+        <div class="kp-text-muted kp-text-small">文档、版本、附件</div>
     </div>
-    <div class="d-flex flex-wrap gap-2">
-        <button class="btn btn-primary btn-sm" type="button" @onclick="StartCreateItem" disabled="@IsBusy">新建文档</button>
-        <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="LoadAsync" disabled="@IsBusy">刷新</button>
+    <div class="kp-flex kp-flex-wrap kp-gap-2">
+        <button class="kp-button kp-button--primary kp-button--sm" type="button" @onclick="StartCreateItem" disabled="@IsBusy">新建文档</button>
+        <button class="kp-button kp-button--secondary kp-button--sm" type="button" @onclick="LoadAsync" disabled="@IsBusy">刷新</button>
     </div>
 </div>
 
 @if (!string.IsNullOrWhiteSpace(ErrorMessage))
 {
-    <div class="alert alert-danger d-flex flex-wrap align-items-center justify-content-between gap-2" role="alert">
+    <div class="kp-alert kp-alert--error kp-flex kp-flex-wrap kp-align-center kp-justify-between kp-gap-2" role="alert">
         <span>@ErrorMessage</span>
-        <button class="btn btn-sm btn-outline-danger" type="button" @onclick="LoadAsync" disabled="@IsBusy">重试</button>
+        <button class="kp-button kp-button--sm kp-button--danger-outline" type="button" @onclick="LoadAsync" disabled="@IsBusy">重试</button>
     </div>
 }
 
 @if (!string.IsNullOrWhiteSpace(FeedbackSuccessMessage))
 {
-    <div class="alert alert-success" role="status">@FeedbackSuccessMessage</div>
+    <div class="kp-alert kp-alert--success" role="status">@FeedbackSuccessMessage</div>
 }
 
-<div class="knowledge-flow mb-3" aria-label="知识文档工作流">
+<div class="knowledge-flow kp-mb-3" aria-label="知识文档工作流">
     <div class="knowledge-flow-step @GetFlowStepClass(SelectedItemId.HasValue)">
         <div class="knowledge-flow-index">1</div>
         <div>
@@ -59,32 +59,32 @@
     </div>
 </div>
 
-<div class="row g-3">
+<div class="kp-grid kp-grid-gap-3">
     @* 左侧负责编辑知识文档和为当前选中文档创建新版本。 *@
-    <div class="col-xl-4">
-        <div class="card mb-3">
-            <div class="card-body">
-                <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+    <div class="kp-col-xl-4">
+        <div class="kp-card kp-mb-3">
+            <div class="kp-card__body">
+                <div class="kp-flex kp-flex-wrap kp-align-center kp-justify-between kp-gap-2 kp-mb-3">
                     <div>
-                        <h2 class="h6 mb-1">@ItemFormTitle</h2>
-                        <div class="text-muted small">@ItemFormSubtitle</div>
+                        <h2 class="kp-heading-6 kp-mb-1">@ItemFormTitle</h2>
+                        <div class="kp-text-muted kp-text-small">@ItemFormSubtitle</div>
                     </div>
                     @if (EditingItemId.HasValue)
                     {
-                        <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="StartCreateItem" disabled="@IsBusy">改为新建</button>
+                        <button class="kp-button kp-button--secondary kp-button--sm" type="button" @onclick="StartCreateItem" disabled="@IsBusy">改为新建</button>
                     }
                 </div>
                 <EditForm Model="@ItemForm" OnValidSubmit="@SaveItemAsync">
                     <DataAnnotationsValidator />
 
-                    <div class="mb-3">
-                        <label class="form-label" for="knowledge-title">标题</label>
-                        <input id="knowledge-title" class="form-control" @bind="ItemForm.Title" @bind:event="oninput" />
+                    <div class="kp-mb-3">
+                        <label class="kp-label" for="knowledge-title">标题</label>
+                        <input id="knowledge-title" class="kp-input" @bind="ItemForm.Title" @bind:event="oninput" />
                     </div>
 
-                    <div class="mb-3">
-                        <label class="form-label" for="knowledge-category">分类</label>
-                        <select id="knowledge-category" class="form-select" @bind="ItemForm.CategoryIdText">
+                    <div class="kp-mb-3">
+                        <label class="kp-label" for="knowledge-category">分类</label>
+                        <select id="knowledge-category" class="kp-select" @bind="ItemForm.CategoryIdText">
                             <option value="">未分类</option>
                             @foreach (var category in CategoryList)
                             {
@@ -93,120 +93,120 @@
                         </select>
                     </div>
 
-                    <div class="mb-3">
-                        <label class="form-label" for="knowledge-summary">摘要</label>
-                        <textarea id="knowledge-summary" class="form-control" rows="4" @bind="ItemForm.Summary" @bind:event="oninput"></textarea>
+                    <div class="kp-mb-3">
+                        <label class="kp-label" for="knowledge-summary">摘要</label>
+                        <textarea id="knowledge-summary" class="kp-input" rows="4" @bind="ItemForm.Summary" @bind:event="oninput"></textarea>
                     </div>
 
                     @if (EditingItemId.HasValue)
                     {
-                        <div class="form-check form-switch mb-3">
-                            <InputCheckbox id="knowledge-active" class="form-check-input" @bind-Value="ItemForm.IsActive" />
-                            <label class="form-check-label" for="knowledge-active">启用</label>
+                        <div class="kp-check kp-switch kp-mb-3">
+                            <InputCheckbox id="knowledge-active" class="kp-check__input" @bind-Value="ItemForm.IsActive" />
+                            <label class="kp-check__label" for="knowledge-active">启用</label>
                         </div>
                     }
 
-                    <div class="d-flex flex-wrap gap-2">
-                        <button class="btn btn-primary" type="submit" disabled="@IsBusy">@ItemSubmitText</button>
-                        <button class="btn btn-outline-secondary" type="button" @onclick="ResetItemForm" disabled="@IsBusy">取消</button>
+                    <div class="kp-flex kp-flex-wrap kp-gap-2">
+                        <button class="kp-button kp-button--primary" type="submit" disabled="@IsBusy">@ItemSubmitText</button>
+                        <button class="kp-button kp-button--secondary" type="button" @onclick="ResetItemForm" disabled="@IsBusy">取消</button>
                     </div>
                 </EditForm>
             </div>
         </div>
 
-        <div class="card">
-            <div class="card-body">
-                <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+        <div class="kp-card">
+            <div class="kp-card__body">
+                <div class="kp-flex kp-flex-wrap kp-align-center kp-justify-between kp-gap-2 kp-mb-3">
                     <div>
-                        <h2 class="h6 mb-1">版本内容</h2>
-                        <div class="text-muted small">@SelectedItemTitle</div>
+                        <h2 class="kp-heading-6 kp-mb-1">版本内容</h2>
+                        <div class="kp-text-muted kp-text-small">@SelectedItemTitle</div>
                     </div>
                 </div>
                 @if (SelectedItemId == null)
                 {
-                    <div class="knowledge-empty-compact mb-3">未选择文档</div>
+                    <div class="knowledge-empty-compact kp-mb-3">未选择文档</div>
                 }
                 <EditForm Model="@VersionForm" OnValidSubmit="@CreateVersionAsync">
                     <DataAnnotationsValidator />
 
-                    <div class="mb-3">
-                        <label class="form-label" for="version-title">标题</label>
-                        <input id="version-title" class="form-control" @bind="VersionForm.Title" @bind:event="oninput" disabled="@(SelectedItemId == null || IsBusy)" />
+                    <div class="kp-mb-3">
+                        <label class="kp-label" for="version-title">标题</label>
+                        <input id="version-title" class="kp-input" @bind="VersionForm.Title" @bind:event="oninput" disabled="@(SelectedItemId == null || IsBusy)" />
                     </div>
 
-                    <div class="mb-3">
-                        <label class="form-label" for="version-content">正文</label>
-                        <textarea id="version-content" class="form-control" rows="6" @bind="VersionForm.ContentText" @bind:event="oninput" disabled="@(SelectedItemId == null || IsBusy)"></textarea>
+                    <div class="kp-mb-3">
+                        <label class="kp-label" for="version-content">正文</label>
+                        <textarea id="version-content" class="kp-input" rows="6" @bind="VersionForm.ContentText" @bind:event="oninput" disabled="@(SelectedItemId == null || IsBusy)"></textarea>
                     </div>
 
-                    <button class="btn btn-primary" type="submit" disabled="@(IsBusy || SelectedItemId == null)">创建版本</button>
+                    <button class="kp-button kp-button--primary" type="submit" disabled="@(IsBusy || SelectedItemId == null)">创建版本</button>
                 </EditForm>
             </div>
         </div>
     </div>
 
     @* 右侧负责展示知识文档列表、版本列表和附件列表。 *@
-    <div class="col-xl-8">
-        <div class="card mb-3">
-            <div class="card-body border-bottom">
-                <div class="d-flex flex-wrap align-items-center justify-content-between gap-2">
+    <div class="kp-col-xl-8">
+        <div class="kp-card kp-mb-3">
+            <div class="kp-card__body kp-border-bottom">
+                <div class="kp-flex kp-flex-wrap kp-align-center kp-justify-between kp-gap-2">
                     <div>
-                        <h2 class="h6 mb-1">文档列表</h2>
-                        <div class="text-muted small">@TotalCount 条文档</div>
+                        <h2 class="kp-heading-6 kp-mb-1">文档列表</h2>
+                        <div class="kp-text-muted kp-text-small">@TotalCount 条文档</div>
                     </div>
                     @if (SelectedItemId.HasValue)
                     {
-                        <span class="badge bg-primary-subtle text-primary-emphasis">已打开：@SelectedItemTitle</span>
+                        <span class="kp-badge kp-bg-primary-soft kp-text-primary-strong">已打开：@SelectedItemTitle</span>
                     }
                 </div>
             </div>
-            <div class="table-responsive">
-                <table class="table table-hover align-middle mb-0">
+            <div class="kp-table-wrap">
+                <table class="kp-table kp-table--hover kp-table-align-middle kp-mb-0">
                     <thead>
                         <tr>
                             <th>标题</th>
                             <th>分类</th>
                             <th>发布</th>
                             <th>状态</th>
-                            <th class="text-end">操作</th>
+                            <th class="kp-text-end">操作</th>
                         </tr>
                     </thead>
                     <tbody>
                         @if (IsLoading)
                         {
                             <tr>
-                                <td colspan="5" class="text-center py-4 text-muted">加载中</td>
+                                <td colspan="5" class="kp-text-center kp-py-4 kp-text-muted">加载中</td>
                             </tr>
                         }
                         else if (KnowledgeItemList.Count == 0)
                         {
                             <tr>
-                                <td colspan="5" class="text-center py-4 text-muted">暂无数据</td>
+                                <td colspan="5" class="kp-text-center kp-py-4 kp-text-muted">暂无数据</td>
                             </tr>
                         }
                         else
                         {
                             @foreach (var item in KnowledgeItemList)
                             {
-                                <tr class="@(SelectedItemId == item.Id ? "table-active" : null)">
+                                <tr class="@(SelectedItemId == item.Id ? "kp-table-row--active" : null)">
                                     <td>
-                                        <div class="fw-semibold">@item.Title</div>
+                                        <div class="kp-text-semibold">@item.Title</div>
                                         @if (!string.IsNullOrWhiteSpace(item.Summary))
                                         {
-                                            <div class="text-muted small">@item.Summary</div>
+                                            <div class="kp-text-muted kp-text-small">@item.Summary</div>
                                         }
                                     </td>
                                     <td>@GetCategoryName(item.CategoryId)</td>
                                     <td>@(item.CurrentPublishedVersionId.HasValue ? "已发布" : "未发布")</td>
                                     <td>
-                                        <span class="badge @(item.IsActive ? "bg-success" : "bg-secondary")">
+                                        <span class="kp-badge @(item.IsActive ? "kp-bg-success" : "kp-bg-secondary")">
                                             @(item.IsActive ? "启用" : "停用")
                                         </span>
                                     </td>
-                                    <td class="text-end">
-                                        <button class="btn btn-link btn-sm" type="button" @onclick="() => SelectItemAsync(item)">打开</button>
-                                        <button class="btn btn-link btn-sm" type="button" @onclick="() => EditItemAsync(item)">编辑</button>
-                                        <button class="btn btn-link btn-sm text-danger" type="button" @onclick="() => DeleteItemAsync(item)" disabled="@IsBusy">删除</button>
+                                    <td class="kp-text-end">
+                                        <button class="kp-button kp-button--link kp-button--sm" type="button" @onclick="() => SelectItemAsync(item)">打开</button>
+                                        <button class="kp-button kp-button--link kp-button--sm" type="button" @onclick="() => EditItemAsync(item)">编辑</button>
+                                        <button class="kp-button kp-button--link kp-button--sm kp-text-danger" type="button" @onclick="() => DeleteItemAsync(item)" disabled="@IsBusy">删除</button>
                                     </td>
                                 </tr>
                             }
@@ -217,21 +217,21 @@
             <MvpPager SkipCount="SkipCount" PageSize="PageSize" TotalCount="TotalCount" IsBusy="IsBusy" OnSkipCountChanged="ChangePageAsync" />
         </div>
 
-        <div class="card">
-            <div class="card-body border-bottom">
-                <div class="d-flex flex-wrap align-items-center justify-content-between gap-2">
+        <div class="kp-card">
+            <div class="kp-card__body kp-border-bottom">
+                <div class="kp-flex kp-flex-wrap kp-align-center kp-justify-between kp-gap-2">
                     <div>
-                        <h2 class="h6 mb-1">版本</h2>
-                        <div class="text-muted small">@SelectedItemTitle</div>
+                        <h2 class="kp-heading-6 kp-mb-1">版本</h2>
+                        <div class="kp-text-muted kp-text-small">@SelectedItemTitle</div>
                     </div>
                     @if (SelectedVersionId.HasValue)
                     {
-                        <span class="badge bg-secondary">@SelectedVersionTitle</span>
+                        <span class="kp-badge kp-bg-secondary">@SelectedVersionTitle</span>
                     }
                 </div>
             </div>
-            <div class="table-responsive">
-                <table class="table table-hover align-middle mb-0">
+            <div class="kp-table-wrap">
+                <table class="kp-table kp-table--hover kp-table-align-middle kp-mb-0">
                     <thead>
                         <tr>
                             <th>版本</th>
@@ -242,14 +242,14 @@
                                 <th>索引</th>
                             }
                             <th>发布时间</th>
-                            <th class="text-end">操作</th>
+                            <th class="kp-text-end">操作</th>
                         </tr>
                     </thead>
                     <tbody>
                         @if (SelectedItemId == null)
                         {
                             <tr>
-                                <td colspan="@VersionTableColumnCount" class="text-center py-4 text-muted">
+                                <td colspan="@VersionTableColumnCount" class="kp-text-center kp-py-4 kp-text-muted">
                                     <div class="knowledge-empty-state">未打开文档</div>
                                 </td>
                             </tr>
@@ -257,7 +257,7 @@
                         else if (VersionList.Count == 0)
                         {
                             <tr>
-                                <td colspan="@VersionTableColumnCount" class="text-center py-4 text-muted">
+                                <td colspan="@VersionTableColumnCount" class="kp-text-center kp-py-4 kp-text-muted">
                                     <div class="knowledge-empty-state">暂无版本</div>
                                 </td>
                             </tr>
@@ -270,7 +270,7 @@
                                     <td>v@(version.VersionNumber)</td>
                                     <td>@version.Title</td>
                                     <td>
-                                        <span class="badge @(version.IsCurrentPublished ? "bg-success" : "bg-secondary")">
+                                        <span class="kp-badge @(version.IsCurrentPublished ? "kp-bg-success" : "kp-bg-secondary")">
                                             @GetVersionStatusText(version)
                                         </span>
                                     </td>
@@ -280,31 +280,31 @@
                                         <td>
                                             @if (latestJob == null)
                                             {
-                                                <span class="text-muted small">未索引</span>
+                                                <span class="kp-text-muted kp-text-small">未索引</span>
                                             }
                                             else
                                             {
                                                 <div>
-                                                    <span class="badge @GetIndexStatusBadge(latestJob.Status)">@GetIndexStatusText(latestJob.Status)</span>
+                                                    <span class="kp-badge @GetIndexStatusBadge(latestJob.Status)">@GetIndexStatusText(latestJob.Status)</span>
                                                 </div>
-                                                <div class="text-muted small">@GetIndexJobTimeText(latestJob)</div>
+                                                <div class="kp-text-muted kp-text-small">@GetIndexJobTimeText(latestJob)</div>
                                                 @if (!string.IsNullOrWhiteSpace(latestJob.FailureReason))
                                                 {
-                                                    <div class="text-danger small">@latestJob.FailureStage：@latestJob.FailureReason</div>
+                                                    <div class="kp-text-danger kp-text-small">@latestJob.FailureStage：@latestJob.FailureReason</div>
                                                 }
                                             }
                                         </td>
                                     }
                                     <td>@(version.PublishedTime?.ToString("yyyy-MM-dd HH:mm") ?? "-")</td>
-                                    <td class="text-end">
-                                        <button class="btn btn-link btn-sm" type="button" @onclick="() => PreviewVersion(version)">预览</button>
-                                        <button class="btn btn-link btn-sm" type="button" @onclick="() => PublishVersionAsync(version)" disabled="@IsBusy">发布</button>
-                                        <button class="btn btn-link btn-sm" type="button" @onclick="() => WithdrawVersionAsync(version)" disabled="@IsBusy">下架</button>
+                                    <td class="kp-text-end">
+                                        <button class="kp-button kp-button--link kp-button--sm" type="button" @onclick="() => PreviewVersion(version)">预览</button>
+                                        <button class="kp-button kp-button--link kp-button--sm" type="button" @onclick="() => PublishVersionAsync(version)" disabled="@IsBusy">发布</button>
+                                        <button class="kp-button kp-button--link kp-button--sm" type="button" @onclick="() => WithdrawVersionAsync(version)" disabled="@IsBusy">下架</button>
                                         @if (CanManageIndexJobs)
                                         {
-                                            <button class="btn btn-link btn-sm" type="button" @onclick="() => ReindexVersionAsync(version)" disabled="@IsBusy">重建索引</button>
+                                            <button class="kp-button kp-button--link kp-button--sm" type="button" @onclick="() => ReindexVersionAsync(version)" disabled="@IsBusy">重建索引</button>
                                         }
-                                        <button class="btn btn-link btn-sm text-danger" type="button" @onclick="() => ArchiveVersionAsync(version)" disabled="@IsBusy">归档</button>
+                                        <button class="kp-button kp-button--link kp-button--sm kp-text-danger" type="button" @onclick="() => ArchiveVersionAsync(version)" disabled="@IsBusy">归档</button>
                                     </td>
                                 </tr>
                             }
@@ -316,50 +316,50 @@
 
         @if (PreviewedVersion != null)
         {
-            <div class="card mt-3">
-                <div class="card-body border-bottom">
-                    <div class="d-flex flex-wrap align-items-center justify-content-between gap-2">
+            <div class="kp-card kp-mt-3">
+                <div class="kp-card__body kp-border-bottom">
+                    <div class="kp-flex kp-flex-wrap kp-align-center kp-justify-between kp-gap-2">
                         <div>
-                            <h2 class="h6 mb-1">版本预览</h2>
-                            <div class="text-muted small">v@(PreviewedVersion.VersionNumber) - @PreviewedVersion.Title</div>
+                            <h2 class="kp-heading-6 kp-mb-1">版本预览</h2>
+                            <div class="kp-text-muted kp-text-small">v@(PreviewedVersion.VersionNumber) - @PreviewedVersion.Title</div>
                         </div>
-                        <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="CloseVersionPreview">关闭</button>
+                        <button class="kp-button kp-button--secondary kp-button--sm" type="button" @onclick="CloseVersionPreview">关闭</button>
                     </div>
                 </div>
-                <div class="card-body">
+                <div class="kp-card__body">
                     @if (string.IsNullOrWhiteSpace(PreviewedVersion.ContentText))
                     {
-                        <div class="text-muted">暂无正文</div>
+                        <div class="kp-text-muted">暂无正文</div>
                     }
                     else
                     {
-                        <pre class="knowledge-version-preview mb-0">@PreviewedVersion.ContentText</pre>
+                        <pre class="knowledge-version-preview kp-mb-0">@PreviewedVersion.ContentText</pre>
                     }
                 </div>
             </div>
         }
 
-        <div class="card mt-3">
-            <div class="card-body border-bottom">
-                <div class="d-flex flex-wrap align-items-center justify-content-between gap-2">
+        <div class="kp-card kp-mt-3">
+            <div class="kp-card__body kp-border-bottom">
+                <div class="kp-flex kp-flex-wrap kp-align-center kp-justify-between kp-gap-2">
                     <div>
-                        <h2 class="h6 mb-1">知识反馈</h2>
-                        <div class="text-muted small">@FeedbackSourceText</div>
+                        <h2 class="kp-heading-6 kp-mb-1">知识反馈</h2>
+                        <div class="kp-text-muted kp-text-small">@FeedbackSourceText</div>
                     </div>
                 </div>
             </div>
-            <div class="card-body">
+            <div class="kp-card__body">
                 @if (SelectedItemId == null)
                 {
-                    <div class="knowledge-empty-compact mb-3">未选择文档</div>
+                    <div class="knowledge-empty-compact kp-mb-3">未选择文档</div>
                 }
                 <EditForm Model="@FeedbackForm" OnValidSubmit="@SubmitFeedbackAsync">
                     <DataAnnotationsValidator />
 
-                    <div class="row g-2">
-                        <div class="col-md-4">
-                            <label class="form-label" for="feedback-type">类型</label>
-                            <InputSelect id="feedback-type" class="form-select" @bind-Value="FeedbackForm.Type" disabled="@(SelectedItemId == null || IsBusy)">
+                    <div class="kp-grid kp-grid-gap-2">
+                        <div class="kp-col-md-4">
+                            <label class="kp-label" for="feedback-type">类型</label>
+                            <InputSelect id="feedback-type" class="kp-select" @bind-Value="FeedbackForm.Type" disabled="@(SelectedItemId == null || IsBusy)">
                                 <option value="@KnowledgeFeedbackType.Problem">问题</option>
                                 <option value="@KnowledgeFeedbackType.Outdated">过期</option>
                                 <option value="@KnowledgeFeedbackType.Error">错误</option>
@@ -367,40 +367,40 @@
                                 <option value="@KnowledgeFeedbackType.Suggestion">建议</option>
                             </InputSelect>
                         </div>
-                        <div class="col-md-8">
-                            <label class="form-label" for="feedback-title">标题</label>
-                            <input id="feedback-title" class="form-control" @bind="FeedbackForm.Title" @bind:event="oninput" disabled="@(SelectedItemId == null || IsBusy)" />
+                        <div class="kp-col-md-8">
+                            <label class="kp-label" for="feedback-title">标题</label>
+                            <input id="feedback-title" class="kp-input" @bind="FeedbackForm.Title" @bind:event="oninput" disabled="@(SelectedItemId == null || IsBusy)" />
                         </div>
                     </div>
 
-                    <div class="mt-2">
-                        <label class="form-label" for="feedback-description">说明</label>
-                        <textarea id="feedback-description" class="form-control" rows="3" @bind="FeedbackForm.Description" @bind:event="oninput" disabled="@(SelectedItemId == null || IsBusy)"></textarea>
+                    <div class="kp-mt-2">
+                        <label class="kp-label" for="feedback-description">说明</label>
+                        <textarea id="feedback-description" class="kp-input" rows="3" @bind="FeedbackForm.Description" @bind:event="oninput" disabled="@(SelectedItemId == null || IsBusy)"></textarea>
                     </div>
 
-                    <div class="mt-3">
-                        <button class="btn btn-outline-primary btn-sm" type="submit" disabled="@(IsBusy || SelectedItemId == null)">提交反馈</button>
+                    <div class="kp-mt-3">
+                        <button class="kp-button kp-button--primary-outline kp-button--sm" type="submit" disabled="@(IsBusy || SelectedItemId == null)">提交反馈</button>
                     </div>
                 </EditForm>
             </div>
         </div>
 
         @* 附件绑定到具体知识版本，文件内容走 BlobStoring/MinIO，页面只展示元数据和下载入口。 *@
-        <div class="card mt-3">
-            <div class="card-body border-bottom">
-                <div class="d-flex flex-wrap align-items-center justify-content-between gap-2">
+        <div class="kp-card kp-mt-3">
+            <div class="kp-card__body kp-border-bottom">
+                <div class="kp-flex kp-flex-wrap kp-align-center kp-justify-between kp-gap-2">
                     <div>
-                        <h2 class="h6 mb-1">版本附件</h2>
-                        <div class="text-muted small">@SelectedVersionTitle</div>
+                        <h2 class="kp-heading-6 kp-mb-1">版本附件</h2>
+                        <div class="kp-text-muted kp-text-small">@SelectedVersionTitle</div>
                     </div>
-                    <span class="badge bg-light text-dark">@AttachmentStepText</span>
+                    <span class="kp-badge kp-bg-light kp-text-dark">@AttachmentStepText</span>
                 </div>
             </div>
-            <div class="card-body">
-                <div class="row g-2 align-items-end">
-                    <div class="col-md-5">
-                        <label class="form-label" for="attachment-version">版本</label>
-                        <select id="attachment-version" class="form-select" value="@SelectedVersionIdText" @onchange="OnSelectedVersionChangedAsync" disabled="@(SelectedItemId == null || VersionList.Count == 0)">
+            <div class="kp-card__body">
+                <div class="kp-grid kp-grid-gap-2 kp-align-end">
+                    <div class="kp-col-md-5">
+                        <label class="kp-label" for="attachment-version">版本</label>
+                        <select id="attachment-version" class="kp-select" value="@SelectedVersionIdText" @onchange="OnSelectedVersionChangedAsync" disabled="@(SelectedItemId == null || VersionList.Count == 0)">
                             <option value="">选择版本</option>
                             @foreach (var version in VersionList)
                             {
@@ -408,13 +408,13 @@
                             }
                         </select>
                     </div>
-                    <div class="col-md-5">
-                        <label class="form-label" for="attachment-file">文件</label>
-                        <InputFile id="attachment-file" class="form-control" OnChange="@OnAttachmentFileChanged" disabled="@(SelectedVersionId == null)" />
-                        <div class="form-text">最大 @FormatFileSize(MaxAttachmentBytes)</div>
+                    <div class="kp-col-md-5">
+                        <label class="kp-label" for="attachment-file">文件</label>
+                        <InputFile id="attachment-file" class="kp-input" OnChange="@OnAttachmentFileChanged" disabled="@(SelectedVersionId == null)" />
+                        <div class="kp-help">最大 @FormatFileSize(MaxAttachmentBytes)</div>
                     </div>
-                    <div class="col-md-2">
-                        <button class="btn btn-primary w-100" type="button" @onclick="UploadAttachmentAsync" disabled="@(IsBusy || IsUploadingAttachment || SelectedItemId == null || SelectedVersionId == null || SelectedAttachmentFile == null)">
+                    <div class="kp-col-md-2">
+                        <button class="kp-button kp-button--primary kp-full-width" type="button" @onclick="UploadAttachmentAsync" disabled="@(IsBusy || IsUploadingAttachment || SelectedItemId == null || SelectedVersionId == null || SelectedAttachmentFile == null)">
                             @(IsUploadingAttachment ? "上传中" : "上传")
                         </button>
                     </div>
@@ -422,30 +422,30 @@
 
                 @if (SelectedAttachmentFile != null)
                 {
-                    <div class="text-muted small mt-2">@SelectedAttachmentFile.Name (@FormatFileSize(SelectedAttachmentFile.Size))</div>
+                    <div class="kp-text-muted kp-text-small kp-mt-2">@SelectedAttachmentFile.Name (@FormatFileSize(SelectedAttachmentFile.Size))</div>
                 }
                 @if (IsUploadingAttachment)
                 {
-                    <div class="progress mt-3" role="progressbar" aria-label="附件上传中">
-                        <div class="progress-bar progress-bar-striped progress-bar-animated" style="width: 100%">上传中</div>
+                    <div class="kp-progress kp-mt-3" role="progressbar" aria-label="附件上传中">
+                        <div class="kp-progress__bar kp-progress__bar--striped kp-progress__bar--animated" style="width: 100%">上传中</div>
                     </div>
                 }
             </div>
-            <div class="table-responsive">
-                <table class="table table-hover align-middle mb-0">
+            <div class="kp-table-wrap">
+                <table class="kp-table kp-table--hover kp-table-align-middle kp-mb-0">
                     <thead>
                         <tr>
                             <th>文件名</th>
                             <th>类型</th>
                             <th>大小</th>
-                            <th class="text-end">操作</th>
+                            <th class="kp-text-end">操作</th>
                         </tr>
                     </thead>
                     <tbody>
                         @if (SelectedVersionId == null)
                         {
                             <tr>
-                                <td colspan="4" class="text-center py-4 text-muted">
+                                <td colspan="4" class="kp-text-center kp-py-4 kp-text-muted">
                                     <div class="knowledge-empty-state">未选择版本</div>
                                 </td>
                             </tr>
@@ -453,7 +453,7 @@
                         else if (AttachmentList.Count == 0)
                         {
                             <tr>
-                                <td colspan="4" class="text-center py-4 text-muted">
+                                <td colspan="4" class="kp-text-center kp-py-4 kp-text-muted">
                                     <div class="knowledge-empty-state">暂无附件</div>
                                 </td>
                             </tr>
@@ -463,13 +463,13 @@
                             @foreach (var attachment in AttachmentList)
                             {
                                 <tr>
-                                    <td class="fw-semibold">@attachment.FileName</td>
+                                    <td class="kp-text-semibold">@attachment.FileName</td>
                                     <td>@attachment.ContentType</td>
                                     <td>@FormatFileSize(attachment.Size)</td>
-                                    <td class="text-end">
-                                        <button class="btn btn-link btn-sm" type="button" @onclick="() => PreviewAttachmentAsync(attachment)" disabled="@(IsBusy || !CanPreviewAttachment(attachment))" title="@GetPreviewUnavailableText(attachment)">预览</button>
-                                        <button class="btn btn-link btn-sm" type="button" @onclick="() => DownloadAttachmentAsync(attachment)" disabled="@IsBusy">下载</button>
-                                        <button class="btn btn-link btn-sm text-danger" type="button" @onclick="() => DeleteAttachmentAsync(attachment)" disabled="@IsBusy">删除</button>
+                                    <td class="kp-text-end">
+                                        <button class="kp-button kp-button--link kp-button--sm" type="button" @onclick="() => PreviewAttachmentAsync(attachment)" disabled="@(IsBusy || !CanPreviewAttachment(attachment))" title="@GetPreviewUnavailableText(attachment)">预览</button>
+                                        <button class="kp-button kp-button--link kp-button--sm" type="button" @onclick="() => DownloadAttachmentAsync(attachment)" disabled="@IsBusy">下载</button>
+                                        <button class="kp-button kp-button--link kp-button--sm kp-text-danger" type="button" @onclick="() => DeleteAttachmentAsync(attachment)" disabled="@IsBusy">删除</button>
                                     </td>
                                 </tr>
                             }
@@ -1250,13 +1250,13 @@
     {
         return status switch
         {
-            KnowledgeIndexJobStatus.Pending => "bg-warning text-dark",
-            KnowledgeIndexJobStatus.Processing => "bg-info text-dark",
-            KnowledgeIndexJobStatus.Indexed => "bg-success",
-            KnowledgeIndexJobStatus.Failed => "bg-danger",
-            KnowledgeIndexJobStatus.Outdated => "bg-secondary",
-            KnowledgeIndexJobStatus.Deleted => "bg-dark",
-            _ => "bg-secondary"
+            KnowledgeIndexJobStatus.Pending => "kp-bg-warning kp-text-dark",
+            KnowledgeIndexJobStatus.Processing => "kp-bg-info kp-text-dark",
+            KnowledgeIndexJobStatus.Indexed => "kp-bg-success",
+            KnowledgeIndexJobStatus.Failed => "kp-bg-error",
+            KnowledgeIndexJobStatus.Outdated => "kp-bg-secondary",
+            KnowledgeIndexJobStatus.Deleted => "kp-bg-dark",
+            _ => "kp-bg-secondary"
         };
     }
 
@@ -1427,7 +1427,7 @@
     /// <returns>用户确认时返回 true。</returns>
     private async Task<bool> ConfirmAsync(string message)
     {
-        return await JSRuntime.InvokeAsync<bool>("confirm", message);
+        return await Message.Confirm(message);
     }
 
     /// <summary>

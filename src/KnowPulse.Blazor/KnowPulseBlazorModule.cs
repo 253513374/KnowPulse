@@ -4,7 +4,10 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using KnowPulse.Blazor.Client;
 using Volo.Abp;
-using Volo.Abp.AspNetCore.Components.WebAssembly.LeptonXLiteTheme.Bundling;
+using Volo.Abp.AspNetCore.Components.Web;
+using Volo.Abp.AspNetCore.Components.Server.Theming.MudBlazor;
+using Volo.Abp.AspNetCore.Components.WebAssembly.MudBlazorLeptonXLiteTheme.Bundling;
+using Volo.Abp.AspNetCore.Components.WebAssembly.Theming.MudBlazor.Bundling;
 using Volo.Abp.AspNetCore.Components.WebAssembly.WebApp;
 using Volo.Abp.AspNetCore.Mvc.UI.Bundling;
 using Volo.Abp.Autofac;
@@ -15,10 +18,19 @@ namespace KnowPulse.Blazor;
 [DependsOn(
     typeof(AbpAutofacModule),
     typeof(AbpAspNetCoreMvcUiBundlingModule),
-    typeof(AbpAspNetCoreComponentsWebAssemblyLeptonXLiteThemeBundlingModule)
+    typeof(AbpAspNetCoreComponentsServerThemingMudBlazorModule),
+    typeof(AbpAspNetCoreComponentsWebAssemblyMudBlazorLeptonXLiteThemeBundlingModule)
 )]
 public class KnowPulseBlazorModule : AbpModule
 {
+    public override void PreConfigureServices(ServiceConfigurationContext context)
+    {
+        PreConfigure<AbpAspNetCoreComponentsWebOptions>(options =>
+        {
+            options.IsBlazorWebApp = true;
+        });
+    }
+
     public override void ConfigureServices(ServiceConfigurationContext context)
     {
         //https://github.com/dotnet/aspnetcore/issues/52530
@@ -30,6 +42,28 @@ public class KnowPulseBlazorModule : AbpModule
         // Add services to the container.
         context.Services.AddRazorComponents()
             .AddInteractiveWebAssemblyComponents();
+
+        ConfigureBundles();
+    }
+
+    private void ConfigureBundles()
+    {
+        Configure<AbpBundlingOptions>(options =>
+        {
+            options.StyleBundles.Configure(
+                BlazorWebAssemblyMudBlazorStandardBundles.Styles.Global,
+                bundle =>
+                {
+                    bundle.AddFiles("/main.css");
+                    bundle.AddFiles(new BundleFile("/KnowPulse.Blazor.Client.styles.css", true));
+                }
+            );
+
+            options.ScriptBundles.Configure(
+                BlazorWebAssemblyMudBlazorStandardBundles.Scripts.Global,
+                bundle => bundle.AddFiles("/knowpulse.js")
+            );
+        });
     }
 
     public override void OnApplicationInitialization(ApplicationInitializationContext context)

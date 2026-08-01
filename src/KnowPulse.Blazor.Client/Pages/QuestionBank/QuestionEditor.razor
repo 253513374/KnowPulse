@@ -10,63 +10,63 @@
 
 <QuestionBankFlowNav ActiveStage="drafts" />
 
-<div class="d-flex flex-wrap align-items-start justify-content-between gap-3 mb-3">
+<div class="kp-flex kp-flex-wrap kp-align-start kp-justify-between kp-gap-3 kp-mb-3">
     <div>
-        <h1 class="h4 mb-1">@(Id.HasValue ? "编辑题目草稿" : "新建人工题")</h1>
-        <div class="text-muted small">先把内容和依据补完整；保存只会更新草稿，不会自动送审。</div>
+        <h1 class="kp-heading-4 kp-mb-1">@(Id.HasValue ? "编辑题目草稿" : "新建人工题")</h1>
+        <div class="kp-text-muted kp-text-small">先把内容和依据补完整；保存只会更新草稿，不会自动送审。</div>
     </div>
-    <a class="btn btn-outline-secondary btn-sm" href="/question-bank/drafts">返回出题与草稿</a>
+    <a class="kp-button kp-button--secondary kp-button--sm" href="/question-bank/drafts">返回出题与草稿</a>
 </div>
 
 @if (!string.IsNullOrWhiteSpace(ErrorMessage))
 {
-    <div class="alert alert-danger" role="alert">@ErrorMessage</div>
+    <div class="kp-alert kp-alert--error" role="alert">@ErrorMessage</div>
 }
 
 @if (IsLoading)
 {
-    <div class="card"><div class="card-body text-center text-muted py-5">加载中</div></div>
+    <div class="kp-card"><div class="kp-card__body kp-text-center kp-text-muted kp-py-5">加载中</div></div>
 }
 else
 {
     <EditForm Model="FormModel" OnValidSubmit="SaveAsync">
         <DataAnnotationsValidator />
 
-        <div class="row g-3">
-            <div class="col-xl-8">
-                <div class="card qb-editor-card">
-                    <div class="card-body p-4">
-                        <div class="d-flex align-items-center justify-content-between gap-2 mb-3">
+        <div class="kp-grid kp-grid-gap-3">
+            <div class="kp-col-xl-8">
+                <div class="kp-card qb-editor-card">
+                    <div class="kp-card__body kp-p-4">
+                        <div class="kp-flex kp-align-center kp-justify-between kp-gap-2 kp-mb-3">
                             <div>
-                                <div class="text-primary small fw-semibold mb-1">STEP 1</div>
-                                <h2 class="h6 mb-0">设计题目内容</h2>
+                                <div class="kp-text-primary kp-text-small kp-text-semibold kp-mb-1">STEP 1</div>
+                                <h2 class="kp-heading-6 kp-mb-0">设计题目内容</h2>
                             </div>
-                            <span class="badge @(FormModel.CreationSource == QuestionCreationSource.AiGenerated ? "bg-info" : "bg-secondary")">
+                            <span class="kp-badge @(FormModel.CreationSource == QuestionCreationSource.AiGenerated ? "kp-bg-info" : "kp-bg-secondary")">
                                 @(FormModel.CreationSource == QuestionCreationSource.AiGenerated ? "AI 采纳草稿" : "人工创建")
                             </span>
                         </div>
 
-                        <div class="row g-3">
-                            <div class="col-md-4">
-                                <label class="form-label" for="editor-type">题型</label>
-                                <select id="editor-type" class="form-select" @bind="FormModel.Type" @bind:after="OnQuestionTypeChanged">
+                        <div class="kp-grid kp-grid-gap-3">
+                            <div class="kp-col-md-4">
+                                <label class="kp-label" for="editor-type">题型</label>
+                                <select id="editor-type" class="kp-select" @bind="FormModel.Type" @bind:after="OnQuestionTypeChanged">
                                     <option value="@QuestionType.SingleChoice">单选</option>
                                     <option value="@QuestionType.MultipleChoice">多选</option>
                                     <option value="@QuestionType.TrueFalse">判断</option>
                                     <option value="@QuestionType.FillBlank">填空</option>
                                 </select>
                             </div>
-                            <div class="col-md-4">
-                                <label class="form-label" for="editor-difficulty">难度</label>
-                                <select id="editor-difficulty" class="form-select" @bind="FormModel.Difficulty">
+                            <div class="kp-col-md-4">
+                                <label class="kp-label" for="editor-difficulty">难度</label>
+                                <select id="editor-difficulty" class="kp-select" @bind="FormModel.Difficulty">
                                     <option value="@QuestionDifficulty.Easy">简单</option>
                                     <option value="@QuestionDifficulty.Normal">普通</option>
                                     <option value="@QuestionDifficulty.Hard">困难</option>
                                 </select>
                             </div>
-                            <div class="col-md-4">
-                                <label class="form-label" for="editor-position">适用岗位</label>
-                                <select id="editor-position" class="form-select" @bind="FormModel.ApplicablePositionIdText">
+                            <div class="kp-col-md-4">
+                                <label class="kp-label" for="editor-position">适用岗位</label>
+                                <select id="editor-position" class="kp-select" @bind="FormModel.ApplicablePositionIdText">
                                     <option value="">不限岗位</option>
                                     @foreach (var position in Positions)
                                     {
@@ -76,52 +76,52 @@ else
                             </div>
                         </div>
 
-                        <div class="mt-3">
-                            <label class="form-label" for="editor-title">标题</label>
-                            <input id="editor-title" class="form-control" @bind="FormModel.Title" @bind:event="oninput" placeholder="用于题库检索和审核识别" />
+                        <div class="kp-mt-3">
+                            <label class="kp-label" for="editor-title">标题</label>
+                            <input id="editor-title" class="kp-input" @bind="FormModel.Title" @bind:event="oninput" placeholder="用于题库检索和审核识别" />
                             <ValidationMessage For="@(() => FormModel.Title)" />
                         </div>
 
-                        <div class="mt-3">
-                            <label class="form-label" for="editor-stem">题干</label>
-                            <textarea id="editor-stem" class="form-control" rows="5" @bind="FormModel.Stem" @bind:event="oninput" placeholder="写清楚问题，避免依赖考试之外的上下文"></textarea>
+                        <div class="kp-mt-3">
+                            <label class="kp-label" for="editor-stem">题干</label>
+                            <textarea id="editor-stem" class="kp-input" rows="5" @bind="FormModel.Stem" @bind:event="oninput" placeholder="写清楚问题，避免依赖考试之外的上下文"></textarea>
                             <ValidationMessage For="@(() => FormModel.Stem)" />
                         </div>
 
-                        <div class="qb-answer-builder mt-4">
-                            <div class="d-flex flex-wrap align-items-start justify-content-between gap-2 mb-3">
+                        <div class="qb-answer-builder kp-mt-4">
+                            <div class="kp-flex kp-flex-wrap kp-align-start kp-justify-between kp-gap-2 kp-mb-3">
                                 <div>
-                                    <h3 class="h6 mb-1">设置选项与答案</h3>
-                                    <div class="small text-muted">直接勾选正确答案，不需要记忆文本格式。</div>
+                                    <h3 class="kp-heading-6 kp-mb-1">设置选项与答案</h3>
+                                    <div class="kp-text-small kp-text-muted">直接勾选正确答案，不需要记忆文本格式。</div>
                                 </div>
                                 @if (IsChoiceQuestion)
                                 {
-                                    <button class="btn btn-sm btn-outline-primary" type="button" @onclick="AddOption">添加选项</button>
+                                    <button class="kp-button kp-button--sm kp-button--primary-outline" type="button" @onclick="AddOption">添加选项</button>
                                 }
                             </div>
 
                             @if (IsChoiceQuestion)
                             {
-                                <div class="d-flex flex-column gap-2">
+                                <div class="kp-flex kp-flex-column kp-gap-2">
                                     @for (var index = 0; index < FormModel.Options.Count; index++)
                                     {
                                         var option = FormModel.Options[index];
                                         <div class="qb-option-row">
                                             @if (FormModel.Type == QuestionType.SingleChoice)
                                             {
-                                                <input class="form-check-input" type="radio" name="correct-option" checked="@option.IsCorrect" @onchange="() => SelectSingleOption(option)" aria-label="设为正确答案" />
+                                                <input class="kp-check__input" type="radio" name="correct-option" checked="@option.IsCorrect" @onchange="() => SelectSingleOption(option)" aria-label="设为正确答案" />
                                             }
                                             else
                                             {
-                                                <input class="form-check-input" type="checkbox" checked="@option.IsCorrect" @onchange="args => ToggleMultipleOption(option, args)" aria-label="切换正确答案" />
+                                                <input class="kp-check__input" type="checkbox" checked="@option.IsCorrect" @onchange="args => ToggleMultipleOption(option, args)" aria-label="切换正确答案" />
                                             }
                                             <span class="qb-option-key">@GetOptionKey(index)</span>
-                                            <input class="form-control" @bind="option.Content" @bind:event="oninput" placeholder="填写选项内容" aria-label="选项 @GetOptionKey(index)" />
-                                            <button class="btn btn-sm btn-link text-danger" type="button" @onclick="() => RemoveOption(option)" disabled="@(FormModel.Options.Count <= 2)" aria-label="删除选项"><i class="fa-solid fa-trash-can"></i></button>
+                                            <input class="kp-input" @bind="option.Content" @bind:event="oninput" placeholder="填写选项内容" aria-label="选项 @GetOptionKey(index)" />
+                                            <button class="kp-button kp-button--sm kp-button--link kp-text-danger" type="button" @onclick="() => RemoveOption(option)" disabled="@(FormModel.Options.Count <= 2)" aria-label="删除选项"><i class="fa-solid fa-trash-can"></i></button>
                                         </div>
                                     }
                                 </div>
-                                <div class="form-text mt-2">@(FormModel.Type == QuestionType.SingleChoice ? "选择一个正确答案。" : "至少选择两个正确答案。")</div>
+                                <div class="kp-help kp-mt-2">@(FormModel.Type == QuestionType.SingleChoice ? "选择一个正确答案。" : "至少选择两个正确答案。")</div>
                             }
                             else if (FormModel.Type == QuestionType.TrueFalse)
                             {
@@ -132,80 +132,80 @@ else
                             }
                             else
                             {
-                                <label class="form-label" for="editor-answers">标准答案</label>
-                                <textarea id="editor-answers" class="form-control" rows="3" @bind="FormModel.AnswerLines" @bind:event="oninput" placeholder="填写一个或多个可接受答案，每行一个"></textarea>
-                                <div class="form-text">多个等价答案可以换行填写。</div>
+                                <label class="kp-label" for="editor-answers">标准答案</label>
+                                <textarea id="editor-answers" class="kp-input" rows="3" @bind="FormModel.AnswerLines" @bind:event="oninput" placeholder="填写一个或多个可接受答案，每行一个"></textarea>
+                                <div class="kp-help">多个等价答案可以换行填写。</div>
                             }
                         </div>
 
-                        <div class="mt-3">
-                            <label class="form-label" for="editor-analysis">答案解析</label>
-                            <textarea id="editor-analysis" class="form-control" rows="4" @bind="FormModel.Analysis" @bind:event="oninput" placeholder="说明为什么是这个答案，帮助学习者理解"></textarea>
+                        <div class="kp-mt-3">
+                            <label class="kp-label" for="editor-analysis">答案解析</label>
+                            <textarea id="editor-analysis" class="kp-input" rows="4" @bind="FormModel.Analysis" @bind:event="oninput" placeholder="说明为什么是这个答案，帮助学习者理解"></textarea>
                         </div>
                     </div>
                 </div>
             </div>
 
-            <div class="col-xl-4">
-                <div class="card mb-3 qb-editor-card">
-                    <div class="card-body p-4">
-                        <div class="text-primary small fw-semibold mb-1">STEP 2</div>
-                        <h2 class="h6">补充适用范围与依据</h2>
-                        <div class="mt-3">
-                            <label class="form-label" for="editor-points">知识点</label>
-                            <input id="editor-points" class="form-control" @bind="FormModel.KnowledgePointText" @bind:event="oninput" placeholder="例如：信息安全、请假制度" />
-                            <div class="form-text">多个知识点用逗号分隔。</div>
+            <div class="kp-col-xl-4">
+                <div class="kp-card kp-mb-3 qb-editor-card">
+                    <div class="kp-card__body kp-p-4">
+                        <div class="kp-text-primary kp-text-small kp-text-semibold kp-mb-1">STEP 2</div>
+                        <h2 class="kp-heading-6">补充适用范围与依据</h2>
+                        <div class="kp-mt-3">
+                            <label class="kp-label" for="editor-points">知识点</label>
+                            <input id="editor-points" class="kp-input" @bind="FormModel.KnowledgePointText" @bind:event="oninput" placeholder="例如：信息安全、请假制度" />
+                            <div class="kp-help">多个知识点用逗号分隔。</div>
                         </div>
 
-                        <div class="mt-3">
-                            <label class="form-label" for="editor-tags">标签</label>
-                            <input id="editor-tags" class="form-control" @bind="FormModel.Tags" @bind:event="oninput" placeholder="用于搜索和运营分类" />
+                        <div class="kp-mt-3">
+                            <label class="kp-label" for="editor-tags">标签</label>
+                            <input id="editor-tags" class="kp-input" @bind="FormModel.Tags" @bind:event="oninput" placeholder="用于搜索和运营分类" />
                         </div>
 
                         @if (FormModel.CreationSource == QuestionCreationSource.AiGenerated)
                         {
-                            <div class="alert alert-info small mt-3 mb-2">AI 引用会随草稿保留，审核人可以回看依据。</div>
+                            <div class="kp-alert kp-alert--info kp-text-small kp-mt-3 kp-mb-2">AI 引用会随草稿保留，审核人可以回看依据。</div>
                             @foreach (var source in OriginalSources)
                             {
-                                <div class="border rounded p-2 small mb-2">
-                                    <div class="fw-semibold">@(source.SourceTitle ?? "知识库引用")</div>
-                                    <div class="text-muted">@source.SourceExcerpt</div>
+                                <div class="kp-border kp-rounded kp-p-2 kp-text-small kp-mb-2">
+                                    <div class="kp-text-semibold">@(source.SourceTitle ?? "知识库引用")</div>
+                                    <div class="kp-text-muted">@source.SourceExcerpt</div>
                                 </div>
                             }
                         }
                         else
                         {
-                            <div class="mt-3">
-                                <label class="form-label" for="editor-source-title">来源标题</label>
-                                <input id="editor-source-title" class="form-control" @bind="FormModel.SourceTitle" @bind:event="oninput" placeholder="制度、手册或课程名称" />
+                            <div class="kp-mt-3">
+                                <label class="kp-label" for="editor-source-title">来源标题</label>
+                                <input id="editor-source-title" class="kp-input" @bind="FormModel.SourceTitle" @bind:event="oninput" placeholder="制度、手册或课程名称" />
                             </div>
-                            <div class="mt-3">
-                                <label class="form-label" for="editor-source-description">来源说明</label>
-                                <textarea id="editor-source-description" class="form-control" rows="4" @bind="FormModel.ManualSourceDescription" @bind:event="oninput" placeholder="写明答案依据，便于审核人复核"></textarea>
+                            <div class="kp-mt-3">
+                                <label class="kp-label" for="editor-source-description">来源说明</label>
+                                <textarea id="editor-source-description" class="kp-input" rows="4" @bind="FormModel.ManualSourceDescription" @bind:event="oninput" placeholder="写明答案依据，便于审核人复核"></textarea>
                             </div>
                         }
 
-                        <details class="mt-3 qb-advanced">
+                        <details class="kp-mt-3 qb-advanced">
                             <summary>高级设置</summary>
-                            <div class="mt-3">
-                                <label class="form-label" for="editor-security">安全等级</label>
-                                <InputNumber id="editor-security" class="form-control" @bind-Value="FormModel.SecurityLevel" />
-                                <div class="form-text">0 为默认。仅在题目包含受限内容时调整。</div>
+                            <div class="kp-mt-3">
+                                <label class="kp-label" for="editor-security">安全等级</label>
+                                <InputNumber id="editor-security" class="kp-input" @bind-Value="FormModel.SecurityLevel" />
+                                <div class="kp-help">0 为默认。仅在题目包含受限内容时调整。</div>
                             </div>
                         </details>
                     </div>
                 </div>
 
-                <div class="card qb-save-card">
-                    <div class="card-body p-4">
-                        <div class="d-flex align-items-center gap-2 fw-semibold mb-2"><i class="fa-regular fa-circle-check text-primary"></i>保存前检查</div>
-                        <ul class="list-unstyled small text-muted mb-3">
+                <div class="kp-card qb-save-card">
+                    <div class="kp-card__body kp-p-4">
+                        <div class="kp-flex kp-align-center kp-gap-2 kp-text-semibold kp-mb-2"><i class="fa-regular fa-circle-check kp-text-primary"></i>保存前检查</div>
+                        <ul class="kp-list-unstyled kp-text-small kp-text-muted kp-mb-3">
                             <li>题干能独立理解</li>
                             <li>已经设置标准答案</li>
                             <li>解析和来源足以支持审核</li>
                         </ul>
-                        <button class="btn btn-primary w-100" type="submit" disabled="@IsBusy">@(IsBusy ? "正在保存…" : "保存并返回草稿")</button>
-                        <div class="text-center text-muted small mt-2">保存后由你主动提交审核</div>
+                        <button class="kp-button kp-button--primary kp-full-width" type="submit" disabled="@IsBusy">@(IsBusy ? "正在保存…" : "保存并返回草稿")</button>
+                        <div class="kp-text-center kp-text-muted kp-text-small kp-mt-2">保存后由你主动提交审核</div>
                     </div>
                 </div>
             </div>

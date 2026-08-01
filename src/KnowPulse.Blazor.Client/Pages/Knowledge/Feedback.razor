@@ -4,50 +4,49 @@
 @inject IKnowledgeFeedbackAppService FeedbackAppService
 @inject IPermissionChecker PermissionChecker
 @inject NavigationManager NavigationManager
-@inject IJSRuntime JSRuntime
 
 <PageTitle>反馈与修订</PageTitle>
 
-<div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+<div class="kp-flex kp-flex-wrap kp-align-center kp-justify-between kp-gap-2 kp-mb-3">
     <div>
-        <h1 class="h4 mb-1">反馈与修订</h1>
-        <div class="text-muted small">接手问题，创建修订，发布并验证检索结果后完成反馈。</div>
+        <h1 class="kp-heading-4 kp-mb-1">反馈与修订</h1>
+        <div class="kp-text-muted kp-text-small">接手问题，创建修订，发布并验证检索结果后完成反馈。</div>
     </div>
-    <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="LoadAsync" disabled="@IsBusy">刷新</button>
+    <button class="kp-button kp-button--secondary kp-button--sm" type="button" @onclick="LoadAsync" disabled="@IsBusy">刷新</button>
 </div>
 
 @if (!string.IsNullOrWhiteSpace(ErrorMessage))
 {
-    <div class="alert @(IsPermissionError ? "alert-warning" : "alert-danger") d-flex flex-wrap align-items-center justify-content-between gap-2" role="alert">
+    <div class="kp-alert @(IsPermissionError ? "kp-alert--warning" : "kp-alert--error") kp-flex kp-flex-wrap kp-align-center kp-justify-between kp-gap-2" role="alert">
         <span>@ErrorMessage</span>
-        <button class="btn btn-sm @(IsPermissionError ? "btn-outline-warning" : "btn-outline-danger")" type="button" @onclick="LoadAsync" disabled="@IsBusy">重试</button>
+        <button class="kp-button kp-button--sm @(IsPermissionError ? "kp-button--warning-outline" : "kp-button--danger-outline")" type="button" @onclick="LoadAsync" disabled="@IsBusy">重试</button>
     </div>
 }
 
 @if (!string.IsNullOrWhiteSpace(SuccessMessage))
 {
-    <div class="alert alert-success" role="status">@SuccessMessage</div>
+    <div class="kp-alert kp-alert--success" role="status">@SuccessMessage</div>
 }
 
 @if (IsPermissionError)
 {
-    <div class="card">
-        <div class="card-body text-center py-5">
-            <h2 class="h6 mb-2">无权限处理知识反馈</h2>
-            <div class="text-muted">请确认账号已授予知识反馈处理权限。</div>
+    <div class="kp-card">
+        <div class="kp-card__body kp-text-center kp-py-5">
+            <h2 class="kp-heading-6 kp-mb-2">无权限处理知识反馈</h2>
+            <div class="kp-text-muted">请确认账号已授予知识反馈处理权限。</div>
         </div>
     </div>
 }
 else
 {
-    <div class="row g-3">
-        <div class="col-xl-6">
-            <div class="card">
-                <div class="card-body border-bottom">
-                    <div class="row g-2 align-items-end">
-                        <div class="col-md-3">
-                            <label class="form-label" for="feedback-status">状态</label>
-                            <select id="feedback-status" class="form-select" @bind="StatusFilterText">
+    <div class="kp-grid kp-grid-gap-3">
+        <div class="kp-col-xl-6">
+            <div class="kp-card">
+                <div class="kp-card__body kp-border-bottom">
+                    <div class="kp-grid kp-grid-gap-2 kp-align-end">
+                        <div class="kp-col-md-3">
+                            <label class="kp-label" for="feedback-status">状态</label>
+                            <select id="feedback-status" class="kp-select" @bind="StatusFilterText">
                                 <option value="">全部</option>
                                 <option value="@KnowledgeFeedbackStatus.Submitted">待处理</option>
                                 <option value="@KnowledgeFeedbackStatus.Processing">处理中</option>
@@ -55,9 +54,9 @@ else
                                 <option value="@KnowledgeFeedbackStatus.Closed">已关闭</option>
                             </select>
                         </div>
-                        <div class="col-md-3">
-                            <label class="form-label" for="feedback-type">类型</label>
-                            <select id="feedback-type" class="form-select" @bind="TypeFilterText">
+                        <div class="kp-col-md-3">
+                            <label class="kp-label" for="feedback-type">类型</label>
+                            <select id="feedback-type" class="kp-select" @bind="TypeFilterText">
                                 <option value="">全部</option>
                                 <option value="@KnowledgeFeedbackType.Problem">问题</option>
                                 <option value="@KnowledgeFeedbackType.Outdated">过期</option>
@@ -66,57 +65,57 @@ else
                                 <option value="@KnowledgeFeedbackType.Suggestion">建议</option>
                             </select>
                         </div>
-                        <div class="col-md-4">
-                            <label class="form-label" for="feedback-keyword">关键词</label>
-                            <input id="feedback-keyword" class="form-control" @bind="Keyword" @bind:event="oninput" />
+                        <div class="kp-col-md-4">
+                            <label class="kp-label" for="feedback-keyword">关键词</label>
+                            <input id="feedback-keyword" class="kp-input" @bind="Keyword" @bind:event="oninput" />
                         </div>
-                        <div class="col-md-2">
-                            <button class="btn btn-primary w-100" type="button" @onclick="ApplyFilterAsync" disabled="@IsBusy">查询</button>
+                        <div class="kp-col-md-2">
+                            <button class="kp-button kp-button--primary kp-full-width" type="button" @onclick="ApplyFilterAsync" disabled="@IsBusy">查询</button>
                         </div>
                     </div>
                 </div>
 
-                <div class="table-responsive">
-                    <table class="table table-hover align-middle mb-0">
+                <div class="kp-table-wrap">
+                    <table class="kp-table kp-table--hover kp-table-align-middle kp-mb-0">
                         <thead>
                             <tr>
                                 <th>反馈</th>
                                 <th>知识</th>
                                 <th>状态</th>
                                 <th>提交时间</th>
-                                <th class="text-end">操作</th>
+                                <th class="kp-text-end">操作</th>
                             </tr>
                         </thead>
                         <tbody>
                             @if (IsLoading)
                             {
                                 <tr>
-                                    <td colspan="5" class="text-center py-4 text-muted">加载中</td>
+                                    <td colspan="5" class="kp-text-center kp-py-4 kp-text-muted">加载中</td>
                                 </tr>
                             }
                             else if (FeedbackList.Count == 0)
                             {
                                 <tr>
-                                    <td colspan="5" class="text-center py-4 text-muted">暂无知识反馈</td>
+                                    <td colspan="5" class="kp-text-center kp-py-4 kp-text-muted">暂无知识反馈</td>
                                 </tr>
                             }
                             else
                             {
                                 @foreach (var feedback in FeedbackList)
                                 {
-                                    <tr class="@(SelectedFeedback?.Id == feedback.Id ? "table-active" : null)">
+                                    <tr class="@(SelectedFeedback?.Id == feedback.Id ? "kp-table-row--active" : null)">
                                         <td>
-                                            <div class="fw-semibold">@feedback.Title</div>
-                                            <div class="text-muted small">@GetTypeText(feedback.Type)</div>
+                                            <div class="kp-text-semibold">@feedback.Title</div>
+                                            <div class="kp-text-muted kp-text-small">@GetTypeText(feedback.Type)</div>
                                         </td>
                                         <td>
                                             <div>@feedback.KnowledgeTitle</div>
-                                            <div class="text-muted small">@GetVersionText(feedback)</div>
+                                            <div class="kp-text-muted kp-text-small">@GetVersionText(feedback)</div>
                                         </td>
-                                        <td><span class="badge @GetStatusBadge(feedback.Status)">@GetStatusText(feedback.Status)</span></td>
+                                        <td><span class="kp-badge @GetStatusBadge(feedback.Status)">@GetStatusText(feedback.Status)</span></td>
                                         <td>@feedback.CreationTime.ToString("yyyy-MM-dd HH:mm")</td>
-                                        <td class="text-end">
-                                            <button class="btn btn-link btn-sm" type="button" @onclick="() => SelectFeedbackAsync(feedback)" disabled="@IsBusy">查看</button>
+                                        <td class="kp-text-end">
+                                            <button class="kp-button kp-button--link kp-button--sm" type="button" @onclick="() => SelectFeedbackAsync(feedback)" disabled="@IsBusy">查看</button>
                                         </td>
                                     </tr>
                                 }
@@ -129,29 +128,29 @@ else
             </div>
         </div>
 
-        <div class="col-xl-6">
-            <div class="card">
-                <div class="card-body border-bottom">
-                    <div class="d-flex flex-wrap align-items-start justify-content-between gap-2">
+        <div class="kp-col-xl-6">
+            <div class="kp-card">
+                <div class="kp-card__body kp-border-bottom">
+                    <div class="kp-flex kp-flex-wrap kp-align-start kp-justify-between kp-gap-2">
                         <div>
-                            <h2 class="h6 mb-1">处理闭环</h2>
-                            <div class="text-muted small">@SelectedFeedbackTitle</div>
+                            <h2 class="kp-heading-6 kp-mb-1">处理闭环</h2>
+                            <div class="kp-text-muted kp-text-small">@SelectedFeedbackTitle</div>
                         </div>
                         @if (SelectedFeedback != null)
                         {
-                            <span class="badge @GetStatusBadge(SelectedFeedback.Status)">@GetStatusText(SelectedFeedback.Status)</span>
+                            <span class="kp-badge @GetStatusBadge(SelectedFeedback.Status)">@GetStatusText(SelectedFeedback.Status)</span>
                         }
                     </div>
                 </div>
 
                 @if (SelectedFeedback == null)
                 {
-                    <div class="card-body text-center text-muted py-5">请选择一条反馈</div>
+                    <div class="kp-card__body kp-text-center kp-text-muted kp-py-5">请选择一条反馈</div>
                 }
                 else
                 {
-                    <div class="card-body">
-                        <div class="feedback-workflow mb-4" aria-label="反馈处理进度">
+                    <div class="kp-card__body">
+                        <div class="feedback-workflow kp-mb-4" aria-label="反馈处理进度">
                             @foreach (var step in WorkflowSteps)
                             {
                                 <div class="feedback-workflow-step @GetWorkflowStepClass(step.Number)">
@@ -165,53 +164,53 @@ else
                             }
                         </div>
 
-                        <dl class="row small mb-3">
-                            <dt class="col-4">类型</dt>
-                            <dd class="col-8">@GetTypeText(SelectedFeedback.Type)</dd>
-                            <dt class="col-4">知识</dt>
-                            <dd class="col-8">
-                                <button class="btn btn-link btn-sm p-0" type="button" @onclick="OpenKnowledge" disabled="@IsBusy">@SelectedFeedback.KnowledgeTitle</button>
-                                <div class="text-muted">@GetVersionText(SelectedFeedback)</div>
+                        <dl class="kp-grid kp-text-small kp-mb-3">
+                            <dt class="kp-col-4">类型</dt>
+                            <dd class="kp-col-8">@GetTypeText(SelectedFeedback.Type)</dd>
+                            <dt class="kp-col-4">知识</dt>
+                            <dd class="kp-col-8">
+                                <button class="kp-button kp-button--link kp-button--sm kp-p-0" type="button" @onclick="OpenKnowledge" disabled="@IsBusy">@SelectedFeedback.KnowledgeTitle</button>
+                                <div class="kp-text-muted">@GetVersionText(SelectedFeedback)</div>
                             </dd>
-                            <dt class="col-4">提交人</dt>
-                            <dd class="col-8">用户 @SelectedFeedback.SubmitterUserId.ToString("N")[..8]</dd>
-                            <dt class="col-4">提交时间</dt>
-                            <dd class="col-8">@SelectedFeedback.CreationTime.ToString("yyyy-MM-dd HH:mm")</dd>
-                            <dt class="col-4">关联版本</dt>
-                            <dd class="col-8">@GetLinkedVersionText(SelectedFeedback)</dd>
+                            <dt class="kp-col-4">提交人</dt>
+                            <dd class="kp-col-8">用户 @SelectedFeedback.SubmitterUserId.ToString("N")[..8]</dd>
+                            <dt class="kp-col-4">提交时间</dt>
+                            <dd class="kp-col-8">@SelectedFeedback.CreationTime.ToString("yyyy-MM-dd HH:mm")</dd>
+                            <dt class="kp-col-4">关联版本</dt>
+                            <dd class="kp-col-8">@GetLinkedVersionText(SelectedFeedback)</dd>
                         </dl>
 
-                        <div class="border rounded p-3 mb-3">
-                            <div class="fw-semibold mb-1">@SelectedFeedback.Title</div>
-                            <div class="small">@SelectedFeedback.Description</div>
+                        <div class="kp-border kp-rounded kp-p-3 kp-mb-3">
+                            <div class="kp-text-semibold kp-mb-1">@SelectedFeedback.Title</div>
+                            <div class="kp-text-small">@SelectedFeedback.Description</div>
                         </div>
 
                         @if (!string.IsNullOrWhiteSpace(SelectedFeedback.Resolution))
                         {
-                            <div class="border rounded p-3 mb-3 bg-light">
-                                <div class="fw-semibold mb-1">处理结论</div>
-                                <div class="small">@SelectedFeedback.Resolution</div>
+                            <div class="kp-border kp-rounded kp-p-3 kp-mb-3 kp-bg-light">
+                                <div class="kp-text-semibold kp-mb-1">处理结论</div>
+                                <div class="kp-text-small">@SelectedFeedback.Resolution</div>
                             </div>
                         }
 
                         @if (!string.IsNullOrWhiteSpace(SelectedFeedback.CloseReason))
                         {
-                            <div class="border rounded p-3 mb-3 bg-light">
-                                <div class="fw-semibold mb-1">关闭原因</div>
-                                <div class="small">@SelectedFeedback.CloseReason</div>
+                            <div class="kp-border kp-rounded kp-p-3 kp-mb-3 kp-bg-light">
+                                <div class="kp-text-semibold kp-mb-1">关闭原因</div>
+                                <div class="kp-text-small">@SelectedFeedback.CloseReason</div>
                             </div>
                         }
 
-                        <div class="d-flex flex-column gap-3">
+                        <div class="kp-flex kp-flex-column kp-gap-3">
                             @if (SelectedFeedback.Status == KnowledgeFeedbackStatus.Submitted)
                             {
                             <EditForm Model="@ProcessForm" OnValidSubmit="@ProcessAsync">
                                 <DataAnnotationsValidator />
                                 <div class="feedback-action-card is-primary">
                                     <div><strong>第一步：接手反馈</strong><p>确认由你负责判断问题，并记录初步处理方向。</p></div>
-                                    <label class="form-label" for="process-resolution">初步处理备注</label>
-                                    <textarea id="process-resolution" class="form-control mb-3" rows="2" @bind="ProcessForm.Resolution" @bind:event="oninput"></textarea>
-                                    <button class="btn btn-primary" type="submit" disabled="@IsBusy">接手反馈</button>
+                                    <label class="kp-label" for="process-resolution">初步处理备注</label>
+                                    <textarea id="process-resolution" class="kp-input kp-mb-3" rows="2" @bind="ProcessForm.Resolution" @bind:event="oninput"></textarea>
+                                    <button class="kp-button kp-button--primary" type="submit" disabled="@IsBusy">接手反馈</button>
                                 </div>
                             </EditForm>
                             }
@@ -219,32 +218,32 @@ else
                             @if (SelectedFeedback.Status == KnowledgeFeedbackStatus.Processing)
                             {
                                 <div class="feedback-action-card @(SelectedFeedback.LinkedKnowledgeVersionId.HasValue ? "is-complete" : "is-primary")">
-                                    <div class="d-flex flex-wrap align-items-start justify-content-between gap-2">
+                                    <div class="kp-flex kp-flex-wrap kp-align-start kp-justify-between kp-gap-2">
                                         <div><strong>第二步：创建修订</strong><p>系统从反馈来源版本复制正文并自动关联；附件需要在修订中重新上传。</p></div>
                                         @if (SelectedFeedback.LinkedKnowledgeVersionId.HasValue)
                                         {
-                                            <span class="badge text-bg-success">已创建</span>
+                                            <span class="kp-badge kp-bg-success">已创建</span>
                                         }
                                     </div>
                                     @if (!SelectedFeedback.LinkedKnowledgeVersionId.HasValue)
                                     {
-                                        <button class="btn btn-primary" type="button" @onclick="CreateRevisionAsync" disabled="@(IsBusy || !CanManageVersions)">
-                                            <i class="fas fa-file-circle-plus me-2" aria-hidden="true"></i>创建修订草稿
+                                        <button class="kp-button kp-button--primary" type="button" @onclick="CreateRevisionAsync" disabled="@(IsBusy || !CanManageVersions)">
+                                            <i class="fas fa-file-circle-plus kp-me-2" aria-hidden="true"></i>创建修订草稿
                                         </button>
                                         @if (!CanManageVersions)
                                         {
-                                            <small class="d-block text-warning mt-2">当前账号缺少知识版本管理权限，不能创建或发布修订。</small>
+                                            <small class="kp-block kp-text-warning kp-mt-2">当前账号缺少知识版本管理权限，不能创建或发布修订。</small>
                                         }
                                     }
                                     else
                                     {
                                         <div class="feedback-revision-summary">
                                             <div><small>关联修订</small><strong>@GetLinkedVersionText(SelectedFeedback)</strong></div>
-                                            <span class="badge @GetRevisionBadgeClass()">@GetRevisionStateText()</span>
+                                            <span class="kp-badge @GetRevisionBadgeClass()">@GetRevisionStateText()</span>
                                         </div>
-                                        <div class="d-flex flex-wrap gap-2 mt-3">
-                                            <button class="btn btn-outline-primary" type="button" @onclick="OpenRevision" disabled="@IsBusy">编辑或发布修订</button>
-                                            <button class="btn btn-outline-secondary" type="button" @onclick="RefreshSelectedAsync" disabled="@IsBusy">刷新验证状态</button>
+                                        <div class="kp-flex kp-flex-wrap kp-gap-2 kp-mt-3">
+                                            <button class="kp-button kp-button--primary-outline" type="button" @onclick="OpenRevision" disabled="@IsBusy">编辑或发布修订</button>
+                                            <button class="kp-button kp-button--secondary" type="button" @onclick="RefreshSelectedAsync" disabled="@IsBusy">刷新验证状态</button>
                                         </div>
                                     }
                                 </div>
@@ -256,10 +255,10 @@ else
                                 <DataAnnotationsValidator />
                                 <div class="feedback-action-card @(CanCompleteRevision ? "is-primary" : null)">
                                     <div><strong>第三、四步：发布验证并完成</strong><p>@GetCompletionGuidance()</p></div>
-                                    <label class="form-label" for="resolve-resolution">处理结论</label>
-                                    <textarea id="resolve-resolution" class="form-control mb-3" rows="3" @bind="ResolveForm.Resolution" @bind:event="oninput"></textarea>
-                                    <button class="btn btn-success" type="submit" disabled="@(IsBusy || !CanCompleteRevision)">
-                                        <i class="fas fa-circle-check me-2" aria-hidden="true"></i>验证并完成反馈
+                                    <label class="kp-label" for="resolve-resolution">处理结论</label>
+                                    <textarea id="resolve-resolution" class="kp-input kp-mb-3" rows="3" @bind="ResolveForm.Resolution" @bind:event="oninput"></textarea>
+                                    <button class="kp-button kp-button--success" type="submit" disabled="@(IsBusy || !CanCompleteRevision)">
+                                        <i class="fas fa-circle-check kp-me-2" aria-hidden="true"></i>验证并完成反馈
                                     </button>
                                 </div>
                             </EditForm>
@@ -267,8 +266,8 @@ else
 
                             @if (SelectedFeedback.Status == KnowledgeFeedbackStatus.Resolved)
                             {
-                                <div class="alert alert-success mb-0">
-                                    <strong class="d-block mb-1">反馈闭环已完成</strong>
+                                <div class="kp-alert kp-alert--success kp-mb-0">
+                                    <strong class="kp-block kp-mb-1">反馈闭环已完成</strong>
                                     关联修订已成为当前发布版本，并且检索索引已成功建立。
                                 </div>
                             }
@@ -279,10 +278,10 @@ else
                                 <DataAnnotationsValidator />
                                 <details class="feedback-close-panel">
                                     <summary>确认无需修订？关闭反馈</summary>
-                                    <div class="pt-3">
-                                        <label class="form-label" for="close-reason">关闭原因</label>
-                                        <textarea id="close-reason" class="form-control mb-2" rows="2" @bind="CloseForm.CloseReason" @bind:event="oninput"></textarea>
-                                        <button class="btn btn-outline-danger btn-sm" type="submit" disabled="@IsBusy">关闭反馈</button>
+                                    <div class="kp-pt-3">
+                                        <label class="kp-label" for="close-reason">关闭原因</label>
+                                        <textarea id="close-reason" class="kp-input kp-mb-2" rows="2" @bind="CloseForm.CloseReason" @bind:event="oninput"></textarea>
+                                        <button class="kp-button kp-button--danger-outline kp-button--sm" type="submit" disabled="@IsBusy">关闭反馈</button>
                                     </div>
                                 </details>
                             </EditForm>
@@ -572,11 +571,11 @@ else
     {
         return status switch
         {
-            KnowledgeFeedbackStatus.Submitted => "bg-warning text-dark",
-            KnowledgeFeedbackStatus.Processing => "bg-info text-dark",
-            KnowledgeFeedbackStatus.Resolved => "bg-success",
-            KnowledgeFeedbackStatus.Closed => "bg-secondary",
-            _ => "bg-secondary"
+            KnowledgeFeedbackStatus.Submitted => "kp-bg-warning kp-text-dark",
+            KnowledgeFeedbackStatus.Processing => "kp-bg-info kp-text-dark",
+            KnowledgeFeedbackStatus.Resolved => "kp-bg-success",
+            KnowledgeFeedbackStatus.Closed => "kp-bg-secondary",
+            _ => "kp-bg-secondary"
         };
     }
 
@@ -644,10 +643,10 @@ else
     }
 
     private string GetRevisionBadgeClass() => CanCompleteRevision
-        ? "text-bg-success"
+        ? "kp-bg-success"
         : SelectedFeedback?.LinkedKnowledgeVersionIndexStatus == KnowledgeIndexJobStatus.Failed
-            ? "text-bg-danger"
-            : "text-bg-warning";
+            ? "kp-bg-error"
+            : "kp-bg-warning";
 
     private string GetCompletionGuidance()
     {
@@ -669,7 +668,7 @@ else
 
     private async Task<bool> ConfirmAsync(string message)
     {
-        return await JSRuntime.InvokeAsync<bool>("confirm", message);
+        return await Message.Confirm(message);
     }
 
     private async Task RunBusyAsync(Func<Task> action)

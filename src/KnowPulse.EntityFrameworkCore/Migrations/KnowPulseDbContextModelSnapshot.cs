@@ -19,7 +19,7 @@ namespace KnowPulse.Migrations
 #pragma warning disable 612, 618
             modelBuilder
                 .HasAnnotation("_Abp_DatabaseProvider", EfCoreDatabaseProvider.PostgreSql)
-                .HasAnnotation("ProductVersion", "10.0.2")
+                .HasAnnotation("ProductVersion", "10.0.9")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
@@ -4510,6 +4510,9 @@ namespace KnowPulse.Migrations
                         .HasMaxLength(96)
                         .HasColumnType("character varying(96)");
 
+                    b.Property<DateTime?>("CompletionTime")
+                        .HasColumnType("timestamp without time zone");
+
                     b.Property<string>("ConcurrencyStamp")
                         .IsConcurrencyToken()
                         .IsRequired()
@@ -4559,7 +4562,7 @@ namespace KnowPulse.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("IsAbandoned", "NextTryTime");
+                    b.HasIndex("ApplicationName", "CompletionTime", "IsAbandoned", "NextTryTime");
 
                     b.ToTable("AbpBackgroundJobs", (string)null);
                 });

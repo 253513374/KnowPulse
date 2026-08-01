@@ -7,25 +7,25 @@
 <PageTitle>知识管理</PageTitle>
 
 <div class="knowledge-management-page">
-    <div class="d-flex flex-wrap align-items-start justify-content-between gap-3 mb-4">
+    <div class="kp-flex kp-flex-wrap kp-align-start kp-justify-between kp-gap-3 kp-mb-4">
         <div>
-            <h1 class="h3 mb-1">知识</h1>
-            <p class="text-muted mb-0">管理内容、访问策略、检索状态和修订记录。</p>
+            <h1 class="kp-heading-3 kp-mb-1">知识</h1>
+            <p class="kp-text-muted kp-mb-0">管理内容、访问策略、检索状态和修订记录。</p>
         </div>
-        <button class="btn btn-primary" type="button" @onclick="CreateKnowledge">
-            <i class="fas fa-plus me-2" aria-hidden="true"></i>新增知识
+        <button class="kp-button kp-button--primary" type="button" @onclick="CreateKnowledge">
+            <i class="fas fa-plus kp-me-2" aria-hidden="true"></i>新增知识
         </button>
     </div>
 
     @if (!string.IsNullOrWhiteSpace(ErrorMessage))
     {
-        <div class="alert alert-danger d-flex flex-wrap align-items-center justify-content-between gap-2" role="alert">
+        <div class="kp-alert kp-alert--error kp-flex kp-flex-wrap kp-align-center kp-justify-between kp-gap-2" role="alert">
             <span>@ErrorMessage</span>
-            <button class="btn btn-sm btn-outline-danger" type="button" @onclick="LoadAsync" disabled="@IsLoading">重试</button>
+            <button class="kp-button kp-button--sm kp-button--danger-outline" type="button" @onclick="LoadAsync" disabled="@IsLoading">重试</button>
         </div>
     }
 
-    <div class="knowledge-metric-grid mb-4">
+    <div class="knowledge-metric-grid kp-mb-4">
         <button class="knowledge-metric-card @GetMetricClass(null)" type="button" @onclick="() => SetStatusAsync(null)">
             <span class="knowledge-metric-icon metric-blue"><i class="fas fa-book-open" aria-hidden="true"></i></span>
             <span><small>全部知识</small><strong>@Overview.TotalCount</strong><em>当前可见知识</em></span>
@@ -47,9 +47,9 @@
         </button>
     </div>
 
-    <section class="card knowledge-list-card">
-        <div class="card-body border-bottom">
-            <div class="d-flex flex-wrap align-items-center justify-content-between gap-3">
+    <section class="kp-card knowledge-list-card">
+        <div class="kp-card__body kp-border-bottom">
+            <div class="kp-flex kp-flex-wrap kp-align-center kp-justify-between kp-gap-3">
                 <div class="knowledge-status-tabs" role="group" aria-label="知识状态筛选">
                     <button class="@GetStatusTabClass(null)" type="button" @onclick="() => SetStatusAsync(null)">全部</button>
                     <button class="@GetStatusTabClass(KnowledgeManagementStatus.Ready)" type="button"
@@ -72,7 +72,7 @@
                             <i class="fas fa-xmark" aria-hidden="true"></i>
                         </button>
                     }
-                    <button class="btn btn-outline-secondary btn-sm" type="submit" disabled="@IsLoading">搜索</button>
+                    <button class="kp-button kp-button--secondary kp-button--sm" type="submit" disabled="@IsLoading">搜索</button>
                 </form>
             </div>
         </div>
@@ -82,8 +82,8 @@
             <span>共 @TotalCount 条</span>
         </div>
 
-        <div class="table-responsive">
-            <table class="table table-hover align-middle mb-0 knowledge-management-table">
+        <div class="kp-table-wrap">
+            <table class="kp-table kp-table--hover kp-table-align-middle kp-mb-0 knowledge-management-table">
                 <thead>
                     <tr>
                         <th>知识</th>
@@ -91,22 +91,22 @@
                         <th>访问范围</th>
                         <th>待处理反馈</th>
                         <th>更新时间</th>
-                        <th class="text-end">操作</th>
+                        <th class="kp-text-end">操作</th>
                     </tr>
                 </thead>
                 <tbody>
                     @if (IsLoading)
                     {
                         <tr>
-                            <td colspan="6" class="text-center py-5 text-muted">
-                                <span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>正在加载知识状态
+                            <td colspan="6" class="kp-text-center kp-py-5 kp-text-muted">
+                                <span class="kp-spinner kp-spinner--sm kp-me-2" aria-hidden="true"></span>正在加载知识状态
                             </td>
                         </tr>
                     }
                     else if (Items.Count == 0)
                     {
                         <tr>
-                            <td colspan="6" class="text-center py-5">
+                            <td colspan="6" class="kp-text-center kp-py-5">
                                 <div class="knowledge-empty">
                                     <span><i class="fas fa-book-open" aria-hidden="true"></i></span>
                                     <strong>@EmptyTitle</strong>
@@ -147,19 +147,19 @@
                                 <td>
                                     @if (item.PendingFeedbackCount > 0)
                                     {
-                                        <span class="badge rounded-pill text-bg-warning">@item.PendingFeedbackCount</span>
+                                        <span class="kp-badge kp-badge--pill kp-bg-warning">@item.PendingFeedbackCount</span>
                                     }
                                     else
                                     {
-                                        <span class="text-muted">0</span>
+                                        <span class="kp-text-muted">0</span>
                                     }
                                 </td>
                                 <td>
                                     <strong class="knowledge-update-time">@FormatDate(item.UpdatedTime)</strong>
                                     <small>@GetUpdateText(item)</small>
                                 </td>
-                                <td class="text-end">
-                                    <button class="btn btn-link btn-sm" type="button"
+                                <td class="kp-text-end">
+                                    <button class="kp-button kp-button--link kp-button--sm" type="button"
                                             @onclick:stopPropagation="true" @onclick="() => OpenDetail(item.Id)">查看详情</button>
                                 </td>
                             </tr>

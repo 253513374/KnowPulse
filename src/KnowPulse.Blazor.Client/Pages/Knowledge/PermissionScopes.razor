@@ -7,46 +7,45 @@
 @inject IIdentityRoleAppService IdentityRoleAppService
 @inject IIdentityUserAppService IdentityUserAppService
 @inject NavigationManager NavigationManager
-@inject IJSRuntime JSRuntime
 
 @* 知识权限范围管理页：配置某个知识文档对全员、部门、岗位、角色或指定用户的可见规则。 *@
 <PageTitle>权限范围</PageTitle>
 
-<div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+<div class="kp-flex kp-flex-wrap kp-align-center kp-justify-between kp-gap-2 kp-mb-3">
     <div>
-        <h1 class="h4 mb-1">访问策略@(SelectedItem == null ? null : $" · {SelectedItem.Title}")</h1>
-        <div class="text-muted small">从知识详情进入后调整可见对象；全员模式与定向模式互斥。</div>
+        <h1 class="kp-heading-4 kp-mb-1">访问策略@(SelectedItem == null ? null : $" · {SelectedItem.Title}")</h1>
+        <div class="kp-text-muted kp-text-small">从知识详情进入后调整可见对象；全员模式与定向模式互斥。</div>
     </div>
-    <div class="d-flex gap-2">
+    <div class="kp-flex kp-gap-2">
         @if (SelectedItemId.HasValue)
         {
-            <button class="btn btn-outline-primary btn-sm" type="button" @onclick="BackToKnowledge">返回知识详情</button>
+            <button class="kp-button kp-button--primary-outline kp-button--sm" type="button" @onclick="BackToKnowledge">返回知识详情</button>
         }
-        <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="LoadAsync" disabled="@IsBusy">刷新</button>
+        <button class="kp-button kp-button--secondary kp-button--sm" type="button" @onclick="LoadAsync" disabled="@IsBusy">刷新</button>
     </div>
 </div>
 
 @if (!string.IsNullOrWhiteSpace(ErrorMessage))
 {
-    <div class="alert alert-danger d-flex flex-wrap align-items-center justify-content-between gap-2" role="alert">
+    <div class="kp-alert kp-alert--error kp-flex kp-flex-wrap kp-align-center kp-justify-between kp-gap-2" role="alert">
         <span>@ErrorMessage</span>
-        <button class="btn btn-sm btn-outline-danger" type="button" @onclick="LoadAsync" disabled="@IsBusy">重试</button>
+        <button class="kp-button kp-button--sm kp-button--danger-outline" type="button" @onclick="LoadAsync" disabled="@IsBusy">重试</button>
     </div>
 }
 
 @if (!string.IsNullOrWhiteSpace(SuccessMessage))
 {
-    <div class="alert alert-success" role="status">@SuccessMessage</div>
+    <div class="kp-alert kp-alert--success" role="status">@SuccessMessage</div>
 }
 
-<div class="row g-3">
+<div class="kp-grid kp-grid-gap-3">
     @* 左侧先选择知识文档，再根据范围类型显示对应目标下拉。 *@
-    <div class="col-lg-4">
-        <div class="card">
-            <div class="card-body">
-                <div class="mb-3">
-                    <label class="form-label" for="scope-item">知识文档</label>
-                    <select id="scope-item" class="form-select" value="@SelectedItemIdText" @onchange="OnSelectedItemChangedAsync">
+    <div class="kp-col-lg-4">
+        <div class="kp-card">
+            <div class="kp-card__body">
+                <div class="kp-mb-3">
+                    <label class="kp-label" for="scope-item">知识文档</label>
+                    <select id="scope-item" class="kp-select" value="@SelectedItemIdText" @onchange="OnSelectedItemChangedAsync">
                         <option value="">选择知识文档</option>
                         @foreach (var item in KnowledgeItemList)
                         {
@@ -55,16 +54,16 @@
                     </select>
                 </div>
 
-                <h2 class="h6 mb-3">新增范围</h2>
-                <div class="alert alert-light border small py-2">
+                <h2 class="kp-heading-6 kp-mb-3">新增范围</h2>
+                <div class="kp-alert kp-alert--light kp-border kp-text-small kp-py-2">
                     新增全员规则会替换现有定向规则；新增定向规则会自动移除全员规则。
                 </div>
                 <EditForm Model="@FormModel" OnValidSubmit="@SaveAsync">
                     <DataAnnotationsValidator />
 
-                    <div class="mb-3">
-                        <label class="form-label" for="scope-type">范围类型</label>
-                        <select id="scope-type" class="form-select" value="@FormModel.ScopeTypeText" @onchange="OnScopeTypeChanged">
+                    <div class="kp-mb-3">
+                        <label class="kp-label" for="scope-type">范围类型</label>
+                        <select id="scope-type" class="kp-select" value="@FormModel.ScopeTypeText" @onchange="OnScopeTypeChanged">
                             <option value="@KnowledgePermissionScopeType.All">全员</option>
                             <option value="@KnowledgePermissionScopeType.Department">部门</option>
                             <option value="@KnowledgePermissionScopeType.Position">岗位</option>
@@ -75,9 +74,9 @@
 
                     @if (CurrentScopeType == KnowledgePermissionScopeType.Department)
                     {
-                        <div class="mb-3">
-                            <label class="form-label" for="scope-department">部门</label>
-                            <select id="scope-department" class="form-select" @bind="FormModel.TargetIdText">
+                        <div class="kp-mb-3">
+                            <label class="kp-label" for="scope-department">部门</label>
+                            <select id="scope-department" class="kp-select" @bind="FormModel.TargetIdText">
                                 <option value="">选择部门</option>
                                 @foreach (var department in DepartmentList)
                                 {
@@ -88,9 +87,9 @@
                     }
                     else if (CurrentScopeType == KnowledgePermissionScopeType.Position)
                     {
-                        <div class="mb-3">
-                            <label class="form-label" for="scope-position">岗位</label>
-                            <select id="scope-position" class="form-select" @bind="FormModel.TargetIdText">
+                        <div class="kp-mb-3">
+                            <label class="kp-label" for="scope-position">岗位</label>
+                            <select id="scope-position" class="kp-select" @bind="FormModel.TargetIdText">
                                 <option value="">选择岗位</option>
                                 @foreach (var position in PositionList)
                                 {
@@ -103,9 +102,9 @@
                     {
                         @if (CurrentScopeType == KnowledgePermissionScopeType.Role)
                         {
-                            <div class="mb-3">
-                                <label class="form-label" for="scope-role">角色</label>
-                                <select id="scope-role" class="form-select" @bind="FormModel.TargetIdText">
+                            <div class="kp-mb-3">
+                                <label class="kp-label" for="scope-role">角色</label>
+                                <select id="scope-role" class="kp-select" @bind="FormModel.TargetIdText">
                                     <option value="">选择角色</option>
                                     @foreach (var role in RoleList)
                                     {
@@ -116,16 +115,16 @@
                         }
                         else
                         {
-                            <div class="mb-2">
-                                <label class="form-label" for="scope-user-filter">用户搜索</label>
-                                <div class="input-group">
-                                    <input id="scope-user-filter" class="form-control" @bind="UserFilterText" @bind:event="oninput" />
-                                    <button class="btn btn-outline-secondary" type="button" @onclick="LoadUsersAsync" disabled="@IsBusy">搜索</button>
+                            <div class="kp-mb-2">
+                                <label class="kp-label" for="scope-user-filter">用户搜索</label>
+                                <div class="kp-input-group">
+                                    <input id="scope-user-filter" class="kp-input" @bind="UserFilterText" @bind:event="oninput" />
+                                    <button class="kp-button kp-button--secondary" type="button" @onclick="LoadUsersAsync" disabled="@IsBusy">搜索</button>
                                 </div>
                             </div>
-                            <div class="mb-3">
-                                <label class="form-label" for="scope-user">用户</label>
-                                <select id="scope-user" class="form-select" @bind="FormModel.TargetIdText">
+                            <div class="kp-mb-3">
+                                <label class="kp-label" for="scope-user">用户</label>
+                                <select id="scope-user" class="kp-select" @bind="FormModel.TargetIdText">
                                     <option value="">选择用户</option>
                                     @foreach (var user in UserList)
                                     {
@@ -136,27 +135,27 @@
                         }
                     }
 
-                    <div class="mb-3">
-                        <label class="form-label" for="scope-security">最低安全等级</label>
-                        <InputNumber id="scope-security" class="form-control" @bind-Value="FormModel.MinimumSecurityLevel" />
+                    <div class="kp-mb-3">
+                        <label class="kp-label" for="scope-security">最低安全等级</label>
+                        <InputNumber id="scope-security" class="kp-input" @bind-Value="FormModel.MinimumSecurityLevel" />
                     </div>
 
                     @if (SelectedItem != null)
                     {
-                        <div class="alert alert-warning small">
-                            <strong class="d-block mb-1">变更影响预览</strong>
-                            <span class="d-block">当前：@GetCurrentPolicySummary()</span>
-                            <span class="d-block">本次：@GetProposedChangeText()</span>
+                        <div class="kp-alert kp-alert--warning kp-text-small">
+                            <strong class="kp-block kp-mb-1">变更影响预览</strong>
+                            <span class="kp-block">当前：@GetCurrentPolicySummary()</span>
+                            <span class="kp-block">本次：@GetProposedChangeText()</span>
                             @if (SelectedItem.CurrentPublishedVersionId.HasValue)
                             {
-                                <span class="d-block mt-2">保存后旧检索结果会立即失效，并自动创建权限变更索引任务；新索引完成前问答暂不可用。</span>
+                                <span class="kp-block kp-mt-2">保存后旧检索结果会立即失效，并自动创建权限变更索引任务；新索引完成前问答暂不可用。</span>
                             }
                         </div>
                     }
 
-                    <div class="d-flex gap-2">
-                        <button class="btn btn-primary" type="submit" disabled="@(IsBusy || SelectedItemId == null)">保存</button>
-                        <button class="btn btn-outline-secondary" type="button" @onclick="ResetForm" disabled="@IsBusy">取消</button>
+                    <div class="kp-flex kp-gap-2">
+                        <button class="kp-button kp-button--primary" type="submit" disabled="@(IsBusy || SelectedItemId == null)">保存</button>
+                        <button class="kp-button kp-button--secondary" type="button" @onclick="ResetForm" disabled="@IsBusy">取消</button>
                     </div>
                 </EditForm>
             </div>
@@ -164,36 +163,36 @@
     </div>
 
     @* 右侧展示当前知识文档已配置的显式访问策略。 *@
-    <div class="col-lg-8">
-        <div class="card">
-            <div class="table-responsive">
-                <table class="table table-hover align-middle mb-0">
+    <div class="kp-col-lg-8">
+        <div class="kp-card">
+            <div class="kp-table-wrap">
+                <table class="kp-table kp-table--hover kp-table-align-middle kp-mb-0">
                     <thead>
                         <tr>
                             <th>范围类型</th>
                             <th>目标</th>
                             <th>最低安全等级</th>
                             <th>状态</th>
-                            <th class="text-end">操作</th>
+                            <th class="kp-text-end">操作</th>
                         </tr>
                     </thead>
                     <tbody>
                         @if (SelectedItemId == null)
                         {
                             <tr>
-                                <td colspan="5" class="text-center py-4 text-muted">未选择知识文档</td>
+                                <td colspan="5" class="kp-text-center kp-py-4 kp-text-muted">未选择知识文档</td>
                             </tr>
                         }
                         else if (IsLoading)
                         {
                             <tr>
-                                <td colspan="5" class="text-center py-4 text-muted">加载中</td>
+                                <td colspan="5" class="kp-text-center kp-py-4 kp-text-muted">加载中</td>
                             </tr>
                         }
                         else if (ScopeList.Count == 0)
                         {
                             <tr>
-                                <td colspan="5" class="text-center py-4 text-warning">尚未保存显式访问策略；历史数据暂按全员可见兼容</td>
+                                <td colspan="5" class="kp-text-center kp-py-4 kp-text-warning">尚未保存显式访问策略；历史数据暂按全员可见兼容</td>
                             </tr>
                         }
                         else
@@ -205,12 +204,12 @@
                                     <td>@GetScopeTargetText(scope)</td>
                                     <td>@(scope.MinimumSecurityLevel?.ToString() ?? "-")</td>
                                     <td>
-                                        <span class="badge @(scope.IsEnabled ? "bg-success" : "bg-secondary")">
+                                        <span class="kp-badge @(scope.IsEnabled ? "kp-bg-success" : "kp-bg-secondary")">
                                             @(scope.IsEnabled ? "启用" : "停用")
                                         </span>
                                     </td>
-                                    <td class="text-end">
-                                        <button class="btn btn-link btn-sm text-danger" type="button" @onclick="() => DeleteAsync(scope.Id)" disabled="@(IsBusy || IsLastPublishedScope(scope))">删除</button>
+                                    <td class="kp-text-end">
+                                        <button class="kp-button kp-button--link kp-button--sm kp-text-danger" type="button" @onclick="() => DeleteAsync(scope.Id)" disabled="@(IsBusy || IsLastPublishedScope(scope))">删除</button>
                                     </td>
                                 </tr>
                             }
@@ -554,7 +553,7 @@
 
     private async Task<bool> ConfirmAsync(string message)
     {
-        return await JSRuntime.InvokeAsync<bool>("confirm", message);
+        return await Message.Confirm(message);
     }
 
     // 权限范围表单模型。All 类型允许 TargetIdText 为空，其他类型由保存逻辑校验。

@@ -37,7 +37,7 @@
     white-space: nowrap;
 }
 
-.rag-console-header-actions .btn {
+.rag-console-header-actions .kp-button {
     display: inline-flex;
     align-items: center;
     gap: 0.45rem;
@@ -440,7 +440,7 @@
     white-space: nowrap;
 }
 
-.rag-composer-actions .btn {
+.rag-composer-actions .kp-button {
     display: inline-flex;
     align-items: center;
     gap: 0.45rem;

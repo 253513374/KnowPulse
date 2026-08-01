@@ -1,0 +1,22 @@
+@namespace KnowPulse.Blazor.Client.Components
+
+<MudChip T="string" Class="kp-status-chip" Color="@MudColor" Variant="Variant.Outlined" Size="Size.Small">
+    @Label
+</MudChip>
+
+@code {
+    [Parameter, EditorRequired]
+    public string Label { get; set; } = string.Empty;
+
+    [Parameter]
+    public KpStatusTone Tone { get; set; }
+
+    private Color MudColor => Tone switch
+    {
+        KpStatusTone.Info => Color.Info,
+        KpStatusTone.Success => Color.Success,
+        KpStatusTone.Warning => Color.Warning,
+        KpStatusTone.Error => Color.Error,
+        _ => Color.Default
+    };
+}

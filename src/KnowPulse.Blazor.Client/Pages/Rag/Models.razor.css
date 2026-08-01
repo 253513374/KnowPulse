@@ -35,8 +35,8 @@
     gap: 0.65rem;
 }
 
-.rag-model-header-actions .btn,
-.rag-model-section-heading .btn {
+.rag-model-header-actions .kp-button,
+.rag-model-section-heading .kp-button {
     display: inline-flex;
     align-items: center;
     gap: 0.4rem;
@@ -324,5 +324,5 @@
     .rag-binding-advanced-grid,
     .rag-model-form-grid { grid-template-columns: 1fr; }
     .rag-binding-actions { justify-content: stretch; }
-    .rag-binding-actions .btn { flex: 1; }
+    .rag-binding-actions .kp-button { flex: 1; }
 }

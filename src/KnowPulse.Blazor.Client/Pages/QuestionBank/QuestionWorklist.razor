@@ -1,54 +1,53 @@
 @inherits KnowPulseComponentBase
 @inject IQuestionAppService QuestionAppService
 @inject IPositionAppService PositionAppService
-@inject IJSRuntime JSRuntime
 
 <QuestionBankFlowNav ActiveStage="@FlowStage" />
 
-<div class="d-flex flex-wrap align-items-start justify-content-between gap-3 mb-3">
+<div class="kp-flex kp-flex-wrap kp-align-start kp-justify-between kp-gap-3 kp-mb-3">
     <div>
-        <h1 class="h4 mb-1">@Title</h1>
-        <div class="text-muted small">@Description</div>
+        <h1 class="kp-heading-4 kp-mb-1">@Title</h1>
+        <div class="kp-text-muted kp-text-small">@Description</div>
     </div>
-    <div class="d-flex flex-wrap gap-2">
+    <div class="kp-flex kp-flex-wrap kp-gap-2">
         @if (Worklist == QuestionWorklistKind.Drafts)
         {
-            <a class="btn btn-outline-primary btn-sm" href="/question-bank/ai-candidates"><i class="fa-solid fa-wand-magic-sparkles me-1"></i>AI 辅助出题</a>
-            <a class="btn btn-primary btn-sm" href="/question-bank/questions/new"><i class="fa-solid fa-plus me-1"></i>新建人工题</a>
+            <a class="kp-button kp-button--primary-outline kp-button--sm" href="/question-bank/ai-candidates"><i class="fa-solid fa-wand-magic-sparkles kp-me-1"></i>AI 辅助出题</a>
+            <a class="kp-button kp-button--primary kp-button--sm" href="/question-bank/questions/new"><i class="fa-solid fa-plus kp-me-1"></i>新建人工题</a>
         }
         else if (Worklist == QuestionWorklistKind.Formal)
         {
-            <a class="btn btn-primary btn-sm" href="/exam/management"><i class="fa-solid fa-file-circle-plus me-1"></i>前往考试组卷</a>
+            <a class="kp-button kp-button--primary kp-button--sm" href="/exam/management"><i class="fa-solid fa-file-circle-plus kp-me-1"></i>前往考试组卷</a>
         }
-        <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="LoadAsync" disabled="@IsBusy">刷新</button>
+        <button class="kp-button kp-button--secondary kp-button--sm" type="button" @onclick="LoadAsync" disabled="@IsBusy">刷新</button>
     </div>
 </div>
 
 @if (!string.IsNullOrWhiteSpace(ErrorMessage))
 {
-    <div class="alert alert-danger" role="alert">@ErrorMessage</div>
+    <div class="kp-alert kp-alert--error" role="alert">@ErrorMessage</div>
 }
 
-<div class="card mb-3">
-    <div class="card-body">
+<div class="kp-card kp-mb-3">
+    <div class="kp-card__body">
         @if (Worklist == QuestionWorklistKind.Drafts)
         {
-            <div class="d-flex flex-wrap align-items-center gap-2 mb-3" aria-label="草稿状态筛选">
-                <span class="text-muted small me-1">按处理原因查看</span>
-                <button class="btn btn-sm @(StatusFilter == null ? "btn-primary" : "btn-outline-secondary")" type="button" @onclick="() => ChangeStatusAsync(null)">全部待处理</button>
-                <button class="btn btn-sm @(StatusFilter == QuestionStatus.Draft ? "btn-primary" : "btn-outline-secondary")" type="button" @onclick="() => ChangeStatusAsync(QuestionStatus.Draft)">新草稿</button>
-                <button class="btn btn-sm @(StatusFilter == QuestionStatus.ReturnedForRevision ? "btn-primary" : "btn-outline-secondary")" type="button" @onclick="() => ChangeStatusAsync(QuestionStatus.ReturnedForRevision)">退回修改</button>
-                <button class="btn btn-sm @(StatusFilter == QuestionStatus.Rejected ? "btn-primary" : "btn-outline-secondary")" type="button" @onclick="() => ChangeStatusAsync(QuestionStatus.Rejected)">未采用</button>
+            <div class="kp-flex kp-flex-wrap kp-align-center kp-gap-2 kp-mb-3" aria-label="草稿状态筛选">
+                <span class="kp-text-muted kp-text-small kp-me-1">按处理原因查看</span>
+                <button class="kp-button kp-button--sm @(StatusFilter == null ? "kp-button--primary" : "kp-button--secondary")" type="button" @onclick="() => ChangeStatusAsync(null)">全部待处理</button>
+                <button class="kp-button kp-button--sm @(StatusFilter == QuestionStatus.Draft ? "kp-button--primary" : "kp-button--secondary")" type="button" @onclick="() => ChangeStatusAsync(QuestionStatus.Draft)">新草稿</button>
+                <button class="kp-button kp-button--sm @(StatusFilter == QuestionStatus.ReturnedForRevision ? "kp-button--primary" : "kp-button--secondary")" type="button" @onclick="() => ChangeStatusAsync(QuestionStatus.ReturnedForRevision)">退回修改</button>
+                <button class="kp-button kp-button--sm @(StatusFilter == QuestionStatus.Rejected ? "kp-button--primary" : "kp-button--secondary")" type="button" @onclick="() => ChangeStatusAsync(QuestionStatus.Rejected)">未采用</button>
             </div>
         }
-        <div class="row g-2 align-items-end">
-            <div class="col-lg-3 col-md-6">
-                <label class="form-label" for="worklist-keyword">关键字</label>
-                <input id="worklist-keyword" class="form-control" @bind="Keyword" @bind:event="oninput" placeholder="标题、题干或标签" />
+        <div class="kp-grid kp-grid-gap-2 kp-align-end">
+            <div class="kp-col-lg-3 kp-col-md-6">
+                <label class="kp-label" for="worklist-keyword">关键字</label>
+                <input id="worklist-keyword" class="kp-input" @bind="Keyword" @bind:event="oninput" placeholder="标题、题干或标签" />
             </div>
-            <div class="col-lg-2 col-md-6">
-                <label class="form-label" for="worklist-type">题型</label>
-                <select id="worklist-type" class="form-select" @bind="TypeText">
+            <div class="kp-col-lg-2 kp-col-md-6">
+                <label class="kp-label" for="worklist-type">题型</label>
+                <select id="worklist-type" class="kp-select" @bind="TypeText">
                     <option value="">全部</option>
                     <option value="@QuestionType.SingleChoice">单选</option>
                     <option value="@QuestionType.MultipleChoice">多选</option>
@@ -56,18 +55,18 @@
                     <option value="@QuestionType.FillBlank">填空</option>
                 </select>
             </div>
-            <div class="col-lg-2 col-md-6">
-                <label class="form-label" for="worklist-difficulty">难度</label>
-                <select id="worklist-difficulty" class="form-select" @bind="DifficultyText">
+            <div class="kp-col-lg-2 kp-col-md-6">
+                <label class="kp-label" for="worklist-difficulty">难度</label>
+                <select id="worklist-difficulty" class="kp-select" @bind="DifficultyText">
                     <option value="">全部</option>
                     <option value="@QuestionDifficulty.Easy">简单</option>
                     <option value="@QuestionDifficulty.Normal">普通</option>
                     <option value="@QuestionDifficulty.Hard">困难</option>
                 </select>
             </div>
-            <div class="col-lg-2 col-md-6">
-                <label class="form-label" for="worklist-position">岗位</label>
-                <select id="worklist-position" class="form-select" @bind="PositionText">
+            <div class="kp-col-lg-2 kp-col-md-6">
+                <label class="kp-label" for="worklist-position">岗位</label>
+                <select id="worklist-position" class="kp-select" @bind="PositionText">
                     <option value="">全部</option>
                     @foreach (var position in Positions)
                     {
@@ -75,37 +74,37 @@
                     }
                 </select>
             </div>
-            <div class="col-lg-2 col-md-6">
-                <label class="form-label" for="worklist-point">知识点</label>
-                <input id="worklist-point" class="form-control" @bind="KnowledgePoint" @bind:event="oninput" />
+            <div class="kp-col-lg-2 kp-col-md-6">
+                <label class="kp-label" for="worklist-point">知识点</label>
+                <input id="worklist-point" class="kp-input" @bind="KnowledgePoint" @bind:event="oninput" />
             </div>
-            <div class="col-lg-1 col-md-6">
-                <button class="btn btn-outline-primary w-100" type="button" @onclick="ApplyFiltersAsync" disabled="@IsBusy">查询</button>
+            <div class="kp-col-lg-1 kp-col-md-6">
+                <button class="kp-button kp-button--primary-outline kp-full-width" type="button" @onclick="ApplyFiltersAsync" disabled="@IsBusy">查询</button>
             </div>
         </div>
     </div>
 </div>
 
-<div class="card qb-worklist-card">
-    <div class="card-header bg-transparent border-0 d-flex flex-wrap justify-content-between align-items-center gap-2 px-3 pt-3 pb-2">
-        <div class="fw-semibold">@ListTitle</div>
-        <div class="text-muted small">共 @TotalCount 道</div>
+<div class="kp-card qb-worklist-card">
+    <div class="kp-card__header kp-bg-transparent kp-border-0 kp-flex kp-flex-wrap kp-justify-between kp-align-center kp-gap-2 kp-px-3 kp-pt-3 kp-pb-2">
+        <div class="kp-text-semibold">@ListTitle</div>
+        <div class="kp-text-muted kp-text-small">共 @TotalCount 道</div>
     </div>
-    <div class="table-responsive">
-        <table class="table table-hover align-middle mb-0">
+    <div class="kp-table-wrap">
+        <table class="kp-table kp-table--hover kp-table-align-middle kp-mb-0">
             <thead>
                 <tr>
                     <th>题目</th>
                     <th>题型 / 难度</th>
                     <th>状态 / 来源</th>
                     <th>知识点</th>
-                    <th class="text-end">下一步</th>
+                    <th class="kp-text-end">下一步</th>
                 </tr>
             </thead>
             <tbody>
                 @if (IsLoading)
                 {
-                    <tr><td colspan="5" class="text-center py-5 text-muted">加载中</td></tr>
+                    <tr><td colspan="5" class="kp-text-center kp-py-5 kp-text-muted">加载中</td></tr>
                 }
                 else if (Questions.Count == 0)
                 {
@@ -113,13 +112,13 @@
                         <td colspan="5">
                             <div class="qb-empty">
                                 <span class="qb-empty__icon"><i class="fa-regular fa-folder-open"></i></span>
-                                <div class="fw-semibold mt-3">@EmptyText</div>
-                                <div class="small text-muted mt-1">@EmptyHelpText</div>
+                                <div class="kp-text-semibold kp-mt-3">@EmptyText</div>
+                                <div class="kp-text-small kp-text-muted kp-mt-1">@EmptyHelpText</div>
                                 @if (Worklist == QuestionWorklistKind.Drafts)
                                 {
-                                    <div class="d-flex flex-wrap justify-content-center gap-2 mt-3">
-                                        <a class="btn btn-sm btn-primary" href="/question-bank/questions/new">新建人工题</a>
-                                        <a class="btn btn-sm btn-outline-primary" href="/question-bank/ai-candidates">AI 辅助出题</a>
+                                    <div class="kp-flex kp-flex-wrap kp-justify-center kp-gap-2 kp-mt-3">
+                                        <a class="kp-button kp-button--sm kp-button--primary" href="/question-bank/questions/new">新建人工题</a>
+                                        <a class="kp-button kp-button--sm kp-button--primary-outline" href="/question-bank/ai-candidates">AI 辅助出题</a>
                                     </div>
                                 }
                             </div>
@@ -132,35 +131,35 @@
                     {
                         <tr>
                             <td>
-                                <div class="fw-semibold">@question.Title</div>
-                                <div class="small text-muted">@Trim(question.Stem, 96)</div>
+                                <div class="kp-text-semibold">@question.Title</div>
+                                <div class="kp-text-small kp-text-muted">@Trim(question.Stem, 96)</div>
                             </td>
                             <td>
                                 <div>@GetTypeText(question.Type)</div>
-                                <div class="small text-muted">@GetDifficultyText(question.Difficulty)</div>
+                                <div class="kp-text-small kp-text-muted">@GetDifficultyText(question.Difficulty)</div>
                             </td>
                             <td>
-                                <span class="badge @GetStatusBadge(question.Status)">@GetStatusText(question.Status)</span>
-                                <div class="small text-muted mt-1">@GetSourceText(question.CreationSource)</div>
+                                <span class="kp-badge @GetStatusBadge(question.Status)">@GetStatusText(question.Status)</span>
+                                <div class="kp-text-small kp-text-muted kp-mt-1">@GetSourceText(question.CreationSource)</div>
                             </td>
-                            <td class="small">@GetKnowledgePoints(question)</td>
-                            <td class="text-end">
+                            <td class="kp-text-small">@GetKnowledgePoints(question)</td>
+                            <td class="kp-text-end">
                                 @if (Worklist == QuestionWorklistKind.Drafts)
                                 {
-                                    <div class="d-flex justify-content-end flex-wrap gap-2">
-                                        <a class="btn btn-outline-secondary btn-sm" href="@($"/question-bank/questions/{question.Id}/edit")">编辑</a>
-                                        <button class="btn btn-primary btn-sm" type="button" @onclick="() => SubmitAsync(question)" disabled="@IsBusy">@(question.Status == QuestionStatus.Draft ? "提交审核" : "修改后重提")</button>
+                                    <div class="kp-flex kp-justify-end kp-flex-wrap kp-gap-2">
+                                        <a class="kp-button kp-button--secondary kp-button--sm" href="@($"/question-bank/questions/{question.Id}/edit")">编辑</a>
+                                        <button class="kp-button kp-button--primary kp-button--sm" type="button" @onclick="() => SubmitAsync(question)" disabled="@IsBusy">@(question.Status == QuestionStatus.Draft ? "提交审核" : "修改后重提")</button>
                                     </div>
                                 }
                                 else if (Worklist == QuestionWorklistKind.ReviewQueue)
                                 {
-                                    <a class="btn btn-primary btn-sm" href="@($"/question-bank/reviews/{question.Id}")">开始审核</a>
+                                    <a class="kp-button kp-button--primary kp-button--sm" href="@($"/question-bank/reviews/{question.Id}")">开始审核</a>
                                 }
                                 else
                                 {
-                                    <div class="d-flex justify-content-end flex-wrap gap-2">
-                                        <a class="btn btn-outline-primary btn-sm" href="/exam/management">用于组卷</a>
-                                        <button class="btn btn-outline-danger btn-sm" type="button" @onclick="() => DisableAsync(question)" disabled="@IsBusy">停用</button>
+                                    <div class="kp-flex kp-justify-end kp-flex-wrap kp-gap-2">
+                                        <a class="kp-button kp-button--primary-outline kp-button--sm" href="/exam/management">用于组卷</a>
+                                        <button class="kp-button kp-button--danger-outline kp-button--sm" type="button" @onclick="() => DisableAsync(question)" disabled="@IsBusy">停用</button>
                                     </div>
                                 }
                             </td>
@@ -294,7 +293,7 @@
 
     private async Task SubmitAsync(QuestionDto question)
     {
-        if (!await JSRuntime.InvokeAsync<bool>("confirm", "确定提交该题目进入审核队列吗？"))
+        if (!await Message.Confirm("确定提交该题目进入审核队列吗？"))
         {
             return;
         }
@@ -308,7 +307,7 @@
 
     private async Task DisableAsync(QuestionDto question)
     {
-        if (!await JSRuntime.InvokeAsync<bool>("confirm", "停用后该题不再进入新试卷，确定继续吗？"))
+        if (!await Message.Confirm("停用后该题不再进入新试卷，确定继续吗？"))
         {
             return;
         }
@@ -382,10 +381,10 @@
 
     private static string GetStatusBadge(QuestionStatus status) => status switch
     {
-        QuestionStatus.PendingReview => "bg-info",
-        QuestionStatus.Approved => "bg-success",
-        QuestionStatus.Rejected => "bg-danger",
-        QuestionStatus.ReturnedForRevision => "bg-warning text-dark",
-        _ => "bg-secondary"
+        QuestionStatus.PendingReview => "kp-bg-info",
+        QuestionStatus.Approved => "kp-bg-success",
+        QuestionStatus.Rejected => "kp-bg-error",
+        QuestionStatus.ReturnedForRevision => "kp-bg-warning kp-text-dark",
+        _ => "kp-bg-secondary"
     };
 }

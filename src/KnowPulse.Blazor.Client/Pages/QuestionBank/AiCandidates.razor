@@ -4,7 +4,6 @@
 @inject IAiQuestionGenerationAppService AiQuestionGenerationAppService
 @inject IQuestionAppService QuestionAppService
 @inject IPositionAppService PositionAppService
-@inject IJSRuntime JSRuntime
 @inject IPermissionChecker PermissionChecker
 
 <PageTitle>AI 候选题</PageTitle>
@@ -12,65 +11,65 @@
 <QuestionBankFlowNav ActiveStage="create" />
 
 @* 页面只负责生成和采纳候选题；审核动作统一在题库审核队列处理。 *@
-<div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+<div class="kp-flex kp-flex-wrap kp-align-center kp-justify-between kp-gap-2 kp-mb-3">
     <div>
-        <h1 class="h4 mb-1">AI 候选题</h1>
-        <div class="text-muted small">从知识库生成备选题，先人工确认并采纳为草稿，再进入审核。</div>
+        <h1 class="kp-heading-4 kp-mb-1">AI 候选题</h1>
+        <div class="kp-text-muted kp-text-small">从知识库生成备选题，先人工确认并采纳为草稿，再进入审核。</div>
     </div>
-    <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="LoadTasksAsync" disabled="@IsBusy">刷新</button>
+    <button class="kp-button kp-button--secondary kp-button--sm" type="button" @onclick="LoadTasksAsync" disabled="@IsBusy">刷新</button>
 </div>
 
 @if (!string.IsNullOrWhiteSpace(ErrorMessage))
 {
-    <div class="alert alert-danger d-flex flex-wrap align-items-center justify-content-between gap-2" role="alert">
+    <div class="kp-alert kp-alert--error kp-flex kp-flex-wrap kp-align-center kp-justify-between kp-gap-2" role="alert">
         <span>@ErrorMessage</span>
-        <button class="btn btn-sm btn-outline-danger" type="button" @onclick="LoadTasksAsync" disabled="@IsBusy">重试</button>
+        <button class="kp-button kp-button--sm kp-button--danger-outline" type="button" @onclick="LoadTasksAsync" disabled="@IsBusy">重试</button>
     </div>
 }
 
 @if (!string.IsNullOrWhiteSpace(SuccessMessage))
 {
-    <div class="alert alert-success" role="alert">@SuccessMessage</div>
+    <div class="kp-alert kp-alert--success" role="alert">@SuccessMessage</div>
 }
 
-<div class="row g-3">
-    <div class="col-xl-4">
-        <div class="alert alert-primary qb-ai-guardrail" role="note">
+<div class="kp-grid kp-grid-gap-3">
+    <div class="kp-col-xl-4">
+        <div class="kp-alert kp-alert--primary qb-ai-guardrail" role="note">
             <i class="fa-solid fa-shield-halved"></i>
             <div><strong>AI 结果不会直接入库</strong><span>采纳后仍可编辑，并且必须经过人工审核。</span></div>
         </div>
         @* 左侧表单负责创建 AI 出题任务，用户输入的是生成约束，真正依据仍由服务端 RAG 检索决定。 *@
-        <div class="card mb-3">
-            <div class="card-body">
-                <h2 class="h6 mb-1">从知识库生成候选题</h2>
-                <div class="small text-muted mb-3">描述要覆盖的内容，系统会检索可引用的知识。</div>
+        <div class="kp-card kp-mb-3">
+            <div class="kp-card__body">
+                <h2 class="kp-heading-6 kp-mb-1">从知识库生成候选题</h2>
+                <div class="kp-text-small kp-text-muted kp-mb-3">描述要覆盖的内容，系统会检索可引用的知识。</div>
                 <EditForm Model="@FormModel" OnValidSubmit="@GenerateAsync">
                     <DataAnnotationsValidator />
 
-                    <div class="mb-3">
-                        <label class="form-label" for="ai-scope">想考察什么</label>
-                        <textarea id="ai-scope" class="form-control" rows="3" @bind="FormModel.KnowledgeScope" @bind:event="oninput" placeholder="例如：新员工信息安全制度中的账号与密码要求"></textarea>
+                    <div class="kp-mb-3">
+                        <label class="kp-label" for="ai-scope">想考察什么</label>
+                        <textarea id="ai-scope" class="kp-input" rows="3" @bind="FormModel.KnowledgeScope" @bind:event="oninput" placeholder="例如：新员工信息安全制度中的账号与密码要求"></textarea>
                         <ValidationMessage For="@(() => FormModel.KnowledgeScope)" />
                     </div>
 
-                    <div class="mb-3">
-                        <label class="form-label" for="ai-points">知识点标签</label>
-                        <input id="ai-points" class="form-control" @bind="FormModel.KnowledgePointText" @bind:event="oninput" placeholder="例如：账号安全、密码规范" />
+                    <div class="kp-mb-3">
+                        <label class="kp-label" for="ai-points">知识点标签</label>
+                        <input id="ai-points" class="kp-input" @bind="FormModel.KnowledgePointText" @bind:event="oninput" placeholder="例如：账号安全、密码规范" />
                     </div>
 
-                    <div class="row g-2">
-                        <div class="col-md-6">
-                            <label class="form-label" for="ai-type">题型</label>
-                            <select id="ai-type" class="form-select" @bind="FormModel.Type">
+                    <div class="kp-grid kp-grid-gap-2">
+                        <div class="kp-col-md-6">
+                            <label class="kp-label" for="ai-type">题型</label>
+                            <select id="ai-type" class="kp-select" @bind="FormModel.Type">
                                 <option value="@QuestionType.SingleChoice">单选</option>
                                 <option value="@QuestionType.MultipleChoice">多选</option>
                                 <option value="@QuestionType.TrueFalse">判断</option>
                                 <option value="@QuestionType.FillBlank">填空</option>
                             </select>
                         </div>
-                        <div class="col-md-6">
-                            <label class="form-label" for="ai-difficulty">难度</label>
-                            <select id="ai-difficulty" class="form-select" @bind="FormModel.Difficulty">
+                        <div class="kp-col-md-6">
+                            <label class="kp-label" for="ai-difficulty">难度</label>
+                            <select id="ai-difficulty" class="kp-select" @bind="FormModel.Difficulty">
                                 <option value="@QuestionDifficulty.Easy">简单</option>
                                 <option value="@QuestionDifficulty.Normal">普通</option>
                                 <option value="@QuestionDifficulty.Hard">困难</option>
@@ -78,14 +77,14 @@
                         </div>
                     </div>
 
-                    <div class="mt-3">
-                        <label class="form-label" for="ai-count">生成数量</label>
-                        <InputNumber id="ai-count" class="form-control" @bind-Value="FormModel.RequestedCount" />
+                    <div class="kp-mt-3">
+                        <label class="kp-label" for="ai-count">生成数量</label>
+                        <InputNumber id="ai-count" class="kp-input" @bind-Value="FormModel.RequestedCount" />
                     </div>
 
-                    <div class="mt-3">
-                        <label class="form-label" for="ai-position">适用岗位</label>
-                        <select id="ai-position" class="form-select" @bind="FormModel.ApplicablePositionIdText">
+                    <div class="kp-mt-3">
+                        <label class="kp-label" for="ai-position">适用岗位</label>
+                        <select id="ai-position" class="kp-select" @bind="FormModel.ApplicablePositionIdText">
                             <option value="">不限</option>
                             @foreach (var position in PositionList)
                             {
@@ -94,70 +93,70 @@
                         </select>
                     </div>
 
-                    <details class="mt-3 qb-ai-advanced">
+                    <details class="kp-mt-3 qb-ai-advanced">
                         <summary>高级设置</summary>
-                        <div class="row g-2 mt-1">
-                            <div class="col-md-6">
-                                <label class="form-label" for="ai-topk">检索依据数量</label>
-                                <InputNumber id="ai-topk" class="form-control" @bind-Value="FormModel.TopK" />
+                        <div class="kp-grid kp-grid-gap-2 kp-mt-1">
+                            <div class="kp-col-md-6">
+                                <label class="kp-label" for="ai-topk">检索依据数量</label>
+                                <InputNumber id="ai-topk" class="kp-input" @bind-Value="FormModel.TopK" />
                             </div>
-                            <div class="col-md-6">
-                                <label class="form-label" for="ai-security">安全等级</label>
-                                <InputNumber id="ai-security" class="form-control" @bind-Value="FormModel.SecurityLevel" />
+                            <div class="kp-col-md-6">
+                                <label class="kp-label" for="ai-security">安全等级</label>
+                                <InputNumber id="ai-security" class="kp-input" @bind-Value="FormModel.SecurityLevel" />
                             </div>
                         </div>
-                        <div class="mt-2">
-                            <label class="form-label" for="ai-tags">标签</label>
-                            <input id="ai-tags" class="form-control" @bind="FormModel.Tags" @bind:event="oninput" />
+                        <div class="kp-mt-2">
+                            <label class="kp-label" for="ai-tags">标签</label>
+                            <input id="ai-tags" class="kp-input" @bind="FormModel.Tags" @bind:event="oninput" />
                         </div>
                     </details>
 
-                    <button class="btn btn-primary w-100 mt-3" type="submit" disabled="@IsBusy">@(IsBusy ? "正在生成…" : "开始生成候选题")</button>
+                    <button class="kp-button kp-button--primary kp-full-width kp-mt-3" type="submit" disabled="@IsBusy">@(IsBusy ? "正在生成…" : "开始生成候选题")</button>
                 </EditForm>
             </div>
         </div>
 
         @* 左侧任务列表展示最近生成任务，失败任务允许重试，点击任务后右侧展示候选题和引用。 *@
-        <div class="card qb-task-card">
-            <div class="card-header bg-transparent border-0 fw-semibold pt-3">最近生成</div>
-            <div class="table-responsive">
-                <table class="table table-hover align-middle mb-0">
+        <div class="kp-card qb-task-card">
+            <div class="kp-card__header kp-bg-transparent kp-border-0 kp-text-semibold kp-pt-3">最近生成</div>
+            <div class="kp-table-wrap">
+                <table class="kp-table kp-table--hover kp-table-align-middle kp-mb-0">
                     <thead>
                         <tr>
                             <th>任务</th>
                             <th>状态</th>
-                            <th class="text-end">操作</th>
+                            <th class="kp-text-end">操作</th>
                         </tr>
                     </thead>
                     <tbody>
                         @if (IsLoading)
                         {
                             <tr>
-                                <td colspan="3" class="text-center py-4 text-muted">加载中</td>
+                                <td colspan="3" class="kp-text-center kp-py-4 kp-text-muted">加载中</td>
                             </tr>
                         }
                         else if (TaskList.Count == 0)
                         {
                             <tr>
-                                <td colspan="3" class="text-center py-4 text-muted">暂无任务</td>
+                                <td colspan="3" class="kp-text-center kp-py-4 kp-text-muted">暂无任务</td>
                             </tr>
                         }
                         else
                         {
                             @foreach (var task in TaskList)
                             {
-                                <tr class="@(SelectedTask?.Id == task.Id ? "table-primary" : null)">
+                                <tr class="@(SelectedTask?.Id == task.Id ? "kp-table-row--primary" : null)">
                                     <td>
-                                        <button class="btn btn-link p-0 text-start" type="button" @onclick="() => SelectTaskAsync(task.Id)" disabled="@IsBusy">
-                                            <span class="fw-semibold">@Trim(task.KnowledgeScope, 40)</span>
+                                        <button class="kp-button kp-button--link kp-p-0 kp-text-start" type="button" @onclick="() => SelectTaskAsync(task.Id)" disabled="@IsBusy">
+                                            <span class="kp-text-semibold">@Trim(task.KnowledgeScope, 40)</span>
                                         </button>
-                                        <div class="small text-muted">@GetTypeText(task.Type) / @GetDifficultyText(task.Difficulty) / @task.GeneratedCount/@task.RequestedCount</div>
+                                        <div class="kp-text-small kp-text-muted">@GetTypeText(task.Type) / @GetDifficultyText(task.Difficulty) / @task.GeneratedCount/@task.RequestedCount</div>
                                     </td>
-                                    <td><span class="badge @GetTaskStatusBadge(task.Status)">@GetTaskStatusText(task.Status)</span></td>
-                                    <td class="text-end">
+                                    <td><span class="kp-badge @GetTaskStatusBadge(task.Status)">@GetTaskStatusText(task.Status)</span></td>
+                                    <td class="kp-text-end">
                                         @if (task.Status == AiQuestionGenerationTaskStatus.Failed)
                                         {
-                                            <button class="btn btn-outline-primary btn-sm" type="button" @onclick="() => RetryAsync(task.Id)" disabled="@IsBusy">重试</button>
+                                            <button class="kp-button kp-button--primary-outline kp-button--sm" type="button" @onclick="() => RetryAsync(task.Id)" disabled="@IsBusy">重试</button>
                                         }
                                     </td>
                                 </tr>
@@ -169,33 +168,33 @@
         </div>
     </div>
 
-    <div class="col-xl-8">
+    <div class="kp-col-xl-8">
         @* 右侧详情区展示任务状态、失败原因、候选题、citation 和审核操作。 *@
         @if (SelectedTask == null)
         {
-            <div class="card qb-ai-empty">
-                <div class="card-body text-center py-5">
+            <div class="kp-card qb-ai-empty">
+                <div class="kp-card__body kp-text-center kp-py-5">
                     <span class="qb-ai-empty__icon"><i class="fa-solid fa-wand-magic-sparkles"></i></span>
-                    <div class="fw-semibold mt-3">生成后在这里逐题确认</div>
-                    <div class="text-muted small mt-1">查看答案和引用依据，只采纳质量合格的候选题。</div>
+                    <div class="kp-text-semibold kp-mt-3">生成后在这里逐题确认</div>
+                    <div class="kp-text-muted kp-text-small kp-mt-1">查看答案和引用依据，只采纳质量合格的候选题。</div>
                 </div>
             </div>
         }
         else
         {
             @* 任务摘要只展示业务信息；模型和 prompt 版本继续保留在后端审计记录中。 *@
-            <div class="card mb-3">
-                <div class="card-body">
-                    <div class="d-flex flex-wrap align-items-start justify-content-between gap-2">
+            <div class="kp-card kp-mb-3">
+                <div class="kp-card__body">
+                    <div class="kp-flex kp-flex-wrap kp-align-start kp-justify-between kp-gap-2">
                         <div>
-                            <h2 class="h6 mb-1">@SelectedTask.KnowledgeScope</h2>
-                            <div class="small text-muted">已生成 @SelectedTask.GeneratedCount / @SelectedTask.RequestedCount 道 · @GetTypeText(SelectedTask.Type) · @GetDifficultyText(SelectedTask.Difficulty)</div>
+                            <h2 class="kp-heading-6 kp-mb-1">@SelectedTask.KnowledgeScope</h2>
+                            <div class="kp-text-small kp-text-muted">已生成 @SelectedTask.GeneratedCount / @SelectedTask.RequestedCount 道 · @GetTypeText(SelectedTask.Type) · @GetDifficultyText(SelectedTask.Difficulty)</div>
                         </div>
-                        <span class="badge @GetTaskStatusBadge(SelectedTask.Status)">@GetTaskStatusText(SelectedTask.Status)</span>
+                        <span class="kp-badge @GetTaskStatusBadge(SelectedTask.Status)">@GetTaskStatusText(SelectedTask.Status)</span>
                     </div>
                     @if (!string.IsNullOrWhiteSpace(SelectedTask.FailureReason))
                     {
-                        <div class="alert alert-warning mt-3 mb-0">
+                        <div class="kp-alert kp-alert--warning kp-mt-3 kp-mb-0">
                             @SelectedTask.FailureStage：@SelectedTask.FailureReason
                         </div>
                     }
@@ -204,119 +203,119 @@
 
             @if (SelectedTask.Candidates.Count == 0)
             {
-                <div class="card">
-                    <div class="card-body text-center text-muted py-5">暂无候选题</div>
+                <div class="kp-card">
+                    <div class="kp-card__body kp-text-center kp-text-muted kp-py-5">暂无候选题</div>
                 </div>
             }
             else
             {
-                <div class="d-flex flex-column gap-3">
+                <div class="kp-flex kp-flex-column kp-gap-3">
                     @foreach (var candidate in SelectedTask.Candidates)
                     {
                         @* 每张候选题卡都明确标记其候选状态，避免被误认为已经进入正式题库。 *@
-                        <div class="card">
-                            <div class="card-body">
-                                <div class="d-flex flex-wrap align-items-start justify-content-between gap-2">
+                        <div class="kp-card">
+                            <div class="kp-card__body">
+                                <div class="kp-flex kp-flex-wrap kp-align-start kp-justify-between kp-gap-2">
                                     <div>
-                                        <h3 class="h6 mb-1">@candidate.Title</h3>
-                                        <div class="small text-muted">@GetTypeText(candidate.Type) / @GetDifficultyText(candidate.Difficulty)</div>
+                                        <h3 class="kp-heading-6 kp-mb-1">@candidate.Title</h3>
+                                        <div class="kp-text-small kp-text-muted">@GetTypeText(candidate.Type) / @GetDifficultyText(candidate.Difficulty)</div>
                                     </div>
-                                    <div class="d-flex flex-wrap gap-2">
-                                        <span class="badge @GetCandidateStatusBadge(candidate.Status)">@GetCandidateStatusText(candidate.Status)</span>
+                                    <div class="kp-flex kp-flex-wrap kp-gap-2">
+                                        <span class="kp-badge @GetCandidateStatusBadge(candidate.Status)">@GetCandidateStatusText(candidate.Status)</span>
                                         @if (!candidate.LinkedQuestionId.HasValue)
                                         {
-                                            <span class="badge bg-secondary">未入正式题库</span>
+                                            <span class="kp-badge kp-bg-secondary">未入正式题库</span>
                                         }
                                         else
                                         {
                                             var linkedQuestion = GetLinkedQuestion(candidate);
                                             if (linkedQuestion == null)
                                             {
-                                                <span class="badge bg-light text-dark">已采纳为题库草稿</span>
+                                                <span class="kp-badge kp-bg-light kp-text-dark">已采纳为题库草稿</span>
                                             }
                                             else
                                             {
-                                                <span class="badge @GetQuestionStatusBadge(linkedQuestion.Status)">题库：@GetQuestionStatusText(linkedQuestion.Status)</span>
+                                                <span class="kp-badge @GetQuestionStatusBadge(linkedQuestion.Status)">题库：@GetQuestionStatusText(linkedQuestion.Status)</span>
                                             }
                                         }
                                     </div>
                                 </div>
 
-                                <p class="mt-3 mb-2">@candidate.Stem</p>
+                                <p class="kp-mt-3 kp-mb-2">@candidate.Stem</p>
 
                                 @if (candidate.Options.Count > 0)
                                 {
-                                    <div class="list-group list-group-flush mb-3">
+                                    <div class="kp-list kp-list--flush kp-mb-3">
                                         @foreach (var option in candidate.Options.OrderBy(x => x.DisplayOrder))
                                         {
-                                            <div class="list-group-item px-0">
-                                                <span class="fw-semibold">@option.OptionKey.</span> @option.Content
+                                            <div class="kp-list__item kp-px-0">
+                                                <span class="kp-text-semibold">@option.OptionKey.</span> @option.Content
                                             </div>
                                         }
                                     </div>
                                 }
 
-                                <div class="row g-2 small">
-                                    <div class="col-md-6">
-                                        <div class="text-muted">标准答案</div>
+                                <div class="kp-grid kp-grid-gap-2 kp-text-small">
+                                    <div class="kp-col-md-6">
+                                        <div class="kp-text-muted">标准答案</div>
                                         <div>@(candidate.Answers.Count == 0 ? "-" : string.Join(", ", candidate.Answers.OrderBy(x => x.DisplayOrder).Select(x => x.Value)))</div>
                                     </div>
-                                    <div class="col-md-6">
-                                        <div class="text-muted">知识点</div>
+                                    <div class="kp-col-md-6">
+                                        <div class="kp-text-muted">知识点</div>
                                         <div>@(candidate.KnowledgePoints.Count == 0 ? "-" : string.Join(", ", candidate.KnowledgePoints))</div>
                                     </div>
                                 </div>
 
                                 @if (!string.IsNullOrWhiteSpace(candidate.Analysis))
                                 {
-                                    <div class="mt-3 small">
-                                        <div class="text-muted">解析</div>
+                                    <div class="kp-mt-3 kp-text-small">
+                                        <div class="kp-text-muted">解析</div>
                                         <div>@candidate.Analysis</div>
                                     </div>
                                 }
 
                                 @if (!string.IsNullOrWhiteSpace(candidate.ValidationErrors))
                                 {
-                                    <div class="alert alert-danger mt-3 mb-0">@candidate.ValidationErrors</div>
+                                    <div class="kp-alert kp-alert--error kp-mt-3 kp-mb-0">@candidate.ValidationErrors</div>
                                 }
 
                                 @if (candidate.HighestSimilarityScore.HasValue)
                                 {
-                                    <div class="alert alert-warning mt-3 mb-0">
+                                    <div class="kp-alert kp-alert--warning kp-mt-3 kp-mb-0">
                                         @candidate.SimilaritySummary（相似度 @candidate.HighestSimilarityScore.Value.ToString("P0")）
                                     </div>
                                 }
 
-                                <div class="mt-3">
-                                    <div class="fw-semibold small mb-2">引用来源</div>
+                                <div class="kp-mt-3">
+                                    <div class="kp-text-semibold kp-text-small kp-mb-2">引用来源</div>
                                     @* citation 是候选题可采纳的必要条件，无 citation 时只允许排查。 *@
                                     @if (candidate.Citations.Count == 0)
                                     {
-                                        <div class="text-muted small">无 citation</div>
+                                        <div class="kp-text-muted kp-text-small">无 citation</div>
                                     }
                                     else
                                     {
-                                        <div class="d-flex flex-column gap-2">
+                                        <div class="kp-flex kp-flex-column kp-gap-2">
                                             @foreach (var citation in candidate.Citations.OrderBy(x => x.Rank))
                                             {
-                                                <div class="border rounded p-2 small">
-                                                    <div class="fw-semibold">[@citation.Rank] @citation.SourceTitle @GetPageText(citation.SourcePage)</div>
-                                                    <div class="text-muted">@citation.SourceExcerpt</div>
-                                                    <div class="text-muted">来自知识库检索依据</div>
+                                                <div class="kp-border kp-rounded kp-p-2 kp-text-small">
+                                                    <div class="kp-text-semibold">[@citation.Rank] @citation.SourceTitle @GetPageText(citation.SourcePage)</div>
+                                                    <div class="kp-text-muted">@citation.SourceExcerpt</div>
+                                                    <div class="kp-text-muted">来自知识库检索依据</div>
                                                 </div>
                                             }
                                         </div>
                                     }
                                 </div>
 
-                                <div class="d-flex flex-wrap gap-2 mt-3">
+                                <div class="kp-flex kp-flex-wrap kp-gap-2 kp-mt-3">
                                     @if (CanAdopt(candidate))
                                     {
-                                        <button class="btn btn-primary btn-sm" type="button" @onclick="() => AdoptCandidateAsync(candidate)" disabled="@IsBusy">采纳为草稿</button>
+                                        <button class="kp-button kp-button--primary kp-button--sm" type="button" @onclick="() => AdoptCandidateAsync(candidate)" disabled="@IsBusy">采纳为草稿</button>
                                     }
                                     @if (candidate.LinkedQuestionId.HasValue)
                                     {
-                                        <a class="btn btn-outline-secondary btn-sm" href="@($"/question-bank/questions/{candidate.LinkedQuestionId.Value}/edit")">打开题目草稿</a>
+                                        <a class="kp-button kp-button--secondary kp-button--sm" href="@($"/question-bank/questions/{candidate.LinkedQuestionId.Value}/edit")">打开题目草稿</a>
                                     }
                                 </div>
                             </div>
@@ -527,7 +526,7 @@
     // 浏览器确认框封装，避免危险动作误触。
     private async Task<bool> ConfirmAsync(string message)
     {
-        return await JSRuntime.InvokeAsync<bool>("confirm", message);
+        return await Message.Confirm(message);
     }
 
     // 候选题只有生成成功、未采纳且没有校验错误时，才允许采纳为草稿。
@@ -595,15 +594,15 @@
         _ => status.ToString()
     };
 
-    // AI 出题任务状态 badge 样式。
+    // AI 出题任务状态 kp-badge 样式。
     private static string GetTaskStatusBadge(AiQuestionGenerationTaskStatus status) => status switch
     {
-        AiQuestionGenerationTaskStatus.Pending => "bg-secondary",
-        AiQuestionGenerationTaskStatus.Processing => "bg-info",
-        AiQuestionGenerationTaskStatus.Generated => "bg-success",
-        AiQuestionGenerationTaskStatus.Failed => "bg-danger",
-        AiQuestionGenerationTaskStatus.Cancelled => "bg-dark",
-        _ => "bg-secondary"
+        AiQuestionGenerationTaskStatus.Pending => "kp-bg-secondary",
+        AiQuestionGenerationTaskStatus.Processing => "kp-bg-info",
+        AiQuestionGenerationTaskStatus.Generated => "kp-bg-success",
+        AiQuestionGenerationTaskStatus.Failed => "kp-bg-error",
+        AiQuestionGenerationTaskStatus.Cancelled => "kp-bg-dark",
+        _ => "kp-bg-secondary"
     };
 
     // AI 候选题状态中文展示。
@@ -616,14 +615,14 @@
         _ => status.ToString()
     };
 
-    // AI 候选题状态 badge 样式。
+    // AI 候选题状态 kp-badge 样式。
     private static string GetCandidateStatusBadge(AiQuestionCandidateStatus status) => status switch
     {
-        AiQuestionCandidateStatus.Generated => "bg-success",
-        AiQuestionCandidateStatus.ValidationFailed => "bg-danger",
-        AiQuestionCandidateStatus.AdoptedAsDraft => "bg-info",
-        AiQuestionCandidateStatus.Rejected => "bg-warning text-dark",
-        _ => "bg-secondary"
+        AiQuestionCandidateStatus.Generated => "kp-bg-success",
+        AiQuestionCandidateStatus.ValidationFailed => "kp-bg-error",
+        AiQuestionCandidateStatus.AdoptedAsDraft => "kp-bg-info",
+        AiQuestionCandidateStatus.Rejected => "kp-bg-warning kp-text-dark",
+        _ => "kp-bg-secondary"
     };
 
     // 候选题采纳后对应题库草稿的状态中文展示。
@@ -639,17 +638,17 @@
         _ => status.ToString()
     };
 
-    // 候选题采纳后对应题库草稿的状态 badge 样式。
+    // 候选题采纳后对应题库草稿的状态 kp-badge 样式。
     private static string GetQuestionStatusBadge(QuestionStatus status) => status switch
     {
-        QuestionStatus.Draft => "bg-secondary",
-        QuestionStatus.PendingReview => "bg-info",
-        QuestionStatus.Approved => "bg-success",
-        QuestionStatus.Rejected => "bg-danger",
-        QuestionStatus.ReturnedForRevision => "bg-warning text-dark",
-        QuestionStatus.Disabled => "bg-dark",
-        QuestionStatus.Archived => "bg-light text-dark",
-        _ => "bg-secondary"
+        QuestionStatus.Draft => "kp-bg-secondary",
+        QuestionStatus.PendingReview => "kp-bg-info",
+        QuestionStatus.Approved => "kp-bg-success",
+        QuestionStatus.Rejected => "kp-bg-error",
+        QuestionStatus.ReturnedForRevision => "kp-bg-warning kp-text-dark",
+        QuestionStatus.Disabled => "kp-bg-dark",
+        QuestionStatus.Archived => "kp-bg-light kp-text-dark",
+        _ => "kp-bg-secondary"
     };
 
     // 创建任务表单模型。使用字符串保存岗位 ID，便于和 select 的空值选项绑定。

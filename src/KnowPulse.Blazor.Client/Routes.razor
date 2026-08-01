@@ -1,10 +1,11 @@
-﻿@using Volo.Abp.AspNetCore.Components.Web.LeptonXLiteTheme.Themes.LeptonXLite
+@using Volo.Abp.AspNetCore.Components.Web.MudBlazorLeptonXLiteTheme.Themes.MudBlazorLeptonXLite
+@using Volo.Abp.AspNetCore.Components.WebAssembly.MudBlazorLeptonXLiteTheme.Themes.MudBlazorLeptonXLite
 @using Volo.Abp.AspNetCore.Components.WebAssembly.WebApp
 <Router AppAssembly="typeof(Program).Assembly" AdditionalAssemblies="WebAppAdditionalAssembliesHelper.GetAssemblies<KnowPulseBlazorClientModule>()">
     <Found Context="routeData">
         <AuthorizeRouteView RouteData="routeData" DefaultLayout="typeof(MainLayout)">
             <NotAuthorized>
-                <RedirectToLogin />
+                <WebAssemblyRedirectToLogin />
             </NotAuthorized>
         </AuthorizeRouteView>
     </Found>

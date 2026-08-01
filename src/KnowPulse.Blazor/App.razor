@@ -7,17 +7,13 @@
     <title>KnowPulse.Blazor</title>
     <base href="/" />
 
-    <link href="global.css" rel="stylesheet"/>
-    <link href="main.css" rel="stylesheet"/>
-    <link href="KnowPulse.Blazor.Client.styles.css" rel="stylesheet"/>
+    <AbpStyles BundleName="@BlazorWebAssemblyMudBlazorStandardBundles.Styles.Global" />
 
 
     <HeadOutlet @rendermode="new InteractiveWebAssemblyRenderMode(prerender: false)" />
 </head>
 
-<body class="abp-application-layout bg-light">
-
-    <script src="_framework/blazor.web.js"></script>
+<body class="abp-application-layout kp-app">
 
     <div id="ApplicationContainer">
         <div class="spinner">
@@ -28,8 +24,8 @@
         <Routes @rendermode="new InteractiveWebAssemblyRenderMode(prerender: false)"/>
     </div>
 
-    <script src="global.js"></script>
-    <script src="knowpulse.js"></script>
+    <AbpScripts BundleName="@BlazorWebAssemblyMudBlazorStandardBundles.Scripts.Global" />
+    <script src="_framework/blazor.web.js"></script>
 
 </body>
 </html>

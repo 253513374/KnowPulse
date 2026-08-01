@@ -190,7 +190,7 @@
     background: rgba(13, 110, 253, .06);
 }
 
-.knowledge-detail-card .card-header {
+.knowledge-detail-card .kp-card__header {
     min-height: 4rem;
     padding: .85rem 1rem;
     border-bottom-color: #edf0f2;

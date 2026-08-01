@@ -6,93 +6,93 @@
 
 <PageTitle>题库工作台</PageTitle>
 
-<div class="d-flex flex-wrap align-items-start justify-content-between gap-3 mb-3">
+<div class="kp-flex kp-flex-wrap kp-align-start kp-justify-between kp-gap-3 kp-mb-3">
     <div>
-        <div class="text-primary fw-semibold small mb-1">QUESTION WORKSPACE</div>
-        <h1 class="h4 mb-1">题库工作台</h1>
-        <div class="text-muted">把人工题和 AI 候选统一推进到可组卷的正式题库。</div>
+        <div class="kp-text-primary kp-text-semibold kp-text-small kp-mb-1">QUESTION WORKSPACE</div>
+        <h1 class="kp-heading-4 kp-mb-1">题库工作台</h1>
+        <div class="kp-text-muted">把人工题和 AI 候选统一推进到可组卷的正式题库。</div>
     </div>
-    <div class="d-flex flex-wrap gap-2">
+    <div class="kp-flex kp-flex-wrap kp-gap-2">
         @if (CanUseAi)
         {
-            <a class="btn btn-outline-primary" href="/question-bank/ai-candidates"><i class="fa-solid fa-wand-magic-sparkles me-1"></i>AI 辅助出题</a>
+            <a class="kp-button kp-button--primary-outline" href="/question-bank/ai-candidates"><i class="fa-solid fa-wand-magic-sparkles kp-me-1"></i>AI 辅助出题</a>
         }
-        <a class="btn btn-primary" href="/question-bank/questions/new"><i class="fa-solid fa-plus me-1"></i>新建人工题</a>
+        <a class="kp-button kp-button--primary" href="/question-bank/questions/new"><i class="fa-solid fa-plus kp-me-1"></i>新建人工题</a>
     </div>
 </div>
 
 @if (!string.IsNullOrWhiteSpace(ErrorMessage))
 {
-    <div class="alert alert-danger" role="alert">@ErrorMessage</div>
+    <div class="kp-alert kp-alert--error" role="alert">@ErrorMessage</div>
 }
 
 <QuestionBankFlowNav />
 
-<div class="row g-3 mb-3">
-    <div class="col-lg-4">
-        <a class="card qb-metric h-100" href="/question-bank/drafts">
-            <div class="card-body">
-                <div class="d-flex justify-content-between align-items-start">
-                    <span class="qb-metric__icon bg-primary-subtle text-primary"><i class="fa-solid fa-pen-to-square"></i></span>
-                    <span class="text-muted small">待编辑</span>
+<div class="kp-grid kp-grid-gap-3 kp-mb-3">
+    <div class="kp-col-lg-4">
+        <a class="kp-card qb-metric kp-full-height" href="/question-bank/drafts">
+            <div class="kp-card__body">
+                <div class="kp-flex kp-justify-between kp-align-start">
+                    <span class="qb-metric__icon kp-bg-primary-soft kp-text-primary"><i class="fa-solid fa-pen-to-square"></i></span>
+                    <span class="kp-text-muted kp-text-small">待编辑</span>
                 </div>
-                <div class="display-6 fw-semibold mt-3">@(IsLoading ? "—" : DraftCount)</div>
-                <div class="fw-semibold">草稿与待修改题</div>
-                <div class="text-muted small mt-1">补全题干、答案和来源后提交审核</div>
+                <div class="kp-display-6 kp-text-semibold kp-mt-3">@(IsLoading ? "—" : DraftCount)</div>
+                <div class="kp-text-semibold">草稿与待修改题</div>
+                <div class="kp-text-muted kp-text-small kp-mt-1">补全题干、答案和来源后提交审核</div>
             </div>
         </a>
     </div>
-    <div class="col-lg-4">
-        <a class="card qb-metric h-100" href="/question-bank/reviews">
-            <div class="card-body">
-                <div class="d-flex justify-content-between align-items-start">
-                    <span class="qb-metric__icon bg-warning-subtle text-warning-emphasis"><i class="fa-solid fa-clipboard-check"></i></span>
-                    <span class="text-muted small">待决策</span>
+    <div class="kp-col-lg-4">
+        <a class="kp-card qb-metric kp-full-height" href="/question-bank/reviews">
+            <div class="kp-card__body">
+                <div class="kp-flex kp-justify-between kp-align-start">
+                    <span class="qb-metric__icon kp-bg-warning-soft kp-text-warning-strong"><i class="fa-solid fa-clipboard-check"></i></span>
+                    <span class="kp-text-muted kp-text-small">待决策</span>
                 </div>
-                <div class="display-6 fw-semibold mt-3">@(IsLoading ? "—" : ReviewCount)</div>
-                <div class="fw-semibold">待审核题目</div>
-                <div class="text-muted small mt-1">核对内容与依据，决定通过、退回或驳回</div>
+                <div class="kp-display-6 kp-text-semibold kp-mt-3">@(IsLoading ? "—" : ReviewCount)</div>
+                <div class="kp-text-semibold">待审核题目</div>
+                <div class="kp-text-muted kp-text-small kp-mt-1">核对内容与依据，决定通过、退回或驳回</div>
             </div>
         </a>
     </div>
-    <div class="col-lg-4">
-        <a class="card qb-metric h-100" href="/question-bank/formal">
-            <div class="card-body">
-                <div class="d-flex justify-content-between align-items-start">
-                    <span class="qb-metric__icon bg-success-subtle text-success"><i class="fa-solid fa-book-open"></i></span>
-                    <span class="text-muted small">可组卷</span>
+    <div class="kp-col-lg-4">
+        <a class="kp-card qb-metric kp-full-height" href="/question-bank/formal">
+            <div class="kp-card__body">
+                <div class="kp-flex kp-justify-between kp-align-start">
+                    <span class="qb-metric__icon kp-bg-success-soft kp-text-success"><i class="fa-solid fa-book-open"></i></span>
+                    <span class="kp-text-muted kp-text-small">可组卷</span>
                 </div>
-                <div class="display-6 fw-semibold mt-3">@(IsLoading ? "—" : FormalCount)</div>
-                <div class="fw-semibold">正式题目</div>
-                <div class="text-muted small mt-1">只有审核通过的启用题目会进入新试卷</div>
+                <div class="kp-display-6 kp-text-semibold kp-mt-3">@(IsLoading ? "—" : FormalCount)</div>
+                <div class="kp-text-semibold">正式题目</div>
+                <div class="kp-text-muted kp-text-small kp-mt-1">只有审核通过的启用题目会进入新试卷</div>
             </div>
         </a>
     </div>
 </div>
 
-<div class="row g-3">
-    <div class="col-xl-8">
-        <div class="card h-100">
-            <div class="card-body p-4">
-                <div class="d-flex align-items-center justify-content-between gap-3 mb-4">
+<div class="kp-grid kp-grid-gap-3">
+    <div class="kp-col-xl-8">
+        <div class="kp-card kp-full-height">
+            <div class="kp-card__body kp-p-4">
+                <div class="kp-flex kp-align-center kp-justify-between kp-gap-3 kp-mb-4">
                     <div>
-                        <h2 class="h6 mb-1">今天从哪里开始</h2>
-                        <div class="text-muted small">按当前任务直接进入，不需要先理解系统状态。</div>
+                        <h2 class="kp-heading-6 kp-mb-1">今天从哪里开始</h2>
+                        <div class="kp-text-muted kp-text-small">按当前任务直接进入，不需要先理解系统状态。</div>
                     </div>
-                    <button class="btn btn-sm btn-outline-secondary" type="button" @onclick="LoadAsync" disabled="@IsLoading">刷新数据</button>
+                    <button class="kp-button kp-button--sm kp-button--secondary" type="button" @onclick="LoadAsync" disabled="@IsLoading">刷新数据</button>
                 </div>
                 <div class="qb-actions">
                     <a href="/question-bank/questions/new">
                         <span class="qb-actions__icon"><i class="fa-solid fa-keyboard"></i></span>
                         <span><strong>我有一道明确的题</strong><small>人工录入并保存为草稿</small></span>
-                        <i class="fa-solid fa-chevron-right ms-auto"></i>
+                        <i class="fa-solid fa-chevron-right kp-auto-start"></i>
                     </a>
                     @if (CanUseAi)
                     {
                         <a href="/question-bank/ai-candidates">
                             <span class="qb-actions__icon"><i class="fa-solid fa-wand-magic-sparkles"></i></span>
                             <span><strong>从知识库批量出题</strong><small>先生成候选，再采纳为可编辑草稿</small></span>
-                            <i class="fa-solid fa-chevron-right ms-auto"></i>
+                            <i class="fa-solid fa-chevron-right kp-auto-start"></i>
                         </a>
                     }
                     @if (CanReview)
@@ -100,30 +100,30 @@
                         <a href="/question-bank/reviews">
                             <span class="qb-actions__icon"><i class="fa-solid fa-user-check"></i></span>
                             <span><strong>处理待审核题目</strong><small>确认答案、解析与来源依据</small></span>
-                            <i class="fa-solid fa-chevron-right ms-auto"></i>
+                            <i class="fa-solid fa-chevron-right kp-auto-start"></i>
                         </a>
                     }
                     <a href="/question-bank/formal">
                         <span class="qb-actions__icon"><i class="fa-solid fa-file-circle-check"></i></span>
                         <span><strong>查看可组卷题目</strong><small>管理正式题目的可用状态</small></span>
-                        <i class="fa-solid fa-chevron-right ms-auto"></i>
+                        <i class="fa-solid fa-chevron-right kp-auto-start"></i>
                     </a>
                 </div>
             </div>
         </div>
     </div>
-    <div class="col-xl-4">
-        <div class="card h-100 qb-guardrail">
-            <div class="card-body p-4">
+    <div class="kp-col-xl-4">
+        <div class="kp-card kp-full-height qb-guardrail">
+            <div class="kp-card__body kp-p-4">
                 <span class="qb-guardrail__icon"><i class="fa-solid fa-shield-halved"></i></span>
-                <h2 class="h6 mt-3">正式入库规则</h2>
-                <p class="text-muted small">这三条规则由服务端强制执行，页面操作无法绕过。</p>
-                <ul class="list-unstyled small mb-0">
-                    <li><i class="fa-solid fa-check text-success"></i> AI 生成结果只是候选题</li>
-                    <li><i class="fa-solid fa-check text-success"></i> 人工题和 AI 题都必须审核</li>
-                    <li><i class="fa-solid fa-check text-success"></i> 仅审核通过且启用的题目可组卷</li>
+                <h2 class="kp-heading-6 kp-mt-3">正式入库规则</h2>
+                <p class="kp-text-muted kp-text-small">这三条规则由服务端强制执行，页面操作无法绕过。</p>
+                <ul class="kp-list-unstyled kp-text-small kp-mb-0">
+                    <li><i class="fa-solid fa-check kp-text-success"></i> AI 生成结果只是候选题</li>
+                    <li><i class="fa-solid fa-check kp-text-success"></i> 人工题和 AI 题都必须审核</li>
+                    <li><i class="fa-solid fa-check kp-text-success"></i> 仅审核通过且启用的题目可组卷</li>
                 </ul>
-                <a class="btn btn-outline-primary w-100 mt-4" href="/exam/management">前往考试组卷</a>
+                <a class="kp-button kp-button--primary-outline kp-full-width kp-mt-4" href="/exam/management">前往考试组卷</a>
             </div>
         </div>
     </div>

@@ -17,7 +17,7 @@
             <span class="rag-console-date">今天是 @DateTime.Now.ToString("yyyy-MM-dd")</span>
             @if (CanViewModels)
             {
-                <a class="btn btn-outline-primary" href="/rag/models">
+                <a class="kp-button kp-button--primary-outline" href="/rag/models">
                     <i class="fa fa-sliders-h" aria-hidden="true"></i>
                     查看配置
                 </a>
@@ -66,7 +66,7 @@
 
     @if (!string.IsNullOrWhiteSpace(ErrorMessage))
     {
-        <div class="alert alert-danger" role="alert">@ErrorMessage</div>
+        <div class="kp-alert kp-alert--error" role="alert">@ErrorMessage</div>
     }
 
     <main class="rag-conversation" aria-live="polite" aria-busy="@IsBusy.ToString().ToLowerInvariant()">
@@ -107,7 +107,7 @@
                     @if (IsBusy)
                     {
                         <div class="rag-generating" role="status">
-                            <span class="spinner-border spinner-border-sm" aria-hidden="true"></span>
+                            <span class="kp-spinner kp-spinner--sm" aria-hidden="true"></span>
                             <div>
                                 <strong>正在检索可访问知识</strong>
                                 <span>随后会核对引用并组织回答，请稍候。</span>
@@ -159,10 +159,10 @@
                                     <span>可能是知识尚未发布、当前账号无访问权限，或问题与知识内容不匹配。</span>
                                 </div>
                                 <div class="rag-recovery-actions">
-                                    <a class="btn btn-sm btn-outline-secondary" href="/knowledge">浏览可用知识</a>
+                                    <a class="kp-button kp-button--sm kp-button--secondary" href="/knowledge">浏览可用知识</a>
                                     @if (CanViewModels)
                                     {
-                                        <a class="btn btn-sm btn-outline-primary" href="/rag/models">检查模型状态</a>
+                                        <a class="kp-button kp-button--sm kp-button--primary-outline" href="/rag/models">检查模型状态</a>
                                     }
                                 </div>
                             </div>
@@ -178,7 +178,7 @@
             <DataAnnotationsValidator />
             <label class="visually-hidden" for="rag-question">输入需要验证的问题</label>
             <textarea id="rag-question"
-                      class="form-control rag-composer-input"
+                      class="kp-input rag-composer-input"
                       rows="2"
                       placeholder="请输入你的问题"
                       aria-describedby="rag-question-help"
@@ -194,7 +194,7 @@
                     {
                         <a href="/rag/models"><i class="fa fa-wave-square" aria-hidden="true"></i> 检查模型状态</a>
                     }
-                    <button class="btn btn-primary" type="submit" disabled="@IsBusy">
+                    <button class="kp-button kp-button--primary" type="submit" disabled="@IsBusy">
                         <i class="fa fa-paper-plane" aria-hidden="true"></i>
                         发送
                     </button>

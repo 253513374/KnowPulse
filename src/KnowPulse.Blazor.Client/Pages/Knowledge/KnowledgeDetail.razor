@@ -7,7 +7,6 @@
 @inject IKnowledgeIndexJobAppService IndexJobAppService
 @inject IPermissionChecker PermissionChecker
 @inject NavigationManager NavigationManager
-@inject IJSRuntime JSRuntime
 
 <PageTitle>@(Detail?.Title ?? "知识详情")</PageTitle>
 
@@ -18,21 +17,21 @@
 
     @if (!string.IsNullOrWhiteSpace(ErrorMessage))
     {
-        <div class="alert alert-danger d-flex flex-wrap align-items-center justify-content-between gap-2" role="alert">
+        <div class="kp-alert kp-alert--error kp-flex kp-flex-wrap kp-align-center kp-justify-between kp-gap-2" role="alert">
             <span>@ErrorMessage</span>
-            <button class="btn btn-sm btn-outline-danger" type="button" @onclick="LoadAsync" disabled="@IsBusy">重试</button>
+            <button class="kp-button kp-button--sm kp-button--danger-outline" type="button" @onclick="LoadAsync" disabled="@IsBusy">重试</button>
         </div>
     }
 
     @if (!string.IsNullOrWhiteSpace(SuccessMessage))
     {
-        <div class="alert alert-success" role="status">@SuccessMessage</div>
+        <div class="kp-alert kp-alert--success" role="status">@SuccessMessage</div>
     }
 
     @if (IsLoading && Detail == null)
     {
-        <div class="card"><div class="card-body py-5 text-center text-muted">
-            <span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>正在加载知识详情
+        <div class="kp-card"><div class="kp-card__body kp-py-5 kp-text-center kp-text-muted">
+            <span class="kp-spinner kp-spinner--sm kp-me-2" aria-hidden="true"></span>正在加载知识详情
         </div></div>
     }
     else if (Detail != null)
@@ -43,24 +42,24 @@
                     <i class="fas fa-file-lines" aria-hidden="true"></i>
                 </span>
                 <div>
-                    <div class="d-flex flex-wrap align-items-center gap-2">
-                        <h1 class="h3 mb-0">@Detail.Title</h1>
+                    <div class="kp-flex kp-flex-wrap kp-align-center kp-gap-2">
+                        <h1 class="kp-heading-3 kp-mb-0">@Detail.Title</h1>
                         <span class="knowledge-detail-status @GetStatusClass(Detail.Status)">
                             <i aria-hidden="true"></i>@GetStatusText(Detail.Status)
                         </span>
                     </div>
-                    <p class="text-muted mb-0 mt-2">
+                    <p class="kp-text-muted kp-mb-0 kp-mt-2">
                         @Detail.CategoryName · @(Detail.CurrentVersionNumber.HasValue ? $"当前版本 v{Detail.CurrentVersionNumber}" : "尚未发布")
                         · 最后更新于 @FormatDateTime(Detail.UpdatedTime)
                     </p>
                 </div>
             </div>
-            <div class="d-flex flex-wrap gap-2">
-                <button class="btn btn-outline-secondary" type="button" @onclick="OpenAdvanced">
-                    <i class="fas fa-sliders me-2" aria-hidden="true"></i>高级维护
+            <div class="kp-flex kp-flex-wrap kp-gap-2">
+                <button class="kp-button kp-button--secondary" type="button" @onclick="OpenAdvanced">
+                    <i class="fas fa-sliders kp-me-2" aria-hidden="true"></i>高级维护
                 </button>
-                <button class="btn btn-primary" type="button" @onclick="OpenRevision">
-                    <i class="fas fa-file-circle-plus me-2" aria-hidden="true"></i>创建修订
+                <button class="kp-button kp-button--primary" type="button" @onclick="OpenRevision">
+                    <i class="fas fa-file-circle-plus kp-me-2" aria-hidden="true"></i>创建修订
                 </button>
             </div>
         </header>
@@ -86,23 +85,23 @@
         {
             <div class="knowledge-detail-grid">
                 <div class="knowledge-detail-main">
-                    <section class="card knowledge-detail-card">
-                        <div class="card-header d-flex align-items-center justify-content-between gap-3">
-                            <div><h2 class="h6 mb-1">知识概览</h2><small class="text-muted">当前生效的业务事实</small></div>
-                            <button class="btn btn-link btn-sm" type="button" @onclick="OpenAdvanced">编辑信息</button>
+                    <section class="kp-card knowledge-detail-card">
+                        <div class="kp-card__header kp-flex kp-align-center kp-justify-between kp-gap-3">
+                            <div><h2 class="kp-heading-6 kp-mb-1">知识概览</h2><small class="kp-text-muted">当前生效的业务事实</small></div>
+                            <button class="kp-button kp-button--link kp-button--sm" type="button" @onclick="OpenAdvanced">编辑信息</button>
                         </div>
                         <div class="knowledge-definition-grid">
                             <div><small>分类</small><strong>@Detail.CategoryName</strong></div>
                             <div><small>创建人</small><strong>@FormatUser(Detail.CreatorId)</strong></div>
                             <div><small>当前版本</small><strong>@GetCurrentVersionText(Detail)</strong></div>
-                            <div><small>访问范围</small><strong><i class="fas @(Detail.IsAccessRestricted ? "fa-lock" : "fa-earth-asia") me-2" aria-hidden="true"></i>@Detail.AccessScopeText</strong></div>
+                            <div><small>访问范围</small><strong><i class="fas @(Detail.IsAccessRestricted ? "fa-lock" : "fa-earth-asia") kp-me-2" aria-hidden="true"></i>@Detail.AccessScopeText</strong></div>
                             <div class="span-two"><small>摘要</small><p>@(string.IsNullOrWhiteSpace(Detail.Summary) ? "暂未填写摘要。" : Detail.Summary)</p></div>
                         </div>
                     </section>
 
-                    <section class="card knowledge-detail-card">
-                        <div class="card-header d-flex align-items-center justify-content-between gap-3">
-                            <div><h2 class="h6 mb-1">问答可用性</h2><small class="text-muted">版本生命周期与索引任务保持独立，页面合成为一个健康状态。</small></div>
+                    <section class="kp-card knowledge-detail-card">
+                        <div class="kp-card__header kp-flex kp-align-center kp-justify-between kp-gap-3">
+                            <div><h2 class="kp-heading-6 kp-mb-1">问答可用性</h2><small class="kp-text-muted">版本生命周期与索引任务保持独立，页面合成为一个健康状态。</small></div>
                             <span class="knowledge-detail-status @GetStatusClass(Detail.Status)">
                                 <i aria-hidden="true"></i>@GetStatusText(Detail.Status)
                             </span>
@@ -145,24 +144,24 @@
                                 </div>
                                 @if (CanManageIndexJobs && Detail.LatestIndexStatus == KnowledgeIndexJobStatus.Failed)
                                 {
-                                    <button class="btn btn-outline-danger btn-sm" type="button" @onclick="RetryLatestAsync" disabled="@IsBusy">重试索引</button>
+                                    <button class="kp-button kp-button--danger-outline kp-button--sm" type="button" @onclick="RetryLatestAsync" disabled="@IsBusy">重试索引</button>
                                 }
                                 else if (CanManageIndexJobs && Detail.CurrentVersionId.HasValue)
                                 {
-                                    <button class="btn btn-outline-primary btn-sm" type="button" @onclick="ReindexCurrentAsync" disabled="@IsBusy">重建索引</button>
+                                    <button class="kp-button kp-button--primary-outline kp-button--sm" type="button" @onclick="ReindexCurrentAsync" disabled="@IsBusy">重建索引</button>
                                 }
                             </div>
                         }
                     </section>
 
-                    <section class="card knowledge-detail-card">
-                        <div class="card-header d-flex align-items-center justify-content-between gap-3">
-                            <div><h2 class="h6 mb-1">最近反馈</h2><small class="text-muted">修订动作回到当前知识上下文。</small></div>
-                            <button class="btn btn-link btn-sm" type="button" @onclick="() => ActiveTab = DetailTab.Feedback">查看全部</button>
+                    <section class="kp-card knowledge-detail-card">
+                        <div class="kp-card__header kp-flex kp-align-center kp-justify-between kp-gap-3">
+                            <div><h2 class="kp-heading-6 kp-mb-1">最近反馈</h2><small class="kp-text-muted">修订动作回到当前知识上下文。</small></div>
+                            <button class="kp-button kp-button--link kp-button--sm" type="button" @onclick="() => ActiveTab = DetailTab.Feedback">查看全部</button>
                         </div>
                         @if (Detail.RecentFeedback.Count == 0)
                         {
-                            <div class="card-body text-muted">暂无知识反馈。</div>
+                            <div class="kp-card__body kp-text-muted">暂无知识反馈。</div>
                         }
                         else
                         {
@@ -180,8 +179,8 @@
                 </div>
 
                 <aside class="knowledge-detail-side">
-                    <section class="card knowledge-detail-card">
-                        <div class="card-header"><h2 class="h6 mb-0">当前状态</h2></div>
+                    <section class="kp-card knowledge-detail-card">
+                        <div class="kp-card__header"><h2 class="kp-heading-6 kp-mb-0">当前状态</h2></div>
                         <div class="knowledge-health-list">
                             <div><span class="health-success"><i class="fas fa-arrow-up-from-bracket" aria-hidden="true"></i></span><p><small>业务生命周期</small><strong>@GetCurrentVersionText(Detail)</strong></p></div>
                             <div><span class="@GetHealthClass(Detail.Status)"><i class="fas fa-atom" aria-hidden="true"></i></span><p><small>问答可用状态</small><strong>@GetStatusText(Detail.Status)</strong></p></div>
@@ -190,10 +189,10 @@
                         </div>
                     </section>
 
-                    <section class="card knowledge-detail-card">
-                        <div class="card-header d-flex align-items-center justify-content-between">
-                            <h2 class="h6 mb-0">最近活动</h2>
-                            <button class="btn btn-link btn-sm" type="button" @onclick="() => ActiveTab = DetailTab.Activity">全部</button>
+                    <section class="kp-card knowledge-detail-card">
+                        <div class="kp-card__header kp-flex kp-align-center kp-justify-between">
+                            <h2 class="kp-heading-6 kp-mb-0">最近活动</h2>
+                            <button class="kp-button kp-button--link kp-button--sm" type="button" @onclick="() => ActiveTab = DetailTab.Activity">全部</button>
                         </div>
                         <div class="knowledge-activity-list">
                             @foreach (var activity in Detail.RecentActivities.Take(5))
@@ -207,10 +206,10 @@
         }
         else if (ActiveTab == DetailTab.Versions)
         {
-            <section class="card knowledge-detail-card">
-                <div class="card-header d-flex align-items-center justify-content-between gap-3">
-                    <div><h2 class="h6 mb-1">内容与版本</h2><small class="text-muted">发布时同时确认访问策略并创建索引任务。</small></div>
-                    <button class="btn btn-primary btn-sm" type="button" @onclick="OpenRevision">创建修订</button>
+            <section class="kp-card knowledge-detail-card">
+                <div class="kp-card__header kp-flex kp-align-center kp-justify-between kp-gap-3">
+                    <div><h2 class="kp-heading-6 kp-mb-1">内容与版本</h2><small class="kp-text-muted">发布时同时确认访问策略并创建索引任务。</small></div>
+                    <button class="kp-button kp-button--primary kp-button--sm" type="button" @onclick="OpenRevision">创建修订</button>
                 </div>
                 @if (PublishCandidate != null)
                 {
@@ -223,37 +222,37 @@
                         <div class="knowledge-publish-policy">
                             <span><i class="fas @(GetPublishPermissionScopes().Any(x => x.ScopeType != KnowledgePermissionScopeType.All) ? "fa-lock" : "fa-earth-asia")" aria-hidden="true"></i></span>
                             <div><small>本次访问策略</small><strong>@GetPublishAccessPolicyText()</strong></div>
-                            <button class="btn btn-link btn-sm" type="button" @onclick="OpenPermissionManagement">调整策略</button>
+                            <button class="kp-button kp-button--link kp-button--sm" type="button" @onclick="OpenPermissionManagement">调整策略</button>
                         </div>
-                        <label class="form-check knowledge-publish-confirm">
-                            <input class="form-check-input" type="checkbox" @bind="AccessPolicyConfirmed" disabled="@IsBusy" />
-                            <span class="form-check-label">我已确认该版本内容和以上访问范围。</span>
+                        <label class="kp-check knowledge-publish-confirm">
+                            <input class="kp-check__input" type="checkbox" @bind="AccessPolicyConfirmed" disabled="@IsBusy" />
+                            <span class="kp-check__label">我已确认该版本内容和以上访问范围。</span>
                         </label>
-                        <div class="d-flex flex-wrap gap-2 justify-content-end">
-                            <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="CancelPublish" disabled="@IsBusy">取消</button>
-                            <button class="btn btn-primary btn-sm" type="button" @onclick="ConfirmPublishAsync" disabled="@(IsBusy || !AccessPolicyConfirmed)">
-                                @if (IsBusy) { <span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span> }
+                        <div class="kp-flex kp-flex-wrap kp-gap-2 kp-justify-end">
+                            <button class="kp-button kp-button--secondary kp-button--sm" type="button" @onclick="CancelPublish" disabled="@IsBusy">取消</button>
+                            <button class="kp-button kp-button--primary kp-button--sm" type="button" @onclick="ConfirmPublishAsync" disabled="@(IsBusy || !AccessPolicyConfirmed)">
+                                @if (IsBusy) { <span class="kp-spinner kp-spinner--sm kp-me-2" aria-hidden="true"></span> }
                                 确认发布
                             </button>
                         </div>
                     </div>
                 }
-                <div class="table-responsive">
-                    <table class="table align-middle mb-0">
-                        <thead><tr><th>版本</th><th>标题</th><th>状态</th><th>发布时间</th><th class="text-end">操作</th></tr></thead>
+                <div class="kp-table-wrap">
+                    <table class="kp-table kp-table-align-middle kp-mb-0">
+                        <thead><tr><th>版本</th><th>标题</th><th>状态</th><th>发布时间</th><th class="kp-text-end">操作</th></tr></thead>
                         <tbody>
                             @foreach (var version in Detail.Versions)
                             {
                                 <tr>
                                     <td><strong>v@version.VersionNumber</strong></td><td>@version.Title</td>
-                                    <td><span class="badge @(version.IsCurrentPublished ? "text-bg-success" : "text-bg-secondary")">@GetVersionStatusText(version)</span></td>
+                                    <td><span class="kp-badge @(version.IsCurrentPublished ? "kp-bg-success" : "kp-bg-secondary")">@GetVersionStatusText(version)</span></td>
                                     <td>@FormatNullableDateTime(version.PublishedTime)</td>
-                                    <td class="text-end">
+                                    <td class="kp-text-end">
                                         @if (CanPublishKnowledge && CanPublishVersion(version))
                                         {
-                                            <button class="btn btn-link btn-sm" type="button" @onclick="() => PreparePublish(version)" disabled="@IsBusy">发布</button>
+                                            <button class="kp-button kp-button--link kp-button--sm" type="button" @onclick="() => PreparePublish(version)" disabled="@IsBusy">发布</button>
                                         }
-                                        <button class="btn btn-link btn-sm" type="button" @onclick="OpenAdvanced">管理版本</button>
+                                        <button class="kp-button kp-button--link kp-button--sm" type="button" @onclick="OpenAdvanced">管理版本</button>
                                     </td>
                                 </tr>
                             }
@@ -264,38 +263,38 @@
         }
         else if (ActiveTab == DetailTab.Access)
         {
-            <section class="card knowledge-detail-card">
-                <div class="card-header d-flex align-items-center justify-content-between gap-3">
-                    <div><h2 class="h6 mb-1">访问策略</h2><small class="text-muted">已发布知识应持久化至少一条显式访问规则。</small></div>
+            <section class="kp-card knowledge-detail-card">
+                <div class="kp-card__header kp-flex kp-align-center kp-justify-between kp-gap-3">
+                    <div><h2 class="kp-heading-6 kp-mb-1">访问策略</h2><small class="kp-text-muted">已发布知识应持久化至少一条显式访问规则。</small></div>
                     @if (CanManageAccessPolicy)
                     {
-                        <button class="btn btn-outline-primary btn-sm" type="button" @onclick="OpenPermissionManagement">调整访问策略</button>
+                        <button class="kp-button kp-button--primary-outline kp-button--sm" type="button" @onclick="OpenPermissionManagement">调整访问策略</button>
                     }
                 </div>
-                <div class="card-body">
-                    <div class="knowledge-access-summary mb-4">
+                <div class="kp-card__body">
+                    <div class="knowledge-access-summary kp-mb-4">
                         <span><i class="fas @(Detail.IsAccessRestricted ? "fa-lock" : "fa-earth-asia")" aria-hidden="true"></i></span>
                         <div><small>当前有效访问范围</small><strong>@Detail.AccessScopeText</strong><p>@GetAccessExplanation(Detail)</p></div>
                     </div>
                     @if (Detail.PermissionScopes.Count == 0)
                     {
-                        <div class="alert alert-warning d-flex flex-wrap align-items-center justify-content-between gap-2 mb-0">
+                        <div class="kp-alert kp-alert--warning kp-flex kp-flex-wrap kp-align-center kp-justify-between kp-gap-2 kp-mb-0">
                             <span>这是历史兼容状态：当前仍按全员可见处理，但尚未保存显式访问策略。</span>
                             @if (CanManageAccessPolicy)
                             {
-                                <button class="btn btn-sm btn-outline-warning" type="button" @onclick="PersistExplicitAllPolicyAsync" disabled="@IsBusy">补齐全员策略</button>
+                                <button class="kp-button kp-button--sm kp-button--warning-outline" type="button" @onclick="PersistExplicitAllPolicyAsync" disabled="@IsBusy">补齐全员策略</button>
                             }
                         </div>
                     }
                     else
                     {
-                        <div class="table-responsive">
-                            <table class="table align-middle mb-0">
+                        <div class="kp-table-wrap">
+                            <table class="kp-table kp-table-align-middle kp-mb-0">
                                 <thead><tr><th>范围类型</th><th>目标</th><th>最低安全等级</th><th>状态</th></tr></thead>
                                 <tbody>
                                     @foreach (var scope in Detail.PermissionScopes)
                                     {
-                                        <tr><td>@GetScopeTypeText(scope.ScopeType)</td><td>@(scope.TargetId?.ToString("D") ?? "全部用户")</td><td>@(scope.MinimumSecurityLevel?.ToString() ?? "无限制")</td><td><span class="badge text-bg-success">启用</span></td></tr>
+                                        <tr><td>@GetScopeTypeText(scope.ScopeType)</td><td>@(scope.TargetId?.ToString("D") ?? "全部用户")</td><td>@(scope.MinimumSecurityLevel?.ToString() ?? "无限制")</td><td><span class="kp-badge kp-bg-success">启用</span></td></tr>
                                     }
                                 </tbody>
                             </table>
@@ -306,21 +305,21 @@
         }
         else if (ActiveTab == DetailTab.Index)
         {
-            <section class="card knowledge-detail-card">
-                <div class="card-header d-flex align-items-center justify-content-between gap-3">
-                    <div><h2 class="h6 mb-1">检索状态</h2><small class="text-muted">保留发布、权限变更和手动重建产生的任务事实。</small></div>
+            <section class="kp-card knowledge-detail-card">
+                <div class="kp-card__header kp-flex kp-align-center kp-justify-between kp-gap-3">
+                    <div><h2 class="kp-heading-6 kp-mb-1">检索状态</h2><small class="kp-text-muted">保留发布、权限变更和手动重建产生的任务事实。</small></div>
                     @if (CanManageIndexJobs && Detail.CurrentVersionId.HasValue)
                     {
-                        <button class="btn btn-outline-primary btn-sm" type="button" @onclick="ReindexCurrentAsync" disabled="@IsBusy">重建当前版本索引</button>
+                        <button class="kp-button kp-button--primary-outline kp-button--sm" type="button" @onclick="ReindexCurrentAsync" disabled="@IsBusy">重建当前版本索引</button>
                     }
                 </div>
-                <div class="table-responsive">
-                    <table class="table align-middle mb-0">
-                        <thead><tr><th>创建时间</th><th>版本</th><th>触发方式</th><th>状态</th><th>失败信息</th><th class="text-end">操作</th></tr></thead>
+                <div class="kp-table-wrap">
+                    <table class="kp-table kp-table-align-middle kp-mb-0">
+                        <thead><tr><th>创建时间</th><th>版本</th><th>触发方式</th><th>状态</th><th>失败信息</th><th class="kp-text-end">操作</th></tr></thead>
                         <tbody>
                             @if (Detail.IndexJobs.Count == 0)
                             {
-                                <tr><td colspan="6" class="text-center py-4 text-muted">暂无索引任务</td></tr>
+                                <tr><td colspan="6" class="kp-text-center kp-py-4 kp-text-muted">暂无索引任务</td></tr>
                             }
                             else
                             {
@@ -328,15 +327,15 @@
                                 {
                                     <tr>
                                         <td>@FormatDateTime(job.CreationTime)</td><td>@GetVersionLabel(job.KnowledgeVersionId)</td><td>@GetTriggerText(job.TriggerType)</td>
-                                        <td><span class="badge @GetIndexBadgeClass(job.Status)">@GetIndexStatusText(job.Status)</span></td>
+                                        <td><span class="kp-badge @GetIndexBadgeClass(job.Status)">@GetIndexStatusText(job.Status)</span></td>
                                         <td>
-                                            @if (string.IsNullOrWhiteSpace(job.FailureReason)) { <span class="text-muted">-</span> }
-                                            else { <strong class="text-danger d-block">@job.FailureStage</strong><small>@job.FailureReason</small> }
+                                            @if (string.IsNullOrWhiteSpace(job.FailureReason)) { <span class="kp-text-muted">-</span> }
+                                            else { <strong class="kp-text-danger kp-block">@job.FailureStage</strong><small>@job.FailureReason</small> }
                                         </td>
-                                        <td class="text-end">
+                                        <td class="kp-text-end">
                                             @if (CanManageIndexJobs && job.Status == KnowledgeIndexJobStatus.Failed)
                                             {
-                                                <button class="btn btn-link btn-sm" type="button" @onclick="() => RetryAsync(job.Id)" disabled="@IsBusy">重试</button>
+                                                <button class="kp-button kp-button--link kp-button--sm" type="button" @onclick="() => RetryAsync(job.Id)" disabled="@IsBusy">重试</button>
                                             }
                                         </td>
                                     </tr>
@@ -349,17 +348,17 @@
         }
         else if (ActiveTab == DetailTab.Feedback)
         {
-            <section class="card knowledge-detail-card">
-                <div class="card-header d-flex align-items-center justify-content-between gap-3">
-                    <div><h2 class="h6 mb-1">反馈与修订</h2><small class="text-muted">在当前知识上下文中接手反馈、创建修订并验证发布结果。</small></div>
+            <section class="kp-card knowledge-detail-card">
+                <div class="kp-card__header kp-flex kp-align-center kp-justify-between kp-gap-3">
+                    <div><h2 class="kp-heading-6 kp-mb-1">反馈与修订</h2><small class="kp-text-muted">在当前知识上下文中接手反馈、创建修订并验证发布结果。</small></div>
                     @if (CanManageFeedback)
                     {
-                        <button class="btn btn-outline-primary btn-sm" type="button" @onclick="OpenFeedbackManagement">处理当前知识反馈</button>
+                        <button class="kp-button kp-button--primary-outline kp-button--sm" type="button" @onclick="OpenFeedbackManagement">处理当前知识反馈</button>
                     }
                 </div>
                 @if (Detail.RecentFeedback.Count == 0)
                 {
-                    <div class="card-body text-center text-muted py-5">暂无知识反馈。</div>
+                    <div class="kp-card__body kp-text-center kp-text-muted kp-py-5">暂无知识反馈。</div>
                 }
                 else
                 {
@@ -370,7 +369,7 @@
                                 <i class="fas @(feedback.Status is KnowledgeFeedbackStatus.Resolved or KnowledgeFeedbackStatus.Closed ? "fa-circle-check" : "fa-message")" aria-hidden="true"></i>
                             </span>
                             <div>
-                                <div class="d-flex flex-wrap align-items-center gap-2"><strong>@feedback.Title</strong><span class="badge @GetFeedbackBadgeClass(feedback.Status)">@GetFeedbackStatusText(feedback.Status)</span></div>
+                                <div class="kp-flex kp-flex-wrap kp-align-center kp-gap-2"><strong>@feedback.Title</strong><span class="kp-badge @GetFeedbackBadgeClass(feedback.Status)">@GetFeedbackStatusText(feedback.Status)</span></div>
                                 <p>@feedback.Description</p>
                                 @if (!string.IsNullOrWhiteSpace(feedback.Resolution)) { <p class="knowledge-feedback-resolution">处理备注：@feedback.Resolution</p> }
                                 <small>@FormatDateTime(feedback.HandledTime ?? feedback.CreationTime)</small>
@@ -382,8 +381,8 @@
         }
         else
         {
-            <section class="card knowledge-detail-card">
-                <div class="card-header"><h2 class="h6 mb-1">活动记录</h2><small class="text-muted">从知识、版本、索引和反馈事实实时投影。</small></div>
+            <section class="kp-card knowledge-detail-card">
+                <div class="kp-card__header"><h2 class="kp-heading-6 kp-mb-1">活动记录</h2><small class="kp-text-muted">从知识、版本、索引和反馈事实实时投影。</small></div>
                 <div class="knowledge-activity-timeline">
                     @foreach (var activity in Detail.RecentActivities)
                     {
@@ -580,7 +579,7 @@
         !version.IsCurrentPublished && version.Status != KnowledgeVersionStatus.Archived;
 
     private async Task<bool> ConfirmAsync(string message) =>
-        await JSRuntime.InvokeAsync<bool>("confirm", message);
+        await Message.Confirm(message);
 
     private async Task ReindexCurrentAsync()
     {
@@ -658,11 +657,11 @@
 
     private static string GetIndexBadgeClass(KnowledgeIndexJobStatus status) => status switch
     {
-        KnowledgeIndexJobStatus.Indexed => "text-bg-success",
-        KnowledgeIndexJobStatus.Pending => "text-bg-warning",
-        KnowledgeIndexJobStatus.Processing => "text-bg-info",
-        KnowledgeIndexJobStatus.Failed => "text-bg-danger",
-        _ => "text-bg-secondary"
+        KnowledgeIndexJobStatus.Indexed => "kp-bg-success",
+        KnowledgeIndexJobStatus.Pending => "kp-bg-warning",
+        KnowledgeIndexJobStatus.Processing => "kp-bg-info",
+        KnowledgeIndexJobStatus.Failed => "kp-bg-error",
+        _ => "kp-bg-secondary"
     };
 
     private static string GetHealthClass(KnowledgeManagementStatus status) => status switch
@@ -730,10 +729,10 @@
 
     private static string GetFeedbackBadgeClass(KnowledgeFeedbackStatus status) => status switch
     {
-        KnowledgeFeedbackStatus.Submitted => "text-bg-warning",
-        KnowledgeFeedbackStatus.Processing => "text-bg-info",
-        KnowledgeFeedbackStatus.Resolved => "text-bg-success",
-        _ => "text-bg-secondary"
+        KnowledgeFeedbackStatus.Submitted => "kp-bg-warning",
+        KnowledgeFeedbackStatus.Processing => "kp-bg-info",
+        KnowledgeFeedbackStatus.Resolved => "kp-bg-success",
+        _ => "kp-bg-secondary"
     };
 
     private static string GetActivityClass(string kind) => kind switch

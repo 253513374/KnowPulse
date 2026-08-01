@@ -9,39 +9,39 @@
 @* 用户组织关系页：维护用户与部门、岗位、职级、安全等级和主关系之间的绑定。 *@
 <PageTitle>用户组织关系</PageTitle>
 
-<div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+<div class="kp-flex kp-flex-wrap kp-align-center kp-justify-between kp-gap-2 kp-mb-3">
     <div>
-        <h1 class="h4 mb-1">用户组织关系</h1>
-        <div class="text-muted small">Organization / User Assignments</div>
+        <h1 class="kp-heading-4 kp-mb-1">用户组织关系</h1>
+        <div class="kp-text-muted kp-text-small">Organization / User Assignments</div>
     </div>
-    <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="LoadAsync" disabled="@IsBusy">刷新</button>
+    <button class="kp-button kp-button--secondary kp-button--sm" type="button" @onclick="LoadAsync" disabled="@IsBusy">刷新</button>
 </div>
 
 @if (!string.IsNullOrWhiteSpace(ErrorMessage))
 {
-    <div class="alert alert-danger d-flex flex-wrap align-items-center justify-content-between gap-2" role="alert">
+    <div class="kp-alert kp-alert--error kp-flex kp-flex-wrap kp-align-center kp-justify-between kp-gap-2" role="alert">
         <span>@ErrorMessage</span>
-        <button class="btn btn-sm btn-outline-danger" type="button" @onclick="LoadAsync" disabled="@IsBusy">重试</button>
+        <button class="kp-button kp-button--sm kp-button--danger-outline" type="button" @onclick="LoadAsync" disabled="@IsBusy">重试</button>
     </div>
 }
 
-<div class="row g-3">
+<div class="kp-grid kp-grid-gap-3">
     @* 左侧是新增/编辑表单，用户 ID 当前直接录入，部门岗位职级从主数据列表选择。 *@
-    <div class="col-xl-4">
-        <div class="card">
-            <div class="card-body">
-                <h2 class="h6 mb-3">@FormTitle</h2>
+    <div class="kp-col-xl-4">
+        <div class="kp-card">
+            <div class="kp-card__body">
+                <h2 class="kp-heading-6 kp-mb-3">@FormTitle</h2>
                 <EditForm Model="@FormModel" OnValidSubmit="@SaveAsync">
                     <DataAnnotationsValidator />
 
-                    <div class="mb-3">
-                        <label class="form-label" for="assignment-user">用户 ID</label>
-                        <input id="assignment-user" class="form-control" @bind="FormModel.UserIdText" @bind:event="oninput" />
+                    <div class="kp-mb-3">
+                        <label class="kp-label" for="assignment-user">用户 ID</label>
+                        <input id="assignment-user" class="kp-input" @bind="FormModel.UserIdText" @bind:event="oninput" />
                     </div>
 
-                    <div class="mb-3">
-                        <label class="form-label" for="assignment-department">部门</label>
-                        <select id="assignment-department" class="form-select" @bind="FormModel.DepartmentIdText">
+                    <div class="kp-mb-3">
+                        <label class="kp-label" for="assignment-department">部门</label>
+                        <select id="assignment-department" class="kp-select" @bind="FormModel.DepartmentIdText">
                             <option value="">选择部门</option>
                             @foreach (var department in DepartmentList)
                             {
@@ -50,9 +50,9 @@
                         </select>
                     </div>
 
-                    <div class="mb-3">
-                        <label class="form-label" for="assignment-position">岗位</label>
-                        <select id="assignment-position" class="form-select" @bind="FormModel.PositionIdText">
+                    <div class="kp-mb-3">
+                        <label class="kp-label" for="assignment-position">岗位</label>
+                        <select id="assignment-position" class="kp-select" @bind="FormModel.PositionIdText">
                             <option value="">未指定</option>
                             @foreach (var position in PositionList)
                             {
@@ -61,9 +61,9 @@
                         </select>
                     </div>
 
-                    <div class="mb-3">
-                        <label class="form-label" for="assignment-job-level">职级</label>
-                        <select id="assignment-job-level" class="form-select" @bind="FormModel.JobLevelIdText">
+                    <div class="kp-mb-3">
+                        <label class="kp-label" for="assignment-job-level">职级</label>
+                        <select id="assignment-job-level" class="kp-select" @bind="FormModel.JobLevelIdText">
                             <option value="">未指定</option>
                             @foreach (var jobLevel in JobLevelList)
                             {
@@ -72,24 +72,24 @@
                         </select>
                     </div>
 
-                    <div class="mb-3">
-                        <label class="form-label" for="assignment-security">安全等级</label>
-                        <InputNumber id="assignment-security" class="form-control" @bind-Value="FormModel.SecurityLevel" />
+                    <div class="kp-mb-3">
+                        <label class="kp-label" for="assignment-security">安全等级</label>
+                        <InputNumber id="assignment-security" class="kp-input" @bind-Value="FormModel.SecurityLevel" />
                     </div>
 
-                    <div class="form-check form-switch mb-2">
-                        <InputCheckbox id="assignment-primary" class="form-check-input" @bind-Value="FormModel.IsPrimary" />
-                        <label class="form-check-label" for="assignment-primary">主组织关系</label>
+                    <div class="kp-check kp-switch kp-mb-2">
+                        <InputCheckbox id="assignment-primary" class="kp-check__input" @bind-Value="FormModel.IsPrimary" />
+                        <label class="kp-check__label" for="assignment-primary">主组织关系</label>
                     </div>
 
-                    <div class="form-check form-switch mb-3">
-                        <InputCheckbox id="assignment-active" class="form-check-input" @bind-Value="FormModel.IsActive" />
-                        <label class="form-check-label" for="assignment-active">启用</label>
+                    <div class="kp-check kp-switch kp-mb-3">
+                        <InputCheckbox id="assignment-active" class="kp-check__input" @bind-Value="FormModel.IsActive" />
+                        <label class="kp-check__label" for="assignment-active">启用</label>
                     </div>
 
-                    <div class="d-flex gap-2">
-                        <button class="btn btn-primary" type="submit" disabled="@IsBusy">保存</button>
-                        <button class="btn btn-outline-secondary" type="button" @onclick="ResetForm" disabled="@IsBusy">取消</button>
+                    <div class="kp-flex kp-gap-2">
+                        <button class="kp-button kp-button--primary" type="submit" disabled="@IsBusy">保存</button>
+                        <button class="kp-button kp-button--secondary" type="button" @onclick="ResetForm" disabled="@IsBusy">取消</button>
                     </div>
                 </EditForm>
             </div>
@@ -97,17 +97,17 @@
     </div>
 
     @* 右侧是可分页的组织关系列表，并提供用户、部门和启用状态过滤。 *@
-    <div class="col-xl-8">
-        <div class="card mb-3">
-            <div class="card-body">
-                <div class="row g-2 align-items-end">
-                    <div class="col-md-5">
-                        <label class="form-label" for="assignment-filter-user">用户 ID</label>
-                        <input id="assignment-filter-user" class="form-control" @bind="FilterModel.UserIdText" @bind:event="oninput" />
+    <div class="kp-col-xl-8">
+        <div class="kp-card kp-mb-3">
+            <div class="kp-card__body">
+                <div class="kp-grid kp-grid-gap-2 kp-align-end">
+                    <div class="kp-col-md-5">
+                        <label class="kp-label" for="assignment-filter-user">用户 ID</label>
+                        <input id="assignment-filter-user" class="kp-input" @bind="FilterModel.UserIdText" @bind:event="oninput" />
                     </div>
-                    <div class="col-md-4">
-                        <label class="form-label" for="assignment-filter-department">部门</label>
-                        <select id="assignment-filter-department" class="form-select" @bind="FilterModel.DepartmentIdText">
+                    <div class="kp-col-md-4">
+                        <label class="kp-label" for="assignment-filter-department">部门</label>
+                        <select id="assignment-filter-department" class="kp-select" @bind="FilterModel.DepartmentIdText">
                             <option value="">全部部门</option>
                             @foreach (var department in DepartmentList)
                             {
@@ -115,25 +115,25 @@
                             }
                         </select>
                     </div>
-                    <div class="col-md-3">
-                        <label class="form-label" for="assignment-filter-active">状态</label>
-                        <select id="assignment-filter-active" class="form-select" @bind="FilterModel.IsActiveText">
+                    <div class="kp-col-md-3">
+                        <label class="kp-label" for="assignment-filter-active">状态</label>
+                        <select id="assignment-filter-active" class="kp-select" @bind="FilterModel.IsActiveText">
                             <option value="">全部</option>
                             <option value="true">启用</option>
                             <option value="false">停用</option>
                         </select>
                     </div>
                 </div>
-                <div class="d-flex gap-2 mt-3">
-                    <button class="btn btn-primary btn-sm" type="button" @onclick="LoadAssignmentsAsync" disabled="@IsBusy">查询</button>
-                    <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="ResetFilterAsync" disabled="@IsBusy">重置</button>
+                <div class="kp-flex kp-gap-2 kp-mt-3">
+                    <button class="kp-button kp-button--primary kp-button--sm" type="button" @onclick="LoadAssignmentsAsync" disabled="@IsBusy">查询</button>
+                    <button class="kp-button kp-button--secondary kp-button--sm" type="button" @onclick="ResetFilterAsync" disabled="@IsBusy">重置</button>
                 </div>
             </div>
         </div>
 
-        <div class="card">
-            <div class="table-responsive">
-                <table class="table table-hover align-middle mb-0">
+        <div class="kp-card">
+            <div class="kp-table-wrap">
+                <table class="kp-table kp-table--hover kp-table-align-middle kp-mb-0">
                     <thead>
                         <tr>
                             <th>用户 ID</th>
@@ -142,20 +142,20 @@
                             <th>职级</th>
                             <th>安全等级</th>
                             <th>状态</th>
-                            <th class="text-end">操作</th>
+                            <th class="kp-text-end">操作</th>
                         </tr>
                     </thead>
                     <tbody>
                         @if (IsLoading)
                         {
                             <tr>
-                                <td colspan="7" class="text-center py-4 text-muted">加载中</td>
+                                <td colspan="7" class="kp-text-center kp-py-4 kp-text-muted">加载中</td>
                             </tr>
                         }
                         else if (AssignmentList.Count == 0)
                         {
                             <tr>
-                                <td colspan="7" class="text-center py-4 text-muted">暂无数据</td>
+                                <td colspan="7" class="kp-text-center kp-py-4 kp-text-muted">暂无数据</td>
                             </tr>
                         }
                         else
@@ -163,23 +163,23 @@
                             @foreach (var assignment in AssignmentList)
                             {
                                 <tr>
-                                    <td class="font-monospace small">@assignment.UserId</td>
+                                    <td class="font-monospace kp-text-small">@assignment.UserId</td>
                                     <td>@GetDepartmentName(assignment.DepartmentId)</td>
                                     <td>@GetPositionName(assignment.PositionId)</td>
                                     <td>@GetJobLevelName(assignment.JobLevelId)</td>
                                     <td>@assignment.SecurityLevel</td>
                                     <td>
-                                        <span class="badge @(assignment.IsActive ? "bg-success" : "bg-secondary")">
+                                        <span class="kp-badge @(assignment.IsActive ? "kp-bg-success" : "kp-bg-secondary")">
                                             @(assignment.IsActive ? "启用" : "停用")
                                         </span>
                                         @if (assignment.IsPrimary)
                                         {
-                                            <span class="badge bg-primary ms-1">主</span>
+                                            <span class="kp-badge kp-bg-primary kp-ms-1">主</span>
                                         }
                                     </td>
-                                    <td class="text-end">
-                                        <button class="btn btn-link btn-sm" type="button" @onclick="() => Edit(assignment)">编辑</button>
-                                        <button class="btn btn-link btn-sm text-danger" type="button" @onclick="() => DeleteAsync(assignment.Id)">删除</button>
+                                    <td class="kp-text-end">
+                                        <button class="kp-button kp-button--link kp-button--sm" type="button" @onclick="() => Edit(assignment)">编辑</button>
+                                        <button class="kp-button kp-button--link kp-button--sm kp-text-danger" type="button" @onclick="() => DeleteAsync(assignment.Id)">删除</button>
                                     </td>
                                 </tr>
                             }

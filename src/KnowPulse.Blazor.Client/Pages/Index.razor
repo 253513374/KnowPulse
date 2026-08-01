@@ -3,53 +3,39 @@
 
 <PageTitle>KnowPulse</PageTitle>
 
-<div class="row g-3 mb-4">
-    <div class="col-12">
-        <div class="card">
-            <div class="card-body">
-                <div class="d-flex flex-column flex-lg-row justify-content-between gap-3">
-                    <div>
-                        <h2 class="h4 mb-1">KnowPulse</h2>
-                        <p class="text-muted mb-0">企业知识库 MVP-0 工作台</p>
-                    </div>
-                    <span class="badge bg-primary align-self-start align-self-lg-center">MVP-0</span>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
+<MudStack Class="kp-page" Spacing="3">
+    <KpPageHeader Title="KnowPulse"
+                  Description="企业知识与学习运营工作台"
+                  Eyebrow="KNOWLEDGE OPERATIONS">
+        <Actions>
+            <KpStatusChip Label="MVP" Tone="KpStatusTone.Info" />
+        </Actions>
+    </KpPageHeader>
 
-<div class="row g-3">
-    <div class="col-md-6 col-xl-3">
-        <div class="card h-100">
-            <div class="card-body">
-                <div class="text-muted small mb-2">组织管理</div>
-                <div class="h5 mb-0">部门 / 岗位 / 职级</div>
-            </div>
-        </div>
-    </div>
-    <div class="col-md-6 col-xl-3">
-        <div class="card h-100">
-            <div class="card-body">
-                <div class="text-muted small mb-2">知识库</div>
-                <div class="h5 mb-0">分类 / 标签 / 文档</div>
-            </div>
-        </div>
-    </div>
-    <div class="col-md-6 col-xl-3">
-        <div class="card h-100">
-            <div class="card-body">
-                <div class="text-muted small mb-2">权限范围</div>
-                <div class="h5 mb-0">部门 / 岗位 / 角色 / 用户</div>
-            </div>
-        </div>
-    </div>
-    <div class="col-md-6 col-xl-3">
-        <div class="card h-100">
-            <div class="card-body">
-                <div class="text-muted small mb-2">RAG/AI</div>
-                <div class="h5 mb-0">MVP-1 风险闸口</div>
-            </div>
-        </div>
-    </div>
-</div>
+    <MudGrid Spacing="3">
+        @foreach (var area in WorkAreas)
+        {
+            <MudItem xs="12" md="6" xl="3">
+                <MudPaper Class="kp-feature-card" Elevation="0">
+                    <MudAvatar Color="Color.Primary" Variant="Variant.Filled" Size="Size.Medium">
+                        <MudIcon Icon="@area.Icon" />
+                    </MudAvatar>
+                    <MudStack Spacing="1">
+                        <MudText Typo="Typo.overline" Color="Color.Secondary">@area.Title</MudText>
+                        <MudText Typo="Typo.h6">@area.Description</MudText>
+                    </MudStack>
+                </MudPaper>
+            </MudItem>
+        }
+    </MudGrid>
+</MudStack>
+
+@code {
+    private static readonly (string Title, string Description, string Icon)[] WorkAreas =
+    [
+        ("组织管理", "部门 / 岗位 / 职级", Icons.Material.Filled.AccountTree),
+        ("知识库", "上传 / 发布 / 索引", Icons.Material.Filled.MenuBook),
+        ("题库与考试", "草稿 / 审核 / 作答", Icons.Material.Filled.FactCheck),
+        ("RAG / AI", "模型 / 检索 / 评测", Icons.Material.Filled.AutoAwesome)
+    ];
+}

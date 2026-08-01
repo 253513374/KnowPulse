@@ -2,7 +2,6 @@
 @attribute [Authorize(KnowPulsePermissions.KnowledgeIndexing.IndexJobs)]
 @inherits KnowPulseComponentBase
 @inject IKnowledgeIndexJobAppService IndexJobAppService
-@inject IJSRuntime JSRuntime
 
 <PageTitle>索引运行中心</PageTitle>
 
@@ -12,14 +11,14 @@
         <h1>索引运行中心</h1>
         <p>后台 Worker 自动完成内容读取、分块、Embedding 与向量写入；这里只处理失败、卡住和需要立即执行的任务。</p>
     </div>
-    <button class="btn btn-light" type="button" @onclick="LoadAsync" disabled="@IsBusy">刷新状态</button>
+    <button class="kp-button kp-button--light" type="button" @onclick="LoadAsync" disabled="@IsBusy">刷新状态</button>
 </section>
 
 @if (!string.IsNullOrWhiteSpace(ErrorMessage))
 {
-    <div class="alert alert-danger d-flex flex-wrap align-items-center justify-content-between gap-2" role="alert">
+    <div class="kp-alert kp-alert--error kp-flex kp-flex-wrap kp-align-center kp-justify-between kp-gap-2" role="alert">
         <span>@ErrorMessage</span>
-        <button class="btn btn-sm btn-outline-danger" type="button" @onclick="LoadAsync" disabled="@IsBusy">重新加载</button>
+        <button class="kp-button kp-button--sm kp-button--danger-outline" type="button" @onclick="LoadAsync" disabled="@IsBusy">重新加载</button>
     </div>
 }
 
@@ -53,7 +52,7 @@
             <strong>队列需要人工处理</strong>
             <span>卡住 @Summary.StaleCount 条，重试耗尽 @Summary.ExhaustedCount 条。请先查看失败阶段，再执行恢复或重新排队。</span>
         </div>
-        <button class="btn btn-sm btn-outline-danger" type="button" @onclick="ShowActionableAsync" disabled="@IsBusy">只看失败</button>
+        <button class="kp-button kp-button--sm kp-button--danger-outline" type="button" @onclick="ShowActionableAsync" disabled="@IsBusy">只看失败</button>
     </div>
 }
 
@@ -65,7 +64,7 @@
         </div>
         <div class="filter-group">
             <label for="index-status">状态</label>
-            <select id="index-status" class="form-select form-select-sm" @bind="StatusFilterText">
+            <select id="index-status" class="kp-select kp-select--sm" @bind="StatusFilterText">
                 <option value="">全部</option>
                 <option value="@KnowledgeIndexJobStatus.Pending">待处理</option>
                 <option value="@KnowledgeIndexJobStatus.Processing">处理中</option>
@@ -74,12 +73,12 @@
                 <option value="@KnowledgeIndexJobStatus.Outdated">已过期</option>
                 <option value="@KnowledgeIndexJobStatus.Deleted">已删除</option>
             </select>
-            <button class="btn btn-primary btn-sm" type="button" @onclick="ApplyFilterAsync" disabled="@IsBusy">查询</button>
+            <button class="kp-button kp-button--primary kp-button--sm" type="button" @onclick="ApplyFilterAsync" disabled="@IsBusy">查询</button>
         </div>
     </div>
 
-    <div class="table-responsive">
-        <table class="table align-middle mb-0 jobs-table">
+    <div class="kp-table-wrap">
+        <table class="kp-table kp-table-align-middle kp-mb-0 jobs-table">
             <thead>
                 <tr>
                     <th>任务</th>
@@ -87,7 +86,7 @@
                     <th>执行进度</th>
                     <th>重试计划</th>
                     <th>异常摘要</th>
-                    <th class="text-end">操作</th>
+                    <th class="kp-text-end">操作</th>
                 </tr>
             </thead>
             <tbody>
@@ -124,8 +123,8 @@
                                     <span>@GetStageText(job.ProcessingStage)</span>
                                     <strong>@job.ProgressPercent%</strong>
                                 </div>
-                                <div class="progress" role="progressbar" aria-valuenow="@job.ProgressPercent" aria-valuemin="0" aria-valuemax="100">
-                                    <div class="progress-bar @GetProgressClass(job.Status)" style="width: @(job.ProgressPercent)%"></div>
+                                <div class="kp-progress" role="progressbar" aria-valuenow="@job.ProgressPercent" aria-valuemin="0" aria-valuemax="100">
+                                    <div class="kp-progress__bar @GetProgressClass(job.Status)" style="width: @(job.ProgressPercent)%"></div>
                                 </div>
                                 <div class="cell-muted">心跳：@FormatTime(job.LastHeartbeatTime, "尚未启动")</div>
                             </td>
@@ -144,22 +143,22 @@
                                     <span title="@job.FailureReason">@job.FailureReason</span>
                                 }
                             </td>
-                            <td class="text-end action-cell">
+                            <td class="kp-text-end action-cell">
                                 @if (job.Status == KnowledgeIndexJobStatus.Pending)
                                 {
-                                    <button class="btn btn-sm btn-primary" type="button" @onclick="() => ExecuteAsync(job)" disabled="@IsBusy">立即执行</button>
+                                    <button class="kp-button kp-button--sm kp-button--primary" type="button" @onclick="() => ExecuteAsync(job)" disabled="@IsBusy">立即执行</button>
                                 }
                                 else if (job.Status == KnowledgeIndexJobStatus.Failed)
                                 {
-                                    <button class="btn btn-sm btn-outline-primary" type="button" @onclick="() => RetryAsync(job)" disabled="@IsBusy">重新排队</button>
+                                    <button class="kp-button kp-button--sm kp-button--primary-outline" type="button" @onclick="() => RetryAsync(job)" disabled="@IsBusy">重新排队</button>
                                 }
                                 else if (job.Status == KnowledgeIndexJobStatus.Processing && job.IsStale)
                                 {
-                                    <button class="btn btn-sm btn-outline-danger" type="button" @onclick="() => RecoverAsync(job)" disabled="@IsBusy">恢复任务</button>
+                                    <button class="kp-button kp-button--sm kp-button--danger-outline" type="button" @onclick="() => RecoverAsync(job)" disabled="@IsBusy">恢复任务</button>
                                 }
                                 else
                                 {
-                                    <a class="btn btn-sm btn-link" href="@($"/knowledge/{job.KnowledgeItemId}")">查看知识</a>
+                                    <a class="kp-button kp-button--sm kp-button--link" href="@($"/knowledge/{job.KnowledgeItemId}")">查看知识</a>
                                 }
                             </td>
                         </tr>
@@ -297,10 +296,10 @@
 
     private static string GetProgressClass(KnowledgeIndexJobStatus status) => status switch
     {
-        KnowledgeIndexJobStatus.Indexed => "bg-success",
-        KnowledgeIndexJobStatus.Failed => "bg-danger",
-        KnowledgeIndexJobStatus.Processing => "progress-bar-striped progress-bar-animated",
-        _ => "bg-secondary"
+        KnowledgeIndexJobStatus.Indexed => "kp-bg-success",
+        KnowledgeIndexJobStatus.Failed => "kp-bg-error",
+        KnowledgeIndexJobStatus.Processing => "kp-progress__bar--striped kp-progress__bar--animated",
+        _ => "kp-bg-secondary"
     };
 
     private static string GetTriggerText(KnowledgeIndexJobTriggerType triggerType) => triggerType switch
@@ -355,7 +354,7 @@
     private static string ShortId(Guid value) => value.ToString("N")[..8];
 
     private async Task<bool> ConfirmAsync(string message) =>
-        await JSRuntime.InvokeAsync<bool>("confirm", message);
+        await Message.Confirm(message);
 
     private async Task RunBusyAsync(Func<Task> action)
     {

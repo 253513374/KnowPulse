@@ -15,38 +15,38 @@
 @* 知识上传引导页：面向运营人员完成从内容选择、可见范围确认到发布索引的主流程。 *@
 <PageTitle>上传知识</PageTitle>
 
-<div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+<div class="kp-flex kp-flex-wrap kp-align-center kp-justify-between kp-gap-2 kp-mb-3">
     <div>
-        <h1 class="h4 mb-1">上传知识</h1>
-        <div class="text-muted small">KnowledgeBase / Upload</div>
+        <h1 class="kp-heading-4 kp-mb-1">上传知识</h1>
+        <div class="kp-text-muted kp-text-small">KnowledgeBase / Upload</div>
     </div>
-    <div class="d-flex flex-wrap gap-2">
-        <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="ViewAdvanced" disabled="@IsBusy">知识管理</button>
-        <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="ResetWizard" disabled="@IsBusy">重新开始</button>
+    <div class="kp-flex kp-flex-wrap kp-gap-2">
+        <button class="kp-button kp-button--secondary kp-button--sm" type="button" @onclick="ViewAdvanced" disabled="@IsBusy">知识管理</button>
+        <button class="kp-button kp-button--secondary kp-button--sm" type="button" @onclick="ResetWizard" disabled="@IsBusy">重新开始</button>
     </div>
 </div>
 
 @if (!string.IsNullOrWhiteSpace(ErrorMessage))
 {
-    <div class="alert alert-danger d-flex flex-wrap align-items-center justify-content-between gap-2" role="alert">
+    <div class="kp-alert kp-alert--error kp-flex kp-flex-wrap kp-align-center kp-justify-between kp-gap-2" role="alert">
         <span>@ErrorMessage</span>
-        <button class="btn btn-sm btn-outline-danger" type="button" @onclick="ClearError" disabled="@IsBusy">知道了</button>
+        <button class="kp-button kp-button--sm kp-button--danger-outline" type="button" @onclick="ClearError" disabled="@IsBusy">知道了</button>
     </div>
 }
 
 @if (!string.IsNullOrWhiteSpace(LookupWarningMessage))
 {
-    <div class="alert alert-warning" role="status">@LookupWarningMessage</div>
+    <div class="kp-alert kp-alert--warning" role="status">@LookupWarningMessage</div>
 }
 
 @if (!HasRequiredWritePermissions)
 {
-    <div class="alert alert-warning" role="status">
+    <div class="kp-alert kp-alert--warning" role="status">
         当前账号缺少知识版本权限，页面可以预览流程，但无法保存草稿或发布知识。
     </div>
 }
 
-<div class="knowledge-upload-flow mb-3" aria-label="知识上传流程">
+<div class="knowledge-upload-flow kp-mb-3" aria-label="知识上传流程">
     <div class="knowledge-flow-step @GetStepClass(UploadStep.Content)">
         <div class="knowledge-flow-index">1</div>
         <div>
@@ -84,122 +84,122 @@
     </div>
 </div>
 
-<div class="row g-3">
-    <div class="col-xl-8">
-        <div class="card">
-            <div class="card-body">
+<div class="kp-grid kp-grid-gap-3">
+    <div class="kp-col-xl-8">
+        <div class="kp-card">
+            <div class="kp-card__body">
                 @if (IsLoading)
                 {
-                    <div class="text-center py-5 text-muted">加载中</div>
+                    <div class="kp-text-center kp-py-5 kp-text-muted">加载中</div>
                 }
                 else if (CurrentStep == UploadStep.Content)
                 {
-                    <div class="d-flex flex-wrap align-items-start justify-content-between gap-2 mb-3">
+                    <div class="kp-flex kp-flex-wrap kp-align-start kp-justify-between kp-gap-2 kp-mb-3">
                         <div>
-                            <h2 class="h5 mb-1">选择内容来源</h2>
-                            <div class="text-muted small">正文、文本和可转换文档会进入 RAG；图片、音视频等高级解析文件先作为附件保存。</div>
+                            <h2 class="kp-heading-5 kp-mb-1">选择内容来源</h2>
+                            <div class="kp-text-muted kp-text-small">正文、文本和可转换文档会进入 RAG；图片、音视频等高级解析文件先作为附件保存。</div>
                         </div>
                     </div>
 
-                    <div class="row g-3 mb-3">
-                        <div class="col-md-3">
+                    <div class="kp-grid kp-grid-gap-3 kp-mb-3">
+                        <div class="kp-col-md-3">
                             <label class="@GetChoiceCss(UploadSourceMode.BodyText)" for="source-body">
-                                <div class="form-check">
-                                    <input id="source-body" class="form-check-input" type="radio" name="source-mode" checked="@(SourceMode == UploadSourceMode.BodyText)" @onchange="() => SelectSourceMode(UploadSourceMode.BodyText)" />
-                                    <span class="form-check-label fw-semibold">正文输入</span>
+                                <div class="kp-check">
+                                    <input id="source-body" class="kp-check__input" type="radio" name="source-mode" checked="@(SourceMode == UploadSourceMode.BodyText)" @onchange="() => SelectSourceMode(UploadSourceMode.BodyText)" />
+                                    <span class="kp-check__label kp-text-semibold">正文输入</span>
                                 </div>
-                                <div class="text-muted small mt-2">直接粘贴制度、流程、FAQ 或说明文本。</div>
-                                <span class="badge bg-success mt-3">可索引内容</span>
+                                <div class="kp-text-muted kp-text-small kp-mt-2">直接粘贴制度、流程、FAQ 或说明文本。</div>
+                                <span class="kp-badge kp-bg-success kp-mt-3">可索引内容</span>
                             </label>
                         </div>
-                        <div class="col-md-3">
+                        <div class="kp-col-md-3">
                             <label class="@GetChoiceCss(UploadSourceMode.IndexableFile)" for="source-indexable">
-                                <div class="form-check">
-                                    <input id="source-indexable" class="form-check-input" type="radio" name="source-mode" checked="@(SourceMode == UploadSourceMode.IndexableFile)" @onchange="() => SelectSourceMode(UploadSourceMode.IndexableFile)" />
-                                    <span class="form-check-label fw-semibold">文本或 Markdown</span>
+                                <div class="kp-check">
+                                    <input id="source-indexable" class="kp-check__input" type="radio" name="source-mode" checked="@(SourceMode == UploadSourceMode.IndexableFile)" @onchange="() => SelectSourceMode(UploadSourceMode.IndexableFile)" />
+                                    <span class="kp-check__label kp-text-semibold">文本或 Markdown</span>
                                 </div>
-                                <div class="text-muted small mt-2">支持 .txt、.md、.markdown，由后端读取附件内容。</div>
-                                <span class="badge bg-success mt-3">直接索引</span>
+                                <div class="kp-text-muted kp-text-small kp-mt-2">支持 .txt、.md、.markdown，由后端读取附件内容。</div>
+                                <span class="kp-badge kp-bg-success kp-mt-3">直接索引</span>
                             </label>
                         </div>
-                        <div class="col-md-3">
+                        <div class="kp-col-md-3">
                             <label class="@GetChoiceCss(UploadSourceMode.ConvertibleFile)" for="source-convertible">
-                                <div class="form-check">
-                                    <input id="source-convertible" class="form-check-input" type="radio" name="source-mode" checked="@(SourceMode == UploadSourceMode.ConvertibleFile)" @onchange="() => SelectSourceMode(UploadSourceMode.ConvertibleFile)" />
-                                    <span class="form-check-label fw-semibold">文档转换</span>
+                                <div class="kp-check">
+                                    <input id="source-convertible" class="kp-check__input" type="radio" name="source-mode" checked="@(SourceMode == UploadSourceMode.ConvertibleFile)" @onchange="() => SelectSourceMode(UploadSourceMode.ConvertibleFile)" />
+                                    <span class="kp-check__label kp-text-semibold">文档转换</span>
                                 </div>
-                                <div class="text-muted small mt-2">支持 PDF、Word、PPT、Excel、HTML、CSV、JSON、XML。</div>
-                                <span class="badge bg-info text-dark mt-3">转换后索引</span>
+                                <div class="kp-text-muted kp-text-small kp-mt-2">支持 PDF、Word、PPT、Excel、HTML、CSV、JSON、XML。</div>
+                                <span class="kp-badge kp-bg-info kp-text-dark kp-mt-3">转换后索引</span>
                             </label>
                         </div>
-                        <div class="col-md-3">
+                        <div class="kp-col-md-3">
                             <label class="@GetChoiceCss(UploadSourceMode.AttachmentOnly)" for="source-attachment">
-                                <div class="form-check">
-                                    <input id="source-attachment" class="form-check-input" type="radio" name="source-mode" checked="@(SourceMode == UploadSourceMode.AttachmentOnly)" @onchange="() => SelectSourceMode(UploadSourceMode.AttachmentOnly)" />
-                                    <span class="form-check-label fw-semibold">附件留存</span>
+                                <div class="kp-check">
+                                    <input id="source-attachment" class="kp-check__input" type="radio" name="source-mode" checked="@(SourceMode == UploadSourceMode.AttachmentOnly)" @onchange="() => SelectSourceMode(UploadSourceMode.AttachmentOnly)" />
+                                    <span class="kp-check__label kp-text-semibold">附件留存</span>
                                 </div>
-                                <div class="text-muted small mt-2">图片、音视频、压缩包和其他文件仅保存为附件。</div>
-                                <span class="badge bg-warning text-dark mt-3">仅附件内容</span>
+                                <div class="kp-text-muted kp-text-small kp-mt-2">图片、音视频、压缩包和其他文件仅保存为附件。</div>
+                                <span class="kp-badge kp-bg-warning kp-text-dark kp-mt-3">仅附件内容</span>
                             </label>
                         </div>
                     </div>
 
                     @if (SourceMode == UploadSourceMode.BodyText)
                     {
-                        <div class="mb-3">
-                            <label class="form-label" for="upload-body">正文内容</label>
-                            <textarea id="upload-body" class="form-control" rows="12" maxlength="@MaxContentTextLength" @bind="Form.ContentText" @bind:event="oninput" disabled="@IsBusy"></textarea>
-                            <div class="form-text">@GetTextLengthText(Form.ContentText, MaxContentTextLength)</div>
+                        <div class="kp-mb-3">
+                            <label class="kp-label" for="upload-body">正文内容</label>
+                            <textarea id="upload-body" class="kp-input" rows="12" maxlength="@MaxContentTextLength" @bind="Form.ContentText" @bind:event="oninput" disabled="@IsBusy"></textarea>
+                            <div class="kp-help">@GetTextLengthText(Form.ContentText, MaxContentTextLength)</div>
                         </div>
                     }
                     else
                     {
-                        <div class="mb-3">
-                            <label class="form-label" for="upload-file">选择文件</label>
-                            <InputFile id="upload-file" class="form-control" OnChange="@OnFileSelected" disabled="@IsBusy" />
-                            <div class="form-text">@FileHelpText</div>
+                        <div class="kp-mb-3">
+                            <label class="kp-label" for="upload-file">选择文件</label>
+                            <InputFile id="upload-file" class="kp-input" OnChange="@OnFileSelected" disabled="@IsBusy" />
+                            <div class="kp-help">@FileHelpText</div>
                         </div>
 
                         @if (SourceMode == UploadSourceMode.IndexableFile)
                         {
-                            <div class="alert alert-info mb-0" role="status">
+                            <div class="kp-alert kp-alert--info kp-mb-0" role="status">
                                 文本或 Markdown 文件会作为附件保存，并在索引阶段直接读取为 Markdown 内容。
                             </div>
                         }
                         else if (SourceMode == UploadSourceMode.ConvertibleFile)
                         {
-                            <div class="alert alert-info mb-0" role="status">
+                            <div class="kp-alert kp-alert--info kp-mb-0" role="status">
                                 该文件会作为附件保存，并在索引阶段通过 MarkItDown 转换为 Markdown。若服务端未配置 markitdown，可在结果页看到 reader 阶段失败原因。
                             </div>
                         }
                         else
                         {
-                            <div class="alert alert-warning mb-0" role="status">
+                            <div class="kp-alert kp-alert--warning kp-mb-0" role="status">
                                 该模式不会把附件内容写入知识正文，也不会参与 RAG 检索。发布后用户只能在知识管理中查看附件。
                             </div>
                         }
                     }
 
-                    <div class="d-flex flex-wrap justify-content-end gap-2 mt-4">
-                        <button class="btn btn-primary" type="button" @onclick="GoNext" disabled="@IsBusy">下一步</button>
+                    <div class="kp-flex kp-flex-wrap kp-justify-end kp-gap-2 kp-mt-4">
+                        <button class="kp-button kp-button--primary" type="button" @onclick="GoNext" disabled="@IsBusy">下一步</button>
                     </div>
                 }
                 else if (CurrentStep == UploadStep.Info)
                 {
-                    <div class="mb-3">
-                        <h2 class="h5 mb-1">填写基础信息</h2>
-                        <div class="text-muted small">标题用于列表和问答引用，版本标题用于本次内容变更记录。</div>
+                    <div class="kp-mb-3">
+                        <h2 class="kp-heading-5 kp-mb-1">填写基础信息</h2>
+                        <div class="kp-text-muted kp-text-small">标题用于列表和问答引用，版本标题用于本次内容变更记录。</div>
                     </div>
 
-                    <div class="mb-3">
-                        <label class="form-label" for="upload-title">知识标题</label>
-                        <input id="upload-title" class="form-control" maxlength="@MaxTitleLength" @bind="Form.Title" @bind:event="oninput" disabled="@IsBusy" />
-                        <div class="form-text">@GetTextLengthText(Form.Title, MaxTitleLength)</div>
+                    <div class="kp-mb-3">
+                        <label class="kp-label" for="upload-title">知识标题</label>
+                        <input id="upload-title" class="kp-input" maxlength="@MaxTitleLength" @bind="Form.Title" @bind:event="oninput" disabled="@IsBusy" />
+                        <div class="kp-help">@GetTextLengthText(Form.Title, MaxTitleLength)</div>
                     </div>
 
-                    <div class="mb-3">
-                        <label class="form-label" for="upload-category">分类</label>
-                        <select id="upload-category" class="form-select" @bind="Form.CategoryIdText" disabled="@(IsBusy || CategoryList.Count == 0)">
+                    <div class="kp-mb-3">
+                        <label class="kp-label" for="upload-category">分类</label>
+                        <select id="upload-category" class="kp-select" @bind="Form.CategoryIdText" disabled="@(IsBusy || CategoryList.Count == 0)">
                             <option value="">未分类</option>
                             @foreach (var category in CategoryList)
                             {
@@ -208,89 +208,89 @@
                         </select>
                         @if (CategoryList.Count == 0)
                         {
-                            <div class="form-text">当前没有可选择分类，上传后会保存为未分类。</div>
+                            <div class="kp-help">当前没有可选择分类，上传后会保存为未分类。</div>
                         }
                     </div>
 
-                    <div class="mb-3">
-                        <label class="form-label" for="upload-summary">摘要</label>
-                        <textarea id="upload-summary" class="form-control" rows="4" maxlength="@MaxSummaryLength" @bind="Form.Summary" @bind:event="oninput" disabled="@IsBusy"></textarea>
-                        <div class="form-text">@GetTextLengthText(Form.Summary, MaxSummaryLength)</div>
+                    <div class="kp-mb-3">
+                        <label class="kp-label" for="upload-summary">摘要</label>
+                        <textarea id="upload-summary" class="kp-input" rows="4" maxlength="@MaxSummaryLength" @bind="Form.Summary" @bind:event="oninput" disabled="@IsBusy"></textarea>
+                        <div class="kp-help">@GetTextLengthText(Form.Summary, MaxSummaryLength)</div>
                     </div>
 
-                    <div class="mb-3">
-                        <label class="form-label" for="upload-version-title">版本标题</label>
-                        <input id="upload-version-title" class="form-control" maxlength="@MaxTitleLength" @bind="Form.VersionTitle" @bind:event="oninput" disabled="@IsBusy" />
+                    <div class="kp-mb-3">
+                        <label class="kp-label" for="upload-version-title">版本标题</label>
+                        <input id="upload-version-title" class="kp-input" maxlength="@MaxTitleLength" @bind="Form.VersionTitle" @bind:event="oninput" disabled="@IsBusy" />
                     </div>
 
-                    <div class="d-flex flex-wrap justify-content-between gap-2 mt-4">
-                        <button class="btn btn-outline-secondary" type="button" @onclick="GoBack" disabled="@IsBusy">上一步</button>
-                        <button class="btn btn-primary" type="button" @onclick="GoNext" disabled="@IsBusy">下一步</button>
+                    <div class="kp-flex kp-flex-wrap kp-justify-between kp-gap-2 kp-mt-4">
+                        <button class="kp-button kp-button--secondary" type="button" @onclick="GoBack" disabled="@IsBusy">上一步</button>
+                        <button class="kp-button kp-button--primary" type="button" @onclick="GoNext" disabled="@IsBusy">下一步</button>
                     </div>
                 }
                 else if (CurrentStep == UploadStep.Visibility)
                 {
-                    <div class="mb-3">
-                        <h2 class="h5 mb-1">确认可见范围</h2>
-                        <div class="text-muted small">默认全员可见。限制范围需要权限范围管理能力。</div>
+                    <div class="kp-mb-3">
+                        <h2 class="kp-heading-5 kp-mb-1">确认可见范围</h2>
+                        <div class="kp-text-muted kp-text-small">默认全员可见。限制范围需要权限范围管理能力。</div>
                     </div>
 
-                    <div class="row g-3 mb-3">
-                        <div class="col-md-6">
+                    <div class="kp-grid kp-grid-gap-3 kp-mb-3">
+                        <div class="kp-col-md-6">
                             <label class="@GetVisibilityChoiceCss(KnowledgePermissionScopeType.All)" for="visibility-all">
-                                <div class="form-check">
-                                    <input id="visibility-all" class="form-check-input" type="radio" name="visibility-mode" checked="@(CurrentScopeType == KnowledgePermissionScopeType.All)" @onchange="() => SelectVisibility(KnowledgePermissionScopeType.All)" />
-                                    <span class="form-check-label fw-semibold">全员可见</span>
+                                <div class="kp-check">
+                                    <input id="visibility-all" class="kp-check__input" type="radio" name="visibility-mode" checked="@(CurrentScopeType == KnowledgePermissionScopeType.All)" @onchange="() => SelectVisibility(KnowledgePermissionScopeType.All)" />
+                                    <span class="kp-check__label kp-text-semibold">全员可见</span>
                                 </div>
-                                <div class="text-muted small mt-2">发布或保存草稿时持久化一条显式全员访问规则。</div>
+                                <div class="kp-text-muted kp-text-small kp-mt-2">发布或保存草稿时持久化一条显式全员访问规则。</div>
                             </label>
                         </div>
-                        <div class="col-md-6">
+                        <div class="kp-col-md-6">
                             <label class="@GetRestrictedChoiceCss()" for="visibility-restricted">
-                                <div class="form-check">
-                                    <input id="visibility-restricted" class="form-check-input" type="radio" name="visibility-mode" checked="@(CurrentScopeType != KnowledgePermissionScopeType.All)" disabled="@(!CanUseRestrictedScopes)" @onchange="() => SelectVisibility(KnowledgePermissionScopeType.Department)" />
-                                    <span class="form-check-label fw-semibold">限制范围</span>
+                                <div class="kp-check">
+                                    <input id="visibility-restricted" class="kp-check__input" type="radio" name="visibility-mode" checked="@(CurrentScopeType != KnowledgePermissionScopeType.All)" disabled="@(!CanUseRestrictedScopes)" @onchange="() => SelectVisibility(KnowledgePermissionScopeType.Department)" />
+                                    <span class="kp-check__label kp-text-semibold">限制范围</span>
                                 </div>
-                                <div class="text-muted small mt-2">发布前明确选择部门、岗位、角色或指定用户规则。</div>
+                                <div class="kp-text-muted kp-text-small kp-mt-2">发布前明确选择部门、岗位、角色或指定用户规则。</div>
                             </label>
                         </div>
                     </div>
 
                     @if (CurrentScopeType == KnowledgePermissionScopeType.All)
                     {
-                        <div class="alert alert-warning" role="status">
+                        <div class="kp-alert kp-alert--warning" role="status">
                             发布后该知识默认全员可见。请确认内容不包含只允许部分岗位或部门查看的信息。
                         </div>
                     }
                     else if (!CanUseRestrictedScopes)
                     {
-                        <div class="alert alert-warning" role="status">
+                        <div class="kp-alert kp-alert--warning" role="status">
                             当前无法加载或配置限制范围，请改为全员可见，或到知识管理中由管理员补充权限范围。
                         </div>
                     }
                     else
                     {
-                        <div class="row g-3">
-                            <div class="col-md-6">
-                                <label class="form-label" for="upload-scope-type">范围类型</label>
-                                <select id="upload-scope-type" class="form-select" value="@Form.ScopeTypeText" @onchange="OnScopeTypeChanged" disabled="@IsBusy">
+                        <div class="kp-grid kp-grid-gap-3">
+                            <div class="kp-col-md-6">
+                                <label class="kp-label" for="upload-scope-type">范围类型</label>
+                                <select id="upload-scope-type" class="kp-select" value="@Form.ScopeTypeText" @onchange="OnScopeTypeChanged" disabled="@IsBusy">
                                     <option value="@KnowledgePermissionScopeType.Department">部门</option>
                                     <option value="@KnowledgePermissionScopeType.Position">岗位</option>
                                     <option value="@KnowledgePermissionScopeType.Role">角色</option>
                                     <option value="@KnowledgePermissionScopeType.User">指定用户</option>
                                 </select>
                             </div>
-                            <div class="col-md-6">
-                                <label class="form-label" for="upload-min-security">最低安全等级</label>
-                                <input id="upload-min-security" type="number" min="0" class="form-control" @bind="Form.MinimumSecurityLevel" disabled="@IsBusy" />
+                            <div class="kp-col-md-6">
+                                <label class="kp-label" for="upload-min-security">最低安全等级</label>
+                                <input id="upload-min-security" type="number" min="0" class="kp-input" @bind="Form.MinimumSecurityLevel" disabled="@IsBusy" />
                             </div>
                         </div>
 
                         @if (CurrentScopeType == KnowledgePermissionScopeType.Department)
                         {
-                            <div class="mt-3">
-                                <label class="form-label" for="upload-scope-department">部门</label>
-                                <select id="upload-scope-department" class="form-select" @bind="Form.TargetIdText" disabled="@IsBusy">
+                            <div class="kp-mt-3">
+                                <label class="kp-label" for="upload-scope-department">部门</label>
+                                <select id="upload-scope-department" class="kp-select" @bind="Form.TargetIdText" disabled="@IsBusy">
                                     <option value="">选择部门</option>
                                     @foreach (var department in DepartmentList)
                                     {
@@ -301,9 +301,9 @@
                         }
                         else if (CurrentScopeType == KnowledgePermissionScopeType.Position)
                         {
-                            <div class="mt-3">
-                                <label class="form-label" for="upload-scope-position">岗位</label>
-                                <select id="upload-scope-position" class="form-select" @bind="Form.TargetIdText" disabled="@IsBusy">
+                            <div class="kp-mt-3">
+                                <label class="kp-label" for="upload-scope-position">岗位</label>
+                                <select id="upload-scope-position" class="kp-select" @bind="Form.TargetIdText" disabled="@IsBusy">
                                     <option value="">选择岗位</option>
                                     @foreach (var position in PositionList)
                                     {
@@ -314,9 +314,9 @@
                         }
                         else if (CurrentScopeType == KnowledgePermissionScopeType.Role)
                         {
-                            <div class="mt-3">
-                                <label class="form-label" for="upload-scope-role">角色</label>
-                                <select id="upload-scope-role" class="form-select" @bind="Form.TargetIdText" disabled="@IsBusy">
+                            <div class="kp-mt-3">
+                                <label class="kp-label" for="upload-scope-role">角色</label>
+                                <select id="upload-scope-role" class="kp-select" @bind="Form.TargetIdText" disabled="@IsBusy">
                                     <option value="">选择角色</option>
                                     @foreach (var role in RoleList)
                                     {
@@ -327,16 +327,16 @@
                         }
                         else if (CurrentScopeType == KnowledgePermissionScopeType.User)
                         {
-                            <div class="mt-3">
-                                <label class="form-label" for="upload-user-filter">用户搜索</label>
-                                <div class="input-group">
-                                    <input id="upload-user-filter" class="form-control" @bind="UserFilterText" @bind:event="oninput" disabled="@IsBusy" />
-                                    <button class="btn btn-outline-secondary" type="button" @onclick="LoadUsersAsync" disabled="@IsBusy">搜索</button>
+                            <div class="kp-mt-3">
+                                <label class="kp-label" for="upload-user-filter">用户搜索</label>
+                                <div class="kp-input-group">
+                                    <input id="upload-user-filter" class="kp-input" @bind="UserFilterText" @bind:event="oninput" disabled="@IsBusy" />
+                                    <button class="kp-button kp-button--secondary" type="button" @onclick="LoadUsersAsync" disabled="@IsBusy">搜索</button>
                                 </div>
                             </div>
-                            <div class="mt-3">
-                                <label class="form-label" for="upload-scope-user">用户</label>
-                                <select id="upload-scope-user" class="form-select" @bind="Form.TargetIdText" disabled="@IsBusy">
+                            <div class="kp-mt-3">
+                                <label class="kp-label" for="upload-scope-user">用户</label>
+                                <select id="upload-scope-user" class="kp-select" @bind="Form.TargetIdText" disabled="@IsBusy">
                                     <option value="">选择用户</option>
                                     @foreach (var user in UserList)
                                     {
@@ -347,147 +347,147 @@
                         }
                     }
 
-                    <div class="d-flex flex-wrap justify-content-between gap-2 mt-4">
-                        <button class="btn btn-outline-secondary" type="button" @onclick="GoBack" disabled="@IsBusy">上一步</button>
-                        <button class="btn btn-primary" type="button" @onclick="GoNext" disabled="@IsBusy">下一步</button>
+                    <div class="kp-flex kp-flex-wrap kp-justify-between kp-gap-2 kp-mt-4">
+                        <button class="kp-button kp-button--secondary" type="button" @onclick="GoBack" disabled="@IsBusy">上一步</button>
+                        <button class="kp-button kp-button--primary" type="button" @onclick="GoNext" disabled="@IsBusy">下一步</button>
                     </div>
                 }
                 else if (CurrentStep == UploadStep.Publish)
                 {
-                    <div class="mb-3">
-                        <h2 class="h5 mb-1">发布确认</h2>
-                        <div class="text-muted small">保存草稿不会发布版本，发布会创建索引任务。</div>
+                    <div class="kp-mb-3">
+                        <h2 class="kp-heading-5 kp-mb-1">发布确认</h2>
+                        <div class="kp-text-muted kp-text-small">保存草稿不会发布版本，发布会创建索引任务。</div>
                     </div>
 
-                    <div class="knowledge-upload-summary mb-4">
+                    <div class="knowledge-upload-summary kp-mb-4">
                         <div class="knowledge-upload-summary-item">
-                            <span class="text-muted">知识标题</span>
+                            <span class="kp-text-muted">知识标题</span>
                             <span class="knowledge-upload-summary-value">@Form.Title</span>
                         </div>
                         <div class="knowledge-upload-summary-item">
-                            <span class="text-muted">内容来源</span>
+                            <span class="kp-text-muted">内容来源</span>
                             <span class="knowledge-upload-summary-value">@ContentStepSummary</span>
                         </div>
                         <div class="knowledge-upload-summary-item">
-                            <span class="text-muted">RAG 状态</span>
+                            <span class="kp-text-muted">RAG 状态</span>
                             <span class="knowledge-upload-summary-value">@RagCoverageText</span>
                         </div>
                         <div class="knowledge-upload-summary-item">
-                            <span class="text-muted">可见范围</span>
+                            <span class="kp-text-muted">可见范围</span>
                             <span class="knowledge-upload-summary-value">@VisibilityStepSummary</span>
                         </div>
                         <div class="knowledge-upload-summary-item">
-                            <span class="text-muted">分类</span>
+                            <span class="kp-text-muted">分类</span>
                             <span class="knowledge-upload-summary-value">@CategorySummaryText</span>
                         </div>
                     </div>
 
                     @if (CurrentScopeType == KnowledgePermissionScopeType.All)
                     {
-                        <div class="alert alert-warning" role="status">
+                        <div class="kp-alert kp-alert--warning" role="status">
                             本次发布将默认全员可见。确认无敏感内容后再发布。
                         </div>
                     }
 
                     @if (SourceMode == UploadSourceMode.AttachmentOnly)
                     {
-                        <div class="alert alert-warning" role="status">
+                        <div class="kp-alert kp-alert--warning" role="status">
                             当前文件仅作为附件保存，不会进入 RAG 问答。若希望被问答检索，请改用正文输入、文本/Markdown 文件或文档转换模式。
                         </div>
                     }
 
                     @if (SourceMode == UploadSourceMode.ConvertibleFile)
                     {
-                        <div class="alert alert-info" role="status">
+                        <div class="kp-alert kp-alert--info" role="status">
                             发布后索引任务会调用 MarkItDown 转换附件。若服务端没有安装或配置 markitdown，结果页会显示 reader 阶段失败。
                         </div>
                     }
 
-                    <div class="d-flex flex-wrap justify-content-between gap-2 mt-4">
-                        <button class="btn btn-outline-secondary" type="button" @onclick="GoBack" disabled="@IsBusy">上一步</button>
-                        <div class="d-flex flex-wrap gap-2">
-                            <button class="btn btn-outline-primary" type="button" @onclick="SaveDraftAsync" disabled="@(IsBusy || !HasRequiredWritePermissions)">保存草稿</button>
-                            <button class="btn btn-primary" type="button" @onclick="PublishAsync" disabled="@(IsBusy || !HasRequiredWritePermissions)">发布并创建索引</button>
+                    <div class="kp-flex kp-flex-wrap kp-justify-between kp-gap-2 kp-mt-4">
+                        <button class="kp-button kp-button--secondary" type="button" @onclick="GoBack" disabled="@IsBusy">上一步</button>
+                        <div class="kp-flex kp-flex-wrap kp-gap-2">
+                            <button class="kp-button kp-button--primary-outline" type="button" @onclick="SaveDraftAsync" disabled="@(IsBusy || !HasRequiredWritePermissions)">保存草稿</button>
+                            <button class="kp-button kp-button--primary" type="button" @onclick="PublishAsync" disabled="@(IsBusy || !HasRequiredWritePermissions)">发布并创建索引</button>
                         </div>
                     </div>
                 }
                 else
                 {
-                    <div class="mb-3">
-                        <h2 class="h5 mb-1">@ResultTitle</h2>
-                        <div class="text-muted small">@ResultDescription</div>
+                    <div class="kp-mb-3">
+                        <h2 class="kp-heading-5 kp-mb-1">@ResultTitle</h2>
+                        <div class="kp-text-muted kp-text-small">@ResultDescription</div>
                     </div>
 
                     @if (ResultKind == UploadResultKind.Failed)
                     {
-                        <div class="alert alert-danger" role="alert">
-                            <div class="fw-semibold">失败阶段：@FailureStageText</div>
-                            <div class="mt-1">@FailureReasonText</div>
+                        <div class="kp-alert kp-alert--error" role="alert">
+                            <div class="kp-text-semibold">失败阶段：@FailureStageText</div>
+                            <div class="kp-mt-1">@FailureReasonText</div>
                         </div>
                         @if (CreatedItemId.HasValue)
                         {
-                            <div class="alert alert-info" role="status">
+                            <div class="kp-alert kp-alert--info" role="status">
                                 发布前已经保存的知识、版本和附件仍作为草稿保留；可以打开知识详情继续修复，不需要重新上传。
                             </div>
                         }
                     }
                     else if (HasIndexFailure)
                     {
-                        <div class="alert alert-danger" role="alert">
-                            <div class="fw-semibold">索引失败：@LatestIndexJob?.FailureStage</div>
-                            <div class="mt-1">@LatestIndexJob?.FailureReason</div>
+                        <div class="kp-alert kp-alert--error" role="alert">
+                            <div class="kp-text-semibold">索引失败：@LatestIndexJob?.FailureStage</div>
+                            <div class="kp-mt-1">@LatestIndexJob?.FailureReason</div>
                         </div>
                     }
                     else if (ResultKind == UploadResultKind.DraftSaved)
                     {
-                        <div class="alert alert-info" role="status">草稿已保存，可以稍后到知识管理中继续发布。</div>
+                        <div class="kp-alert kp-alert--info" role="status">草稿已保存，可以稍后到知识管理中继续发布。</div>
                     }
                     else
                     {
-                        <div class="alert alert-success" role="status">知识已发布。索引处理完成后即可在问答中验证。</div>
+                        <div class="kp-alert kp-alert--success" role="status">知识已发布。索引处理完成后即可在问答中验证。</div>
                     }
 
                     @if (LatestIndexJob != null)
                     {
-                        <div class="knowledge-upload-summary mb-4">
+                        <div class="knowledge-upload-summary kp-mb-4">
                             <div class="knowledge-upload-summary-item">
-                                <span class="text-muted">索引状态</span>
+                                <span class="kp-text-muted">索引状态</span>
                                 <span class="knowledge-upload-summary-value">
-                                    <span class="badge @GetIndexStatusBadge(LatestIndexJob.Status)">@GetIndexStatusText(LatestIndexJob.Status)</span>
+                                    <span class="kp-badge @GetIndexStatusBadge(LatestIndexJob.Status)">@GetIndexStatusText(LatestIndexJob.Status)</span>
                                 </span>
                             </div>
                             <div class="knowledge-upload-summary-item">
-                                <span class="text-muted">索引时间</span>
+                                <span class="kp-text-muted">索引时间</span>
                                 <span class="knowledge-upload-summary-value">@GetIndexJobTimeText(LatestIndexJob)</span>
                             </div>
                         </div>
                     }
 
-                    <div class="d-flex flex-wrap gap-2">
+                    <div class="kp-flex kp-flex-wrap kp-gap-2">
                         @if (ResultKind == UploadResultKind.Failed || HasIndexFailure)
                         {
                             @if (HasIndexFailure && CanManageIndexJobs)
                             {
-                                <button class="btn btn-primary" type="button" @onclick="RetryIndexAsync" disabled="@IsBusy">重试索引</button>
+                                <button class="kp-button kp-button--primary" type="button" @onclick="RetryIndexAsync" disabled="@IsBusy">重试索引</button>
                             }
                             @if (ResultKind == UploadResultKind.Failed && CreatedItemId.HasValue)
                             {
-                                <button class="btn btn-outline-primary" type="button" @onclick="ViewAdvanced" disabled="@IsBusy">打开保留的草稿</button>
+                                <button class="kp-button kp-button--primary-outline" type="button" @onclick="ViewAdvanced" disabled="@IsBusy">打开保留的草稿</button>
                             }
                             else
                             {
-                                <button class="btn btn-outline-secondary" type="button" @onclick="ReturnToEdit" disabled="@IsBusy">返回修改内容</button>
+                                <button class="kp-button kp-button--secondary" type="button" @onclick="ReturnToEdit" disabled="@IsBusy">返回修改内容</button>
                             }
                             @if (CanManageIndexJobs)
                             {
-                                <button class="btn btn-outline-secondary" type="button" @onclick="ViewIndexJobs" disabled="@IsBusy">查看索引任务</button>
+                                <button class="kp-button kp-button--secondary" type="button" @onclick="ViewIndexJobs" disabled="@IsBusy">查看索引任务</button>
                             }
                         }
                         else
                         {
-                            <button class="btn btn-primary" type="button" @onclick="GoToRag" disabled="@IsBusy">去问答验证</button>
-                            <button class="btn btn-outline-primary" type="button" @onclick="ResetWizard" disabled="@IsBusy">继续上传下一份</button>
-                            <button class="btn btn-outline-secondary" type="button" @onclick="ViewAdvanced" disabled="@IsBusy">查看高级管理</button>
+                            <button class="kp-button kp-button--primary" type="button" @onclick="GoToRag" disabled="@IsBusy">去问答验证</button>
+                            <button class="kp-button kp-button--primary-outline" type="button" @onclick="ResetWizard" disabled="@IsBusy">继续上传下一份</button>
+                            <button class="kp-button kp-button--secondary" type="button" @onclick="ViewAdvanced" disabled="@IsBusy">查看高级管理</button>
                         }
                     </div>
                 }
@@ -495,46 +495,46 @@
         </div>
     </div>
 
-    <div class="col-xl-4">
-        <div class="card mb-3">
-            <div class="card-body">
-                <h2 class="h6 mb-3">当前状态</h2>
+    <div class="kp-col-xl-4">
+        <div class="kp-card kp-mb-3">
+            <div class="kp-card__body">
+                <h2 class="kp-heading-6 kp-mb-3">当前状态</h2>
                 <div class="knowledge-upload-summary">
                     <div class="knowledge-upload-summary-item">
-                        <span class="text-muted">步骤</span>
+                        <span class="kp-text-muted">步骤</span>
                         <span class="knowledge-upload-summary-value">@GetStepText(CurrentStep)</span>
                     </div>
                     <div class="knowledge-upload-summary-item">
-                        <span class="text-muted">内容</span>
+                        <span class="kp-text-muted">内容</span>
                         <span class="knowledge-upload-summary-value">@ContentStepSummary</span>
                     </div>
                     <div class="knowledge-upload-summary-item">
-                        <span class="text-muted">RAG</span>
+                        <span class="kp-text-muted">RAG</span>
                         <span class="knowledge-upload-summary-value">@RagCoverageText</span>
                     </div>
                     <div class="knowledge-upload-summary-item">
-                        <span class="text-muted">可见范围</span>
+                        <span class="kp-text-muted">可见范围</span>
                         <span class="knowledge-upload-summary-value">@VisibilityStepSummary</span>
                     </div>
                     <div class="knowledge-upload-summary-item">
-                        <span class="text-muted">附件权限</span>
+                        <span class="kp-text-muted">附件权限</span>
                         <span class="knowledge-upload-summary-value">@(CanUploadAttachment ? "可上传" : "不可上传")</span>
                     </div>
                     <div class="knowledge-upload-summary-item">
-                        <span class="text-muted">索引任务</span>
+                        <span class="kp-text-muted">索引任务</span>
                         <span class="knowledge-upload-summary-value">@IndexSummaryText</span>
                     </div>
                 </div>
             </div>
         </div>
 
-        <div class="card">
-            <div class="card-body">
-                <h2 class="h6 mb-3">文件规则</h2>
-                <div class="small text-muted">
-                    <div class="mb-2">直接索引：正文、.txt、.md、.markdown。</div>
-                    <div class="mb-2">转换后索引：PDF、Word、PPT、Excel、HTML、CSV、JSON、XML。</div>
-                    <div class="mb-2">仅附件：图片、音频、视频、压缩包和其他二进制文件。</div>
+        <div class="kp-card">
+            <div class="kp-card__body">
+                <h2 class="kp-heading-6 kp-mb-3">文件规则</h2>
+                <div class="kp-text-small kp-text-muted">
+                    <div class="kp-mb-2">直接索引：正文、.txt、.md、.markdown。</div>
+                    <div class="kp-mb-2">转换后索引：PDF、Word、PPT、Excel、HTML、CSV、JSON、XML。</div>
+                    <div class="kp-mb-2">仅附件：图片、音频、视频、压缩包和其他二进制文件。</div>
                     <div>单个附件最大 @FormatFileSize(MaxAttachmentBytes)。</div>
                 </div>
             </div>
@@ -1236,7 +1236,7 @@
             ? "knowledge-upload-choice"
             : "knowledge-upload-choice is-selected";
 
-        return CanUseRestrictedScopes ? css : $"{css} text-muted";
+        return CanUseRestrictedScopes ? css : $"{css} kp-text-muted";
     }
 
     private string GetSelectedScopeTargetText()
@@ -1309,13 +1309,13 @@
     {
         return status switch
         {
-            KnowledgeIndexJobStatus.Pending => "bg-warning text-dark",
-            KnowledgeIndexJobStatus.Processing => "bg-info text-dark",
-            KnowledgeIndexJobStatus.Indexed => "bg-success",
-            KnowledgeIndexJobStatus.Failed => "bg-danger",
-            KnowledgeIndexJobStatus.Outdated => "bg-secondary",
-            KnowledgeIndexJobStatus.Deleted => "bg-dark",
-            _ => "bg-secondary"
+            KnowledgeIndexJobStatus.Pending => "kp-bg-warning kp-text-dark",
+            KnowledgeIndexJobStatus.Processing => "kp-bg-info kp-text-dark",
+            KnowledgeIndexJobStatus.Indexed => "kp-bg-success",
+            KnowledgeIndexJobStatus.Failed => "kp-bg-error",
+            KnowledgeIndexJobStatus.Outdated => "kp-bg-secondary",
+            KnowledgeIndexJobStatus.Deleted => "kp-bg-dark",
+            _ => "kp-bg-secondary"
         };
     }
 

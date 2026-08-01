@@ -1,0 +1,40 @@
+@namespace KnowPulse.Blazor.Client.Components
+
+<MudPaper Class="kp-state-panel" Elevation="0">
+    @if (Kind == KpStateKind.Loading)
+    {
+        <MudProgressCircular Color="Color.Primary" Indeterminate="true" Size="Size.Medium" />
+    }
+    else
+    {
+        <MudIcon Icon="@StateIcon" Color="@StateColor" Size="Size.Large" />
+    }
+    <MudText Typo="Typo.h6">@Title</MudText>
+    @if (!string.IsNullOrWhiteSpace(Description))
+    {
+        <MudText Typo="Typo.body2" Color="Color.Secondary">@Description</MudText>
+    }
+    @if (Actions is not null)
+    {
+        <MudStack Row="true" Justify="Justify.Center" Spacing="2">
+            @Actions
+        </MudStack>
+    }
+</MudPaper>
+
+@code {
+    [Parameter]
+    public KpStateKind Kind { get; set; } = KpStateKind.Empty;
+
+    [Parameter, EditorRequired]
+    public string Title { get; set; } = string.Empty;
+
+    [Parameter]
+    public string? Description { get; set; }
+
+    [Parameter]
+    public RenderFragment? Actions { get; set; }
+
+    private string StateIcon => Kind == KpStateKind.Error ? Icons.Material.Filled.ErrorOutline : Icons.Material.Filled.Inbox;
+    private Color StateColor => Kind == KpStateKind.Error ? Color.Error : Color.Secondary;
+}

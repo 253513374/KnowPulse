@@ -18,7 +18,7 @@
     background: #fff;
 }
 
-.qb-option-row .form-check-input { margin: 0; }
+.qb-option-row .kp-check__input { margin: 0; }
 
 .qb-option-key {
     display: grid;
@@ -83,5 +83,5 @@
 
 @media (max-width: 575.98px) {
     .qb-option-row { grid-template-columns: auto 2rem minmax(0, 1fr); }
-    .qb-option-row .btn-link { grid-column: 3; justify-self: end; }
+    .qb-option-row .kp-button--link { grid-column: 3; justify-self: end; }
 }

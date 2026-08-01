@@ -15,11 +15,11 @@
         <div class="rag-model-header-actions">
             @if (!string.IsNullOrWhiteSpace(Overview?.LiteLlmAdminUrl))
             {
-                <a class="btn btn-outline-secondary" href="@Overview.LiteLlmAdminUrl" target="_blank" rel="noopener">
+                <a class="kp-button kp-button--secondary" href="@Overview.LiteLlmAdminUrl" target="_blank" rel="noopener">
                     LiteLLM 控制台 <i class="fa fa-external-link-alt" aria-hidden="true"></i>
                 </a>
             }
-            <button class="btn btn-outline-primary" type="button" @onclick="ReloadAsync" disabled="@IsBusy">
+            <button class="kp-button kp-button--primary-outline" type="button" @onclick="ReloadAsync" disabled="@IsBusy">
                 <i class="fa fa-sync-alt" aria-hidden="true"></i> 刷新
             </button>
         </div>
@@ -27,18 +27,18 @@
 
     @if (!string.IsNullOrWhiteSpace(ErrorMessage))
     {
-        <div class="alert alert-danger" role="alert">@ErrorMessage</div>
+        <div class="kp-alert kp-alert--error" role="alert">@ErrorMessage</div>
     }
 
     @if (!string.IsNullOrWhiteSpace(SuccessMessage))
     {
-        <div class="alert alert-success" role="status">@SuccessMessage</div>
+        <div class="kp-alert kp-alert--success" role="status">@SuccessMessage</div>
     }
 
     @if (Overview == null)
     {
         <div class="rag-model-loading" role="status">
-            <span class="spinner-border spinner-border-sm" aria-hidden="true"></span>
+            <span class="kp-spinner kp-spinner--sm" aria-hidden="true"></span>
             正在读取模型配置
         </div>
     }
@@ -88,7 +88,7 @@
                     </div>
                     @if (CanTest)
                     {
-                        <button class="btn btn-sm btn-outline-primary" type="button" @onclick="TestAllAsync" disabled="@IsBusy">
+                        <button class="kp-button kp-button--sm kp-button--primary-outline" type="button" @onclick="TestAllAsync" disabled="@IsBusy">
                             <i class="fa fa-stethoscope" aria-hidden="true"></i> 检查全部模型
                         </button>
                     }
@@ -113,7 +113,7 @@
                             <div class="rag-binding-controls">
                                 <div class="rag-field">
                                     <label for="binding-model-@binding.Usage">默认模型</label>
-                                    <InputSelect id="@($"binding-model-{binding.Usage}")" class="form-select" @bind-Value="binding.DeploymentId" disabled="@(!CanSwitchDefaults)">
+                                    <InputSelect id="@($"binding-model-{binding.Usage}")" class="kp-select" @bind-Value="binding.DeploymentId" disabled="@(!CanSwitchDefaults)">
                                         @foreach (var model in GetDeploymentsForUsage(binding.Usage))
                                         {
                                             <option value="@model.Id">@model.Alias</option>
@@ -122,7 +122,7 @@
                                 </div>
                                 <div class="rag-field">
                                     <label for="binding-version-@binding.Usage">业务版本</label>
-                                    <InputText id="@($"binding-version-{binding.Usage}")" class="form-control" @bind-Value="binding.BusinessModelVersion" disabled="@(!CanSwitchDefaults)" />
+                                    <InputText id="@($"binding-version-{binding.Usage}")" class="kp-input" @bind-Value="binding.BusinessModelVersion" disabled="@(!CanSwitchDefaults)" />
                                 </div>
                             </div>
 
@@ -140,16 +140,16 @@
                                     {
                                         <div class="rag-field">
                                             <label for="binding-token-@binding.Usage">输出 token</label>
-                                            <InputNumber id="@($"binding-token-{binding.Usage}")" class="form-control" @bind-Value="binding.MaxOutputTokens" disabled="@(!CanSwitchDefaults)" />
+                                            <InputNumber id="@($"binding-token-{binding.Usage}")" class="kp-input" @bind-Value="binding.MaxOutputTokens" disabled="@(!CanSwitchDefaults)" />
                                         </div>
                                         <div class="rag-field">
                                             <label for="binding-temperature-@binding.Usage">Temperature</label>
-                                            <InputNumber id="@($"binding-temperature-{binding.Usage}")" class="form-control" @bind-Value="binding.Temperature" disabled="@(!CanSwitchDefaults)" />
+                                            <InputNumber id="@($"binding-temperature-{binding.Usage}")" class="kp-input" @bind-Value="binding.Temperature" disabled="@(!CanSwitchDefaults)" />
                                         </div>
                                     }
                                     <div class="rag-field">
                                         <label for="binding-fallback-@binding.Usage">Fallback Alias</label>
-                                        <InputText id="@($"binding-fallback-{binding.Usage}")" class="form-control" @bind-Value="binding.FallbackAliasesText" disabled="@(!CanSwitchDefaults)" />
+                                        <InputText id="@($"binding-fallback-{binding.Usage}")" class="kp-input" @bind-Value="binding.FallbackAliasesText" disabled="@(!CanSwitchDefaults)" />
                                     </div>
                                 </div>
                             </details>
@@ -157,9 +157,9 @@
                             <div class="rag-binding-actions">
                                 @if (CanTest && selectedDeployment != null)
                                 {
-                                    <button class="btn btn-sm btn-outline-secondary" type="button" @onclick="() => TestModelAsync(selectedDeployment.Id)" disabled="@IsBusy">测试模型</button>
+                                    <button class="kp-button kp-button--sm kp-button--secondary" type="button" @onclick="() => TestModelAsync(selectedDeployment.Id)" disabled="@IsBusy">测试模型</button>
                                 }
-                                <button class="btn btn-sm btn-primary" type="button" @onclick="() => SaveBindingAsync(binding)" disabled="@(!CanSaveBinding(binding) || IsBusy)">
+                                <button class="kp-button kp-button--sm kp-button--primary" type="button" @onclick="() => SaveBindingAsync(binding)" disabled="@(!CanSaveBinding(binding) || IsBusy)">
                                     @(isChanging ? "切换并生效" : "保存配置")
                                 </button>
                             </div>
@@ -178,7 +178,7 @@
                     </div>
                     @if (CanManage)
                     {
-                        <button class="btn btn-sm btn-primary" type="button" @onclick="NewModelAsync">
+                        <button class="kp-button kp-button--sm kp-button--primary" type="button" @onclick="NewModelAsync">
                             <i class="fa fa-plus" aria-hidden="true"></i> 新增模型
                         </button>
                     }
@@ -192,7 +192,7 @@
                                 <h3>@(ModelForm.IsEditing ? "编辑模型" : "接入新模型")</h3>
                                 <p>保存的是业务 Alias 和连接信息，不保存任何密钥值。</p>
                             </div>
-                            <button class="btn-close" type="button" aria-label="关闭模型编辑器" @onclick="CloseModelEditorAsync"></button>
+                            <button class="kp-button--close" type="button" aria-label="关闭模型编辑器" @onclick="CloseModelEditorAsync"></button>
                         </div>
 
                         <EditForm Model="@ModelForm" OnValidSubmit="@SaveModelAsync">
@@ -200,17 +200,17 @@
                             <div class="rag-model-form-grid">
                                 <div class="rag-field">
                                     <label for="model-alias">Alias</label>
-                                    <InputText id="model-alias" class="form-control" @bind-Value="ModelForm.Alias" disabled="@(!CanManage)" />
+                                    <InputText id="model-alias" class="kp-input" @bind-Value="ModelForm.Alias" disabled="@(!CanManage)" />
                                     <ValidationMessage For="@(() => ModelForm.Alias)" />
                                 </div>
                                 <div class="rag-field">
                                     <label for="model-upstream">上游模型</label>
-                                    <InputText id="model-upstream" class="form-control" @bind-Value="ModelForm.UpstreamModelName" disabled="@(!CanManage)" />
+                                    <InputText id="model-upstream" class="kp-input" @bind-Value="ModelForm.UpstreamModelName" disabled="@(!CanManage)" />
                                     <ValidationMessage For="@(() => ModelForm.UpstreamModelName)" />
                                 </div>
                                 <div class="rag-field">
                                     <label for="model-capability">能力</label>
-                                    <InputSelect id="model-capability" class="form-select" @bind-Value="ModelForm.Capability" disabled="@(!CanManage)">
+                                    <InputSelect id="model-capability" class="kp-select" @bind-Value="ModelForm.Capability" disabled="@(!CanManage)">
                                         @foreach (var value in Enum.GetValues<AiModelCapability>())
                                         {
                                             <option value="@value">@GetCapabilityText(value)</option>
@@ -219,7 +219,7 @@
                                 </div>
                                 <div class="rag-field">
                                     <label for="model-provider">供应商</label>
-                                    <InputSelect id="model-provider" class="form-select" @bind-Value="ModelForm.ProviderType" disabled="@(!CanManage)">
+                                    <InputSelect id="model-provider" class="kp-select" @bind-Value="ModelForm.ProviderType" disabled="@(!CanManage)">
                                         @foreach (var value in Enum.GetValues<AiModelProviderType>())
                                         {
                                             <option value="@value">@value</option>
@@ -228,22 +228,22 @@
                                 </div>
                                 <div class="rag-field">
                                     <label for="model-version">业务版本</label>
-                                    <InputText id="model-version" class="form-control" @bind-Value="ModelForm.ModelVersion" disabled="@(!CanManage)" />
+                                    <InputText id="model-version" class="kp-input" @bind-Value="ModelForm.ModelVersion" disabled="@(!CanManage)" />
                                     <ValidationMessage For="@(() => ModelForm.ModelVersion)" />
                                 </div>
                                 <div class="rag-field">
                                     <label for="model-env">Key 环境变量</label>
-                                    <InputText id="model-env" class="form-control" @bind-Value="ModelForm.ApiKeyEnvironmentVariable" disabled="@(!CanManage)" />
+                                    <InputText id="model-env" class="kp-input" @bind-Value="ModelForm.ApiKeyEnvironmentVariable" disabled="@(!CanManage)" />
                                 </div>
                                 <div class="rag-field">
                                     <label for="model-base-url">Base URL</label>
-                                    <InputText id="model-base-url" class="form-control" @bind-Value="ModelForm.BaseUrl" disabled="@(!CanManage)" />
+                                    <InputText id="model-base-url" class="kp-input" @bind-Value="ModelForm.BaseUrl" disabled="@(!CanManage)" />
                                 </div>
                                 @if (ModelForm.Capability == AiModelCapability.Embedding)
                                 {
                                     <div class="rag-field">
                                         <label for="model-dimension">向量维度</label>
-                                        <InputNumber id="model-dimension" class="form-control" @bind-Value="ModelForm.EmbeddingDimension" disabled="@(!CanManage)" />
+                                        <InputNumber id="model-dimension" class="kp-input" @bind-Value="ModelForm.EmbeddingDimension" disabled="@(!CanManage)" />
                                         <small>切换为不同维度的 Embedding 模型需要重建知识索引。</small>
                                     </div>
                                 }
@@ -251,26 +251,26 @@
                                 {
                                     <div class="rag-field">
                                         <label for="model-output">最大输出 token</label>
-                                        <InputNumber id="model-output" class="form-control" @bind-Value="ModelForm.MaxOutputTokens" disabled="@(!CanManage)" />
+                                        <InputNumber id="model-output" class="kp-input" @bind-Value="ModelForm.MaxOutputTokens" disabled="@(!CanManage)" />
                                     </div>
                                 }
                             </div>
                             <div class="rag-model-form-footer">
-                                <div class="form-check form-switch">
-                                    <InputCheckbox id="model-active" class="form-check-input" @bind-Value="ModelForm.IsActive" disabled="@(!CanManage)" />
-                                    <label class="form-check-label" for="model-active">保存后启用</label>
+                                <div class="kp-check kp-switch">
+                                    <InputCheckbox id="model-active" class="kp-check__input" @bind-Value="ModelForm.IsActive" disabled="@(!CanManage)" />
+                                    <label class="kp-check__label" for="model-active">保存后启用</label>
                                 </div>
                                 <div>
-                                    <button class="btn btn-outline-secondary" type="button" @onclick="CloseModelEditorAsync" disabled="@IsBusy">取消</button>
-                                    <button class="btn btn-primary" type="submit" disabled="@(!CanManage || IsBusy)">保存模型</button>
+                                    <button class="kp-button kp-button--secondary" type="button" @onclick="CloseModelEditorAsync" disabled="@IsBusy">取消</button>
+                                    <button class="kp-button kp-button--primary" type="submit" disabled="@(!CanManage || IsBusy)">保存模型</button>
                                 </div>
                             </div>
                         </EditForm>
                     </div>
                 }
 
-                <div class="table-responsive rag-model-table-wrap">
-                    <table class="table align-middle mb-0 rag-model-table">
+                <div class="kp-table-wrap rag-model-table-wrap">
+                    <table class="kp-table kp-table-align-middle kp-mb-0 rag-model-table">
                         <thead>
                             <tr>
                                 <th>业务 Alias</th>
@@ -278,7 +278,7 @@
                                 <th>上游模型</th>
                                 <th>当前用途</th>
                                 <th>运行状态</th>
-                                <th class="text-end">操作</th>
+                                <th class="kp-text-end">操作</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -303,12 +303,12 @@
                                         <div class="rag-model-row-actions">
                                             @if (CanTest)
                                             {
-                                                <button class="btn btn-sm btn-outline-primary" type="button" @onclick="() => TestModelAsync(model.Id)" disabled="@IsBusy">测试</button>
+                                                <button class="kp-button kp-button--sm kp-button--primary-outline" type="button" @onclick="() => TestModelAsync(model.Id)" disabled="@IsBusy">测试</button>
                                             }
                                             @if (CanManage)
                                             {
-                                                <button class="btn btn-sm btn-outline-secondary" type="button" @onclick="() => EditModelAsync(model)">编辑</button>
-                                                <button class="btn btn-sm btn-outline-secondary" type="button" @onclick="() => ToggleModelAsync(model)" disabled="@IsBusy">
+                                                <button class="kp-button kp-button--sm kp-button--secondary" type="button" @onclick="() => EditModelAsync(model)">编辑</button>
+                                                <button class="kp-button kp-button--sm kp-button--secondary" type="button" @onclick="() => ToggleModelAsync(model)" disabled="@IsBusy">
                                                     @(model.IsActive ? "停用" : "启用")
                                                 </button>
                                             }
@@ -331,14 +331,14 @@
                     </div>
                     @if (CanTest)
                     {
-                        <button class="btn btn-sm btn-primary" type="button" @onclick="TestAllAsync" disabled="@IsBusy">
+                        <button class="kp-button kp-button--sm kp-button--primary" type="button" @onclick="TestAllAsync" disabled="@IsBusy">
                             <i class="fa fa-play" aria-hidden="true"></i> 立即检查全部
                         </button>
                     }
                 </div>
 
-                <div class="table-responsive rag-model-table-wrap">
-                    <table class="table align-middle mb-0 rag-model-table">
+                <div class="kp-table-wrap rag-model-table-wrap">
+                    <table class="kp-table kp-table-align-middle kp-mb-0 rag-model-table">
                         <thead>
                             <tr>
                                 <th>模型</th>
