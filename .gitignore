@@ -257,6 +257,7 @@ paket-files/
 .env
 .env.*
 !.env.example
+appsettings.secrets.json
 Logs/*
 src/KnowPulse.Web/Logs/*
 src/KnowPulse.Web.Host/Logs/*

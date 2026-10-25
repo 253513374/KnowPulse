@@ -1,3 +1,4 @@
+using System;
 using System.Threading.Tasks;
 using KnowPulse.Localization;
 using Volo.Abp.Application.Services;
@@ -11,6 +12,17 @@ namespace KnowPulse;
  */
 public abstract class KnowPulseAppService : ApplicationService
 {
+    protected bool IsLegacyAdministrator => CurrentUser.IsInRole("admin");
+
+    protected void EnsureTeachingOwner(Guid? ownerTeacherId)
+    {
+        if (!CurrentUser.Id.HasValue || CurrentUser.Id == Guid.Empty ||
+            (ownerTeacherId != CurrentUser.Id && !(ownerTeacherId == null && IsLegacyAdministrator)))
+        {
+            throw new AbpAuthorizationException("无权访问其他教师的数据。");
+        }
+    }
+
     protected KnowPulseAppService()
     {
         LocalizationResource = typeof(KnowPulseResource);
@@ -18,7 +30,7 @@ public abstract class KnowPulseAppService : ApplicationService
 
     protected async Task CheckMvpPermissionAsync(string permissionName)
     {
-        if (!CurrentUser.IsAuthenticated)
+        if (!CurrentUser.IsAuthenticated || !CurrentUser.Id.HasValue || CurrentUser.Id == Guid.Empty)
         {
             throw new AbpAuthorizationException("Authentication is required for this operation.");
         }

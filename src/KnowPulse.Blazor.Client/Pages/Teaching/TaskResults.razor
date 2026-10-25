@@ -1,0 +1,86 @@
+@page "/teacher/tasks/{Id:guid}/results"
+@page "/teacher/tasks/{Id:guid}/students/{AttemptId:guid}"
+@attribute [Authorize(KnowPulsePermissions.Exam.Manage)]
+@inherits KnowPulseComponentBase
+@inject IExamAppService Exams
+
+<PageTitle>任务结果 · 知脉空间</PageTitle>
+<main class="teacher-page" data-teacher-section="tasks">
+    <TeacherPageHeader Title="@(_result?.Plan.Name ?? "任务结果")" Description="接收名单在发布时固定，只查看本任务的作答与结果。">
+        <Actions><MudButton Href="/teacher/tasks" Variant="Variant.Outlined">返回任务列表</MudButton><MudButton OnClick="LoadAsync" Disabled="_busy">刷新</MudButton></Actions>
+    </TeacherPageHeader>
+    @if (_error is not null) { <MudAlert Severity="Severity.Error" role="alert">@_error</MudAlert> }
+    @if (_busy) { <MudProgressLinear Indeterminate="true" /> }
+    @if (_result is not null)
+    {
+        <div class="teacher-metrics">
+            <div class="teacher-metric"><span>已指派</span><strong>@_result.Recipients.Count 人</strong></div>
+            <div class="teacher-metric"><span>已提交</span><strong>@_result.Recipients.Count(x => x.Status is ExamAttemptStatus.Submitted or ExamAttemptStatus.Scored) 人</strong></div>
+            <div class="teacher-metric"><span>进行中</span><strong>@_result.Recipients.Count(x => x.Status == ExamAttemptStatus.InProgress) 人</strong></div>
+            <div class="teacher-metric"><span>未开始</span><strong>@_result.Recipients.Count(x => x.Status is null or ExamAttemptStatus.NotStarted) 人</strong></div>
+        </div>
+        <MudPaper Class="teacher-panel" Elevation="0">
+            <h2>接收名单与结果</h2>
+            <MudTable T="ExamRecipientResultDto" Items="_result.Recipients" Elevation="0" Hover="true">
+                <HeaderContent><MudTh>学生</MudTh><MudTh>作答状态</MudTh><MudTh>提交时间</MudTh><MudTh>得分</MudTh><MudTh>操作</MudTh></HeaderContent>
+                <RowTemplate>
+                    <MudTd>@context.DisplayName</MudTd><MudTd>@StatusText(context.Status)</MudTd><MudTd>@(context.SubmittedTime.HasValue ? TeacherTime.FormatExamUtc(context.SubmittedTime.Value) : "—")</MudTd><MudTd>@(context.ObtainedScore?.ToString("0.##") ?? "—")</MudTd>
+                    <MudTd>@if (context.AttemptId.HasValue && context.Status is ExamAttemptStatus.Submitted or ExamAttemptStatus.Scored) { <MudButton Color="Color.Primary" Href="@($"/teacher/tasks/{Id}/students/{context.AttemptId}")">查看作答</MudButton> } else { <span class="teacher-muted">等待提交</span> }</MudTd>
+                </RowTemplate>
+            </MudTable>
+            <MudAlert Severity="Severity.Info">“未开始”只表示尚未开始作答，不表示学生未看到任务或消息未送达。</MudAlert>
+        </MudPaper>
+        @if (_attempt is not null)
+        {
+            <MudPaper Class="teacher-panel" Elevation="0">
+                <h2>@(_result.Recipients.FirstOrDefault(x => x.AttemptId == _attempt.Id)?.DisplayName) 的作答详情</h2>
+                <p>得分：@(_attempt.Score?.ObtainedScore.ToString("0.##") ?? "未评分") / @(_attempt.Paper?.TotalScore ?? 0)</p>
+                @foreach (var question in (_attempt.Paper?.Questions ?? []).OrderBy(x => x.DisplayOrder))
+                {
+                    var answer = _attempt.Answers.FirstOrDefault(x => x.PaperQuestionId == question.Id);
+                    <div class="teacher-preview-question">
+                        <h3>@question.DisplayOrder. @question.Stem</h3>
+                        @foreach (var option in question.Options.OrderBy(x => x.DisplayOrder)) { <p>@option.OptionKey. @option.Content</p> }
+                        <p>学生答案：@(answer is null || answer.Values.Count == 0 ? "未作答" : TeacherAnswer.Format(question.Type, answer.Values))</p>
+                        <p>标准答案：@TeacherAnswer.Format(question.Type, question.CorrectAnswers)</p>
+                        <p class="teacher-muted">@question.Analysis</p>
+                    </div>
+                }
+            </MudPaper>
+        }
+        <MudPaper Class="teacher-panel" Elevation="0">
+            <h2>任务说明</h2><p>@_result.Plan.Description</p>
+            <p class="teacher-muted">资料、题库或学生名单后续变化，不会改写本任务的题目快照与既有成绩。</p>
+            <MudExpansionPanels Elevation="0"><MudExpansionPanel Text="查看发布时题目快照">
+                @foreach (var question in (_result.Plan.Paper?.Questions ?? []).OrderBy(x => x.DisplayOrder)) { <p>@question.DisplayOrder. @question.Stem（@question.Score 分）</p> }
+            </MudExpansionPanel></MudExpansionPanels>
+        </MudPaper>
+    }
+</main>
+@code {
+    [Parameter] public Guid Id { get; set; }
+    [Parameter] public Guid? AttemptId { get; set; }
+    private ExamPlanResultsDto? _result;
+    private ExamAttemptDto? _attempt;
+    private string? _error;
+    private bool _busy;
+    protected override Task OnParametersSetAsync() => LoadAsync();
+    private async Task LoadAsync()
+    {
+        _busy = true; _error = null; _result = null; _attempt = null;
+        try
+        {
+            var result = await Exams.GetPlanResultsAsync(Id);
+            ExamAttemptDto? attempt = null;
+            if (AttemptId.HasValue)
+            {
+                if (!result.Recipients.Any(x => x.AttemptId == AttemptId)) throw new InvalidOperationException("这条作答不属于当前任务。请从任务接收名单重新选择。 ");
+                attempt = await Exams.GetStudentAttemptAsync(AttemptId.Value);
+            }
+            _result = result; _attempt = attempt;
+        }
+        catch (Exception ex) { _error = GetUserFriendlyErrorMessage(ex); }
+        finally { _busy = false; }
+    }
+    private static string StatusText(ExamAttemptStatus? status) => status switch { null or ExamAttemptStatus.NotStarted => "未开始", ExamAttemptStatus.InProgress => "进行中", ExamAttemptStatus.Submitted => "已提交", ExamAttemptStatus.Scored => "已评分", ExamAttemptStatus.Expired => "已结束", _ => "已取消" };
+}

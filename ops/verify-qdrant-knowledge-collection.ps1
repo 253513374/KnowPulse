@@ -9,7 +9,7 @@
 [CmdletBinding()]
 param(
     [string]$QdrantEndpoint = "http://localhost:6333",
-    [string]$CollectionName = "knowledge_chunks_1536_mvp1",
+    [string]$CollectionName = "knowledge_chunks_qwen_v4_1536",
     [int]$VectorDimension = 1536,
     [ValidateSet("Cosine", "Dot", "Euclid", "Manhattan")]
     [string]$Distance = "Cosine",

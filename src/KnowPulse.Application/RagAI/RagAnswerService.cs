@@ -15,6 +15,7 @@ namespace KnowPulse.RagAI;
 /// MVP-1 RAG 问答服务。当前不接 Agent workflow，
 /// 只把已经通过 PostgreSQL 二次校验的检索结果交给 LiteLLM chat alias 生成回答。
 /// </summary>
+[Volo.Abp.RemoteService(false)]
 public class RagAnswerService : KnowPulseAppService, IRagAnswerService
 {
     /// <summary>

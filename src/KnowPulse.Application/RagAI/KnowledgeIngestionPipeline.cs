@@ -18,6 +18,7 @@ namespace KnowPulse.RagAI;
 /// 知识摄取管道。稳定文本读取由本类直接处理，复杂附件通过项目内转换器隔离 MarkItDown reader，
 /// 避免 DataIngestion preview 类型泄漏到业务契约和领域模型。
 /// </summary>
+[RemoteService(false)]
 public class KnowledgeIngestionPipeline : KnowPulseAppService, IKnowledgeIngestionPipeline
 {
     // MVP-1 使用简单、可预测的 chunk 策略：目标长度控制检索粒度，少量 overlap 保留跨段上下文。
@@ -101,14 +102,31 @@ public class KnowledgeIngestionPipeline : KnowPulseAppService, IKnowledgeIngesti
             var chunkDrafts = CreateChunkDrafts(processedDocuments);
             await ReportJobProgressAsync(job, "chunker", 35, cancellationToken);
 
-            // 重新索引同一版本时不覆盖历史 chunk，而是把旧 chunk 标记为过期。
-            // 这样审计、引用和回放仍能解释旧回答当时引用了什么内容。
-            await MarkExistingChunksOutdatedAsync(version.Id, cancellationToken);
+            var chunkQuery = await _chunkRepository.GetQueryableAsync();
+            var existingChunks = await AsyncExecuter.ToListAsync(
+                chunkQuery.Where(x => x.KnowledgeIndexJobId == job.Id), cancellationToken);
+            if (existingChunks.Any(x => !x.IsActive || x.Sequence >= chunkDrafts.Count ||
+                x.ContentHash != ComputeContentHash(chunkDrafts[x.Sequence].Content) ||
+                x.SourceTitle != Truncate(chunkDrafts[x.Sequence].SourceTitle, KnowledgeChunk.MaxSourceTitleLength) ||
+                x.SourcePage != chunkDrafts[x.Sequence].SourcePage ||
+                x.IsPublishedSnapshot != (version.Status == KnowledgeVersionStatus.Published)))
+            {
+                throw new KnowledgeIngestionStageException("persistence", "Existing chunk content changed or chunks expired; create a new index job.");
+            }
+            var chunksBySequence = existingChunks.ToDictionary(x => x.Sequence);
+
+            // 同一任务重试复用分块，只有新的重建任务才使历史分块过期。
+            await MarkExistingChunksOutdatedAsync(version.Id, job.Id, cancellationToken);
             await ReportJobProgressAsync(job, "persistence", 40, cancellationToken);
             var records = new List<KnowledgeChunkVectorRecord>();
             for (var index = 0; index < chunkDrafts.Count; index++)
             {
                 var draft = chunkDrafts[index];
+                if (chunksBySequence.TryGetValue(index, out var existingChunk))
+                {
+                    records.Add(MapToVectorRecord(existingChunk, item, version));
+                    continue;
+                }
                 var chunk = new KnowledgeChunk(
                     GuidGenerator.Create(),
                     CurrentTenant.Id,
@@ -472,11 +490,11 @@ public class KnowledgeIngestionPipeline : KnowPulseAppService, IKnowledgeIngesti
     /// <summary>
     /// 将指定知识版本已有 active chunk 标记为过期。
     /// </summary>
-    private async Task MarkExistingChunksOutdatedAsync(Guid knowledgeVersionId, CancellationToken cancellationToken)
+    private async Task MarkExistingChunksOutdatedAsync(Guid knowledgeVersionId, Guid currentJobId, CancellationToken cancellationToken)
     {
         var queryable = await _chunkRepository.GetQueryableAsync();
         var activeChunks = await AsyncExecuter.ToListAsync(
-            queryable.Where(x => x.KnowledgeVersionId == knowledgeVersionId && x.IsActive),
+            queryable.Where(x => x.KnowledgeVersionId == knowledgeVersionId && x.KnowledgeIndexJobId != currentJobId && x.IsActive),
             cancellationToken);
 
         foreach (var chunk in activeChunks)

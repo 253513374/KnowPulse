@@ -30,6 +30,9 @@ public interface IQuestionWorkflowAppService : IApplicationService
     [Authorize(KnowPulsePermissions.QuestionBank.Questions)]
     Task<QuestionDto> SaveDraftAsync(Guid id, SaveQuestionDraftDto input);
 
+    [Authorize(KnowPulsePermissions.QuestionBank.Questions)]
+    Task<QuestionDto> ConfirmAsync(Guid id);
+
     /// <summary>
     /// 提交草稿进入审核队列。
     /// </summary>

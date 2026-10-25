@@ -1,0 +1,143 @@
+@page "/teacher/generate"
+@page "/teacher/generate/{TaskId:guid}"
+@attribute [Authorize(KnowPulsePermissions.QuestionBank.AiGeneration)]
+@inherits KnowPulseComponentBase
+@inject IKnowledgeManagementAppService Materials
+@inject IAiQuestionGenerationAppService Generation
+@inject IQuestionWorkflowAppService Workflow
+@inject NavigationManager Navigation
+
+<PageTitle>基于资料出题 · 知脉空间</PageTitle>
+<main class="teacher-page" data-teacher-section="questions">
+    <TeacherPageHeader Title="@(_task is null ? "基于资料出题" : "检查候选题")" Description="选择具体依据，生成后由你检查并确认。">
+        <Actions><MudButton Href="/teacher/questions" Variant="Variant.Outlined">返回题库</MudButton>@if (_task is not null) { <MudButton OnClick="RefreshTaskAsync" Disabled="_busy">刷新生成状态</MudButton> }</Actions>
+    </TeacherPageHeader>
+    @if (_error is not null) { <MudAlert Severity="Severity.Error" role="alert">@_error</MudAlert> }
+    @if (_busy) { <MudProgressLinear Indeterminate="true" aria-label="正在处理出题请求" /> }
+    @if (_task is null)
+    {
+        <MudPaper Class="teacher-panel" Elevation="0">
+            <h2>本次出题来源</h2><p class="teacher-muted">只使用以下选定且有权使用的资料。</p>
+            <div class="teacher-actions"><MudButton Color="Color.Primary" Variant="@(!_shared ? Variant.Filled : Variant.Text)" OnClick="() => ChangeSourceAsync(false)" Disabled="_busy">我的资料</MudButton><MudButton Color="Color.Primary" Variant="@(_shared ? Variant.Filled : Variant.Text)" OnClick="() => ChangeSourceAsync(true)" Disabled="_busy">共享资料</MudButton></div>
+            <div class="teacher-toolbar"><MudTextField T="string" Immediate="true" Label="搜索可用资料" @bind-Value="_keyword" Variant="Variant.Outlined" Disabled="_busy" /><MudButton OnClick="SearchAsync" Disabled="_busy">搜索</MudButton></div>
+            @foreach (var material in _materials)
+            { <MudCheckBox T="bool" Value="@_selected.ContainsKey(material.Id)" ValueChanged="value => Select(material, value)" Label="@material.Title" Disabled="_busy" /> }
+            @if (_materials.Count == 0) { <p>暂无可用资料。请先上传资料并等待处理完成，或取得共享使用授权。</p> }
+            <MvpPager SkipCount="_skip" TotalCount="_total" IsBusy="_busy" OnSkipCountChanged="PageAsync" />
+            <MudAlert Severity="Severity.Info">已选 @_selected.Count 份：@string.Join("、", _selected.Values.Select(x => x.Title))</MudAlert>
+        </MudPaper>
+        <MudPaper Class="teacher-panel" Elevation="0">
+            <h2>出题要求</h2>
+            <div class="teacher-form-grid">
+                <MudNumericField T="int" @bind-Value="_count" Min="1" Max="10" Label="题目数量" Variant="Variant.Outlined" Disabled="_busy" />
+                <MudSelect T="QuestionType" @bind-Value="_type" Label="本次生成题型" Variant="Variant.Outlined" Disabled="_busy"><MudSelectItem Value="QuestionType.SingleChoice">单选</MudSelectItem><MudSelectItem Value="QuestionType.MultipleChoice">多选</MudSelectItem><MudSelectItem Value="QuestionType.TrueFalse">判断</MudSelectItem></MudSelect>
+            </div>
+            <MudTextField T="string" Immediate="true" @bind-Value="_theme" Label="本次学习主题" MaxLength="512" Required="true" Variant="Variant.Outlined" Disabled="_busy" />
+            <MudTextField T="string" Immediate="true" @bind-Value="_requirements" Label="出题要求（选填）" MaxLength="512" Lines="3" Variant="Variant.Outlined" Disabled="_busy" />
+            <MudButton OnClick="GenerateAsync" Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy">@(_busy ? "正在生成，请稍候…" : $"生成 {_count} 道候选题")</MudButton>
+            <p class="teacher-muted">题目生成后不会直接发布给学生。生成记录会保存在“我的题库”，可稍后继续检查。</p>
+        </MudPaper>
+    }
+    else
+    {
+        <MudPaper Class="teacher-panel" Elevation="0">
+            <h2>@_task.KnowledgeScope</h2><p>已生成 @_task.GeneratedCount / @_task.RequestedCount 题</p>
+            @if (_task.Status is AiQuestionGenerationTaskStatus.Pending or AiQuestionGenerationTaskStatus.Processing) { <MudAlert Severity="Severity.Info">正在生成。可以稍后从题库的出题记录回来查看。</MudAlert> }
+            @if (_task.Status == AiQuestionGenerationTaskStatus.Failed)
+            { <MudAlert Severity="Severity.Error">@(_task.FailureReason ?? "本次生成未完成，请检查资料或稍后重试。")</MudAlert><MudButton OnClick="RetryAsync" Variant="Variant.Outlined" Disabled="_busy">重新生成</MudButton> }
+            <MudButton Href="/teacher/generate" Variant="Variant.Outlined">发起新的出题</MudButton>
+        </MudPaper>
+        @foreach (var candidate in _task.Candidates)
+        {
+            <MudPaper Class="teacher-panel" Elevation="0" @key="candidate.Id">
+                <h2>@candidate.Title</h2><p class="teacher-muted">@Questions.TypeText(candidate.Type)</p><p>@candidate.Stem</p>
+                @foreach (var option in candidate.Options.OrderBy(x => x.DisplayOrder)) { <p>@option.OptionKey. @option.Content</p> }
+                <p>标准答案：@string.Join("、", candidate.Answers.OrderBy(x => x.DisplayOrder).Select(x => x.Value))</p>
+                <p>解析：@candidate.Analysis</p>
+                @foreach (var citation in candidate.Citations) { <MudAlert Severity="Severity.Info">出题依据：@citation.SourceTitle — @citation.SourceExcerpt</MudAlert> }
+                @if (!string.IsNullOrWhiteSpace(candidate.ValidationErrors)) { <MudAlert Severity="Severity.Warning">@candidate.ValidationErrors</MudAlert> }
+                <div class="teacher-actions">
+                    @if (candidate.LinkedQuestionId.HasValue) { <MudButton Color="Color.Primary" Href="@($"/teacher/questions/{candidate.LinkedQuestionId}/edit")">检查并编辑已采纳草稿</MudButton> }
+                    else if (candidate.Status == AiQuestionCandidateStatus.Generated)
+                    {
+                        <MudButton Color="Color.Primary" OnClick="() => AdoptAsync(candidate.Id)" Disabled="_busy">采纳并编辑确认</MudButton>
+                        <MudButton OnClick="() => _ignored.Add(candidate.Id)" Disabled="@(_busy || _ignored.Contains(candidate.Id))">@(_ignored.Contains(candidate.Id) ? "本次未采纳" : "暂不采纳")</MudButton>
+                    }
+                </div>
+                @if (_ignored.Contains(candidate.Id)) { <p class="teacher-muted">该候选题未进入题库。如需使用，仍可重新采纳。</p> }
+            </MudPaper>
+        }
+    }
+</main>
+@code {
+    [Parameter] public Guid? TaskId { get; set; }
+    [SupplyParameterFromQuery(Name = "itemId")] public Guid? ItemId { get; set; }
+    private IReadOnlyList<KnowledgeManagementListItemDto> _materials = [];
+    private readonly Dictionary<Guid, KnowledgeManagementListItemDto> _selected = [];
+    private readonly HashSet<Guid> _ignored = [];
+    private AiQuestionGenerationTaskDto? _task;
+    private string? _keyword, _theme, _requirements, _error;
+    private int _skip, _count = 8;
+    private long _total;
+    private QuestionType _type = QuestionType.SingleChoice;
+    private bool _busy, _shared;
+    protected override async Task OnParametersSetAsync()
+    {
+        _task = null;
+        if (TaskId.HasValue) { await RefreshTaskAsync(); return; }
+        await PageAsync(0);
+        if (ItemId.HasValue)
+        {
+            try { var detail = await Materials.GetAsync(ItemId.Value); if (detail.Status == KnowledgeManagementStatus.Ready) { _selected[detail.Id] = detail; _theme = detail.Title; } else _error = "这份资料尚未处理完成，暂不能用于出题。"; }
+            catch (Exception ex) { _error = GetUserFriendlyErrorMessage(ex); }
+        }
+    }
+    private void Select(KnowledgeManagementListItemDto item, bool selected) { if (selected) _selected[item.Id] = item; else _selected.Remove(item.Id); }
+    private Task SearchAsync() => PageAsync(0);
+    private async Task ChangeSourceAsync(bool shared) { _shared = shared; await PageAsync(0); }
+    private async Task PageAsync(int skip)
+    {
+        _busy = true; _error = null;
+        try { var result = await Materials.GetListAsync(new() { Keyword = _keyword, SharedOnly = _shared, OwnOnly = !_shared, Status = KnowledgeManagementStatus.Ready, SkipCount = skip, MaxResultCount = 20 }); _materials = result.Items; _total = result.TotalCount; _skip = skip; }
+        catch (Exception ex) { _error = GetUserFriendlyErrorMessage(ex); }
+        finally { _busy = false; }
+    }
+    private async Task GenerateAsync()
+    {
+        if (_busy) return;
+        if (_selected.Count == 0 || string.IsNullOrWhiteSpace(_theme)) { _error = "请选择至少一份可用资料，并填写学习主题。"; return; }
+        _busy = true; _error = null;
+        try
+        {
+            _task = await Generation.CreateAsync(new() { KnowledgeItemIds = _selected.Keys.ToList(), KnowledgeScope = _theme.Trim(), KnowledgePointText = _requirements, Type = _type, RequestedCount = _count });
+            TaskId = _task.Id;
+        }
+        catch (Exception ex) { _error = GetUserFriendlyErrorMessage(ex); }
+        finally { _busy = false; }
+    }
+    private async Task RefreshTaskAsync()
+    {
+        var id = TaskId ?? _task?.Id;
+        if (!id.HasValue) return;
+        _busy = true; _error = null;
+        try { _task = await Generation.GetAsync(id.Value); }
+        catch (Exception ex) { _error = GetUserFriendlyErrorMessage(ex); }
+        finally { _busy = false; }
+    }
+    private async Task RetryAsync()
+    {
+        if (_busy || _task is null) return;
+        _busy = true; _error = null;
+        try { _task = await Generation.RetryAsync(_task.Id); }
+        catch (Exception ex) { _error = GetUserFriendlyErrorMessage(ex); }
+        finally { _busy = false; }
+    }
+    private async Task AdoptAsync(Guid id)
+    {
+        if (_busy) return;
+        _busy = true; _error = null;
+        try { var question = await Workflow.AdoptAiCandidateAsync(id); Navigation.NavigateTo($"/teacher/questions/{question.Id}/edit"); }
+        catch (Exception ex) { _error = GetUserFriendlyErrorMessage(ex); }
+        finally { _busy = false; }
+    }
+}

@@ -53,6 +53,9 @@ public class ExamAnswer : FullAuditedEntity<Guid>, IMultiTenant
             return false;
         }
 
+        // 防止较早发出的保存请求晚到后覆盖已经保存的新答案。
+        if (clientVersion.HasValue && clientVersion.Value <= SaveVersion) return false;
+
         var nextVersion = clientVersion.HasValue && clientVersion.Value > SaveVersion
             ? clientVersion.Value
             : SaveVersion + 1;

@@ -27,6 +27,18 @@ public class KnowledgeItem : FullAuditedAggregateRoot<Guid>, IMultiTenant
     /// </summary>
     public Guid? TenantId { get; protected set; }
 
+    public Guid? OwnerTeacherId { get; private set; }
+
+    public void AssignTeacher(Guid teacherId)
+    {
+        if (teacherId == Guid.Empty || (OwnerTeacherId.HasValue && OwnerTeacherId != teacherId))
+        {
+            throw new ArgumentException("资料归属不能为空或被改写。", nameof(teacherId));
+        }
+
+        OwnerTeacherId = teacherId;
+    }
+
     /// <summary>
     /// 知识分类编号。允许为空，表示该知识暂未归类。
     /// </summary>

@@ -1,6 +1,7 @@
 using System;
 using System.Threading.Tasks;
 using KnowPulse.Permissions;
+using KnowPulse.KnowledgeIndexing;
 using Microsoft.AspNetCore.Authorization;
 using Volo.Abp.Application.Dtos;
 using Volo.Abp.Application.Services;
@@ -10,6 +11,15 @@ namespace KnowPulse.KnowledgeBase;
 
 public interface IKnowledgeItemAppService : IApplicationService
 {
+    [Authorize(KnowPulsePermissions.KnowledgeBase.Items)]
+    Task<ListResultDto<KnowledgeShareTeacherDto>> SearchShareTeachersAsync(string? keyword);
+
+    [Authorize(KnowPulsePermissions.KnowledgeBase.PermissionScopes)]
+    Task SetSharedTeachersAsync(Guid id, ShareKnowledgeWithTeachersDto input);
+
+    [Authorize(KnowPulsePermissions.KnowledgeBase.Versions)]
+    Task<KnowledgeIndexJobDto> RetryProcessingAsync(Guid id);
+
     [Authorize(KnowPulsePermissions.KnowledgeBase.Items)]
     Task<PagedResultDto<KnowledgeItemDto>> GetListAsync(PagedAndSortedResultRequestDto input);
     [Authorize(KnowPulsePermissions.KnowledgeBase.Items)]
@@ -25,6 +35,8 @@ public interface IKnowledgeItemAppService : IApplicationService
     Task<ListResultDto<KnowledgeVersionDto>> GetVersionsAsync(Guid id);
     [Authorize(KnowPulsePermissions.KnowledgeBase.Versions)]
     Task<KnowledgeVersionDto> CreateVersionAsync(Guid id, CreateKnowledgeVersionDto input);
+    [Authorize(KnowPulsePermissions.KnowledgeBase.Versions)]
+    Task<KnowledgeVersionDto> UpdateDraftVersionAsync(Guid id, Guid versionId, CreateKnowledgeVersionDto input);
     [Authorize(KnowPulsePermissions.KnowledgeBase.Versions)]
     Task<KnowledgeVersionDto> PublishVersionAsync(Guid id, Guid versionId);
     [Authorize(KnowPulsePermissions.KnowledgeBase.Versions)]

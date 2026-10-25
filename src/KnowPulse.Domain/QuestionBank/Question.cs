@@ -18,6 +18,18 @@ public class Question : FullAuditedAggregateRoot<Guid>, IMultiTenant
 
     public Guid? TenantId { get; protected set; }
 
+    public Guid? OwnerTeacherId { get; private set; }
+
+    public void AssignTeacher(Guid teacherId)
+    {
+        if (teacherId == Guid.Empty || (OwnerTeacherId.HasValue && OwnerTeacherId != teacherId))
+        {
+            throw new ArgumentException("题目归属不能为空或被改写。", nameof(teacherId));
+        }
+
+        OwnerTeacherId = teacherId;
+    }
+
     public QuestionType Type { get; private set; }
 
     public QuestionStatus Status { get; private set; }

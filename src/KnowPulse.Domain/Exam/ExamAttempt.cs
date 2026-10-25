@@ -23,7 +23,7 @@ public class ExamAttempt : FullAuditedAggregateRoot<Guid>, IMultiTenant
 
     public DateTime StartedTime { get; private set; }
 
-    public DateTime ExpiresTime { get; private set; }
+    public DateTime? ExpiresTime { get; private set; }
 
     public DateTime? LastSavedTime { get; private set; }
 
@@ -45,7 +45,7 @@ public class ExamAttempt : FullAuditedAggregateRoot<Guid>, IMultiTenant
         Guid userId,
         int attemptNumber,
         DateTime startedTime,
-        DateTime expiresTime)
+        DateTime? expiresTime)
         : base(id)
     {
         if (attemptNumber <= 0)
@@ -70,7 +70,7 @@ public class ExamAttempt : FullAuditedAggregateRoot<Guid>, IMultiTenant
             throw new BusinessException(KnowPulseDomainErrorCodes.ExamAttemptCannotSave);
         }
 
-        if (now > ExpiresTime)
+        if (ExpiresTime.HasValue && now > ExpiresTime.Value)
         {
             throw new BusinessException(KnowPulseDomainErrorCodes.ExamAttemptExpired);
         }
@@ -93,7 +93,7 @@ public class ExamAttempt : FullAuditedAggregateRoot<Guid>, IMultiTenant
             throw new BusinessException(KnowPulseDomainErrorCodes.ExamAttemptCannotSubmit);
         }
 
-        if (now > ExpiresTime)
+        if (ExpiresTime.HasValue && now > ExpiresTime.Value)
         {
             Status = ExamAttemptStatus.Expired;
             throw new BusinessException(KnowPulseDomainErrorCodes.ExamAttemptExpired);
@@ -119,5 +119,12 @@ public class ExamAttempt : FullAuditedAggregateRoot<Guid>, IMultiTenant
 
         Status = ExamAttemptStatus.Scored;
         ScoredTime = now;
+    }
+
+    public bool ExpireIfNeeded(DateTime now)
+    {
+        if (Status != ExamAttemptStatus.InProgress || !ExpiresTime.HasValue || now <= ExpiresTime.Value) return false;
+        Status = ExamAttemptStatus.Expired;
+        return true;
     }
 }

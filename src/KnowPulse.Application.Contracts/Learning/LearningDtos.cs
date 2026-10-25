@@ -176,12 +176,12 @@ public class LearningPathRequiredExamDto : EntityDto<Guid>
     /// <summary>
     /// 考试开始时间。
     /// </summary>
-    public DateTime StartTime { get; set; }
+    public DateTime? StartTime { get; set; }
 
     /// <summary>
     /// 考试结束时间。
     /// </summary>
-    public DateTime EndTime { get; set; }
+    public DateTime? EndTime { get; set; }
 
     /// <summary>
     /// 展示顺序。

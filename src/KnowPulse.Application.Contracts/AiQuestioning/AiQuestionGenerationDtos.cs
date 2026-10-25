@@ -119,6 +119,8 @@ public class GetAiQuestionModelCallLogListInput : PagedAndSortedResultRequestDto
 /// </summary>
 public class CreateAiQuestionGenerationTaskDto
 {
+    [MaxLength(50)]
+    public List<Guid> KnowledgeItemIds { get; set; } = [];
     /// <summary>
     /// 本次生成希望得到的题型。
     /// 模型输出若与该题型不一致，会被结构化校验标记为失败候选题。
@@ -197,6 +199,8 @@ public class SubmitAiQuestionCandidateDto
 /// </summary>
 public class AiQuestionGenerationTaskDto : FullAuditedEntityDto<Guid>
 {
+    public Guid? OwnerTeacherId { get; set; }
+    public List<Guid> KnowledgeItemIds { get; set; } = [];
     /// <summary>
     /// 任务当前生命周期状态。
     /// </summary>

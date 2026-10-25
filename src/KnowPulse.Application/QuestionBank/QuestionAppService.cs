@@ -81,6 +81,8 @@ public class QuestionAppService : KnowPulseAppService, IQuestionAppService, IQue
         await CheckMvpPermissionAsync(KnowPulsePermissions.QuestionBank.Questions);
 
         var queryable = await _questionRepository.GetQueryableAsync();
+        queryable = queryable.Where(x => x.OwnerTeacherId == CurrentUser.Id ||
+            (x.OwnerTeacherId == null && IsLegacyAdministrator));
         queryable = ApplyFilters(queryable, input);
 
         if (!string.IsNullOrWhiteSpace(input.KnowledgePoint))
@@ -125,7 +127,7 @@ public class QuestionAppService : KnowPulseAppService, IQuestionAppService, IQue
     public virtual async Task<QuestionDto> GetAsync(Guid id)
     {
         await CheckMvpPermissionAsync(KnowPulsePermissions.QuestionBank.Questions);
-        return await MapToDtoAsync(await _questionRepository.GetAsync(id));
+        return await MapToDtoAsync(await GetOwnedQuestionAsync(id));
     }
 
     /// <summary>
@@ -137,7 +139,7 @@ public class QuestionAppService : KnowPulseAppService, IQuestionAppService, IQue
     public virtual async Task<ListResultDto<QuestionSourceDto>> GetSourcesAsync(Guid id)
     {
         await CheckMvpPermissionAsync(KnowPulsePermissions.QuestionBank.Questions);
-        await _questionRepository.GetAsync(id);
+        await GetOwnedQuestionAsync(id);
 
         var sources = await GetQuestionSourcesAsync(id);
         return new ListResultDto<QuestionSourceDto>(sources.Select(MapSourceToDto).ToList());
@@ -152,7 +154,7 @@ public class QuestionAppService : KnowPulseAppService, IQuestionAppService, IQue
     public virtual async Task<ListResultDto<QuestionReviewDto>> GetReviewsAsync(Guid id)
     {
         await CheckMvpPermissionAsync(KnowPulsePermissions.QuestionBank.Questions);
-        await _questionRepository.GetAsync(id);
+        await GetOwnedQuestionAsync(id);
 
         var reviews = await GetReviewEntitiesAsync(id);
         return new ListResultDto<QuestionReviewDto>(reviews.Select(MapReviewToDto).ToList());
@@ -183,6 +185,8 @@ public class QuestionAppService : KnowPulseAppService, IQuestionAppService, IQue
         await CheckMvpPermissionAsync(KnowPulsePermissions.QuestionBank.Questions);
 
         var candidate = await _candidateRepository.GetAsync(candidateId);
+        var taskRepository = LazyServiceProvider.LazyGetRequiredService<IRepository<AiQuestionGenerationTask, Guid>>();
+        EnsureTeachingOwner((await taskRepository.GetAsync(candidate.TaskId)).OwnerTeacherId);
         if (candidate.LinkedQuestionId.HasValue)
         {
             throw new Volo.Abp.BusinessException(KnowPulseDomainErrorCodes.AiQuestionCandidateAlreadySubmitted);
@@ -260,7 +264,7 @@ public class QuestionAppService : KnowPulseAppService, IQuestionAppService, IQue
     {
         await CheckMvpPermissionAsync(KnowPulsePermissions.QuestionBank.Questions);
 
-        var question = await _questionRepository.GetAsync(id);
+        var question = await GetOwnedQuestionAsync(id);
         question.UpdateDraft(
             input.Type,
             input.Difficulty,
@@ -280,7 +284,7 @@ public class QuestionAppService : KnowPulseAppService, IQuestionAppService, IQue
     public virtual async Task<QuestionDto> SubmitAsync(Guid id)
     {
         await CheckMvpPermissionAsync(KnowPulsePermissions.QuestionBank.Questions);
-        var question = await _questionRepository.GetAsync(id);
+        var question = await GetOwnedQuestionAsync(id);
         var options = await GetOptionsAsync(id);
         var answers = await GetAnswersAsync(id);
         var fromStatus = question.Status;
@@ -303,7 +307,7 @@ public class QuestionAppService : KnowPulseAppService, IQuestionAppService, IQue
             throw new Volo.Abp.BusinessException(KnowPulseDomainErrorCodes.QuestionReviewCommentRequired);
         }
 
-        var question = await _questionRepository.GetAsync(id);
+        var question = await GetOwnedQuestionAsync(id);
         var fromStatus = question.Status;
         var now = DateTime.UtcNow;
         QuestionReviewAction action;
@@ -335,7 +339,7 @@ public class QuestionAppService : KnowPulseAppService, IQuestionAppService, IQue
     public virtual async Task<QuestionDto> ChangeAvailabilityAsync(Guid id, ChangeQuestionAvailabilityDto input)
     {
         await CheckMvpPermissionAsync(KnowPulsePermissions.QuestionBank.Questions);
-        var question = await _questionRepository.GetAsync(id);
+        var question = await GetOwnedQuestionAsync(id);
         var fromStatus = question.Status;
         QuestionReviewAction reviewAction;
         string comment;
@@ -377,6 +381,7 @@ public class QuestionAppService : KnowPulseAppService, IQuestionAppService, IQue
             input.SecurityLevel,
             NormalizeTags(input.Tags));
 
+        question.AssignTeacher(CurrentUser.Id!.Value);
         await _questionRepository.InsertAsync(question, autoSave: true);
         await ReplaceDetailsAsync(question.Id, input);
 
@@ -404,7 +409,36 @@ public class QuestionAppService : KnowPulseAppService, IQuestionAppService, IQue
     public virtual async Task DeleteAsync(Guid id)
     {
         await CheckMvpPermissionAsync(KnowPulsePermissions.QuestionBank.Questions);
+        await GetOwnedQuestionAsync(id);
         await _questionRepository.DeleteAsync(id);
+    }
+
+    public virtual async Task<QuestionDto> ConfirmAsync(Guid id)
+    {
+        await CheckMvpPermissionAsync(KnowPulsePermissions.QuestionBank.Questions);
+        var question = await GetOwnedQuestionAsync(id);
+        if (question.Status == QuestionStatus.Approved)
+        {
+            return await MapToDtoAsync(question);
+        }
+
+        var before = question.Status;
+        if (question.Status != QuestionStatus.PendingReview)
+        {
+            question.SubmitForReview(await GetOptionsAsync(id), await GetAnswersAsync(id), Clock.Now);
+        }
+
+        question.Approve(CurrentUser.Id, Clock.Now);
+        await _questionRepository.UpdateAsync(question, autoSave: true);
+        await AddReviewAsync(question, QuestionReviewAction.Approved, before, question.Status, "教师本人确认");
+        return await MapToDtoAsync(question);
+    }
+
+    private async Task<Question> GetOwnedQuestionAsync(Guid id)
+    {
+        var question = await _questionRepository.GetAsync(id);
+        EnsureTeachingOwner(question.OwnerTeacherId);
+        return question;
     }
 
     /// <summary>
@@ -741,6 +775,7 @@ public class QuestionAppService : KnowPulseAppService, IQuestionAppService, IQue
         return new QuestionDto
         {
             Id = question.Id,
+            OwnerTeacherId = question.OwnerTeacherId,
             CreationTime = question.CreationTime,
             CreatorId = question.CreatorId,
             LastModificationTime = question.LastModificationTime,

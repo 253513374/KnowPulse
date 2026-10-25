@@ -79,6 +79,15 @@ public class OpenIddictDataSeedContributor : IDataSeedContributor, ITransientDep
 
         var configurationSection = _configuration.GetSection("OpenIddict:Applications");
 
+        await CreateApplicationAsync(
+            name: "KnowPulse_MiniProgram",
+            type: OpenIddictConstants.ClientTypes.Public,
+            consentType: OpenIddictConstants.ConsentTypes.Implicit,
+            displayName: "学生微信小程序",
+            secret: null,
+            grantTypes: new List<string> { "wechat" },
+            scopes: commonScopes);
+
 
 
         // Blazor Client
@@ -203,7 +212,7 @@ public class OpenIddictDataSeedContributor : IDataSeedContributor, ITransientDep
                 grantType == OpenIddictConstants.GrantTypes.ClientCredentials ||
                 grantType == OpenIddictConstants.GrantTypes.Password ||
                 grantType == OpenIddictConstants.GrantTypes.RefreshToken ||
-                grantType == OpenIddictConstants.GrantTypes.DeviceCode)
+                grantType == OpenIddictConstants.GrantTypes.DeviceCode || grantType == "wechat")
             {
                 application.Permissions.Add(OpenIddictConstants.Permissions.Endpoints.Token);
                 application.Permissions.Add(OpenIddictConstants.Permissions.Endpoints.Revocation);

@@ -7,6 +7,7 @@ using KnowPulse.Permissions;
 using Volo.Abp.Account.Localization;
 using Volo.Abp.Authorization.Permissions;
 using Volo.Abp.Identity.Blazor.MudBlazor;
+using Volo.Abp.Identity;
 using Volo.Abp.SettingManagement.Blazor.MudBlazor.Menus;
 using Volo.Abp.TenantManagement.Blazor.MudBlazor.Navigation;
 using Volo.Abp.UI.Navigation;
@@ -52,15 +53,13 @@ public class KnowPulseMenuContributor : IMenuContributor
     {
         var l = context.GetLocalizer<KnowPulseResource>();
 
-        context.Menu.Items.Insert(
-            0,
-            new ApplicationMenuItem(
-                KnowPulseMenus.Home,
-                l["Menu:Home"],
-                "/",
-                icon: "fas fa-home"
-            )
-        );
+        context.Menu.AddItem(new ApplicationMenuItem("KnowPulse.Teacher.Materials", "我的资料", "/teacher/materials", icon: "fas fa-book-open", order: 0).RequirePermissions(KnowPulsePermissions.KnowledgeBase.Items));
+        context.Menu.AddItem(new ApplicationMenuItem("KnowPulse.Teacher.Shared", "共享资料", "/teacher/shared", icon: "fas fa-share-nodes", order: 1).RequirePermissions(KnowPulsePermissions.KnowledgeBase.Items));
+        context.Menu.AddItem(new ApplicationMenuItem("KnowPulse.Teacher.Questions", "出题与题库", "/teacher/questions", icon: "fas fa-clipboard-question", order: 2).RequirePermissions(KnowPulsePermissions.QuestionBank.Questions));
+        context.Menu.AddItem(new ApplicationMenuItem("KnowPulse.Teacher.Students", "我的学生", "/teacher/students", icon: "fas fa-user-group", order: 3).RequirePermissions(KnowPulsePermissions.Exam.Manage));
+        context.Menu.AddItem(new ApplicationMenuItem("KnowPulse.Teacher.Tasks", "答题任务", "/teacher/tasks", icon: "fas fa-file-signature", order: 4).RequirePermissions(KnowPulsePermissions.Exam.Manage));
+        var maintenance = new ApplicationMenuItem("KnowPulse.Maintenance", "维护与历史入口", icon: "fas fa-tools", order: 100)
+            .RequirePermissions(IdentityPermissions.Users.Default);
 
         var organization = new ApplicationMenuItem(
             KnowPulseMenus.Organization,
@@ -96,7 +95,7 @@ public class KnowPulseMenuContributor : IMenuContributor
             icon: "fas fa-user-tag"
         ).RequirePermissions(KnowPulsePermissions.Organization.UserAssignments));
 
-        context.Menu.AddItem(organization);
+        maintenance.AddItem(organization);
 
         // 知识库菜单仅表示用户拥有进入该功能区的权限；
         // 每个知识文档是否可见还会在 KnowledgeItemAppService 中按权限范围二次过滤。
@@ -134,7 +133,7 @@ public class KnowPulseMenuContributor : IMenuContributor
             icon: "fas fa-tags"
         ).RequirePermissions(KnowPulsePermissions.KnowledgeBase.Tags));
 
-        context.Menu.AddItem(knowledgeBase);
+        maintenance.AddItem(knowledgeBase);
 
         var rag = new ApplicationMenuItem(
             KnowPulseMenus.Rag,
@@ -156,7 +155,7 @@ public class KnowPulseMenuContributor : IMenuContributor
             icon: "fas fa-sliders"
         ).RequirePermissions(KnowPulsePermissions.AiModels.View));
 
-        context.Menu.AddItem(rag);
+        maintenance.AddItem(rag);
 
         var questionBank = new ApplicationMenuItem(
             KnowPulseMenus.QuestionBank,
@@ -192,7 +191,7 @@ public class KnowPulseMenuContributor : IMenuContributor
             icon: "fas fa-book"
         ).RequirePermissions(KnowPulsePermissions.QuestionBank.Questions));
 
-        context.Menu.AddItem(questionBank);
+        maintenance.AddItem(questionBank);
 
         var learning = new ApplicationMenuItem(
             KnowPulseMenus.Learning,
@@ -207,7 +206,7 @@ public class KnowPulseMenuContributor : IMenuContributor
             icon: "fas fa-book-reader"
         ).RequirePermissions(KnowPulsePermissions.Learning.View));
 
-        context.Menu.AddItem(learning);
+        maintenance.AddItem(learning);
 
         var exam = new ApplicationMenuItem(
             KnowPulseMenus.Exam,
@@ -229,7 +228,8 @@ public class KnowPulseMenuContributor : IMenuContributor
             icon: "fas fa-pen-to-square"
         ).RequirePermissions(KnowPulsePermissions.Exam.Participate));
 
-        context.Menu.AddItem(exam);
+        maintenance.AddItem(exam);
+        context.Menu.AddItem(maintenance);
 
         var administration = context.Menu.GetAdministration();
 

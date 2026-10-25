@@ -1,0 +1,19 @@
+@namespace KnowPulse.Blazor.Client.Components
+
+<header class="teacher-page-header">
+    <div>
+        <div class="teacher-workspace-label"><span class="teacher-brand-slot"><img src="/images/teaching/brand-mark.svg" alt="" /></span>知脉空间 · 教师工作区</div>
+        <h1>@Title</h1>
+        <p>@Description</p>
+    </div>
+    @if (Actions is not null)
+    {
+        <div class="teacher-actions">@Actions</div>
+    }
+</header>
+
+@code {
+    [Parameter, EditorRequired] public string Title { get; set; } = string.Empty;
+    [Parameter] public string? Description { get; set; }
+    [Parameter] public RenderFragment? Actions { get; set; }
+}

@@ -16,6 +16,7 @@ namespace KnowPulse.RagAI;
 /// Embedding pipeline，负责把 active chunk 送入 embedding client，并把模型版本、维度、
 /// content hash 与外部向量 ID 写入业务主库。真实向量写入 Qdrant 由 IKnowledgeVectorStore 后续阶段处理。
 /// </summary>
+[Volo.Abp.RemoteService(false)]
 public class KnowledgeEmbeddingPipeline : KnowPulseAppService, IKnowledgeEmbeddingPipeline
 {
     private readonly IRepository<EmbeddingModelVersion, Guid> _modelVersionRepository;
@@ -78,6 +79,15 @@ public class KnowledgeEmbeddingPipeline : KnowPulseAppService, IKnowledgeEmbeddi
             : await GetOrCreateDefaultModelVersionAsync(cancellationToken);
 
         var job = await GetIndexJobAsync(knowledgeVersionId, knowledgeIndexJobId, cancellationToken);
+        // 向量存储固定写入当前 collection，禁止旧模型任务把不匹配的向量写入新投影。
+        if (!string.Equals(modelVersion.CollectionName, _options.VectorStore.KnowledgeCollectionName, StringComparison.Ordinal) ||
+            modelVersion.VectorDimension != _options.VectorStore.VectorDimension)
+        {
+            const string reason = "Embedding 模型已切换，任务模型版本的向量集合或维度与当前配置不一致。请使用当前模型新建资料处理任务，旧索引记录已保留。";
+            await MarkJobFailedAsync(job, "model-switch", reason, cancellationToken);
+            return Failed(knowledgeVersionId, modelVersion.Id, reason, "model-switch");
+        }
+
         if (job != null)
         {
             // 把任务和模型版本绑定，便于排查“哪次索引用了哪个模型/collection”。

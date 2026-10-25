@@ -569,6 +569,12 @@ namespace KnowPulse.Migrations
                         .HasDefaultValue(false)
                         .HasColumnName("IsDeleted");
 
+                    b.Property<string>("KnowledgeItemIdsJson")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("text")
+                        .HasDefaultValue("[]");
+
                     b.Property<string>("KnowledgeScope")
                         .IsRequired()
                         .HasMaxLength(512)
@@ -596,6 +602,9 @@ namespace KnowPulse.Migrations
                         .IsRequired()
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
+
+                    b.Property<Guid?>("OwnerTeacherId")
+                        .HasColumnType("uuid");
 
                     b.Property<Guid>("PromptTemplateId")
                         .HasColumnType("uuid");
@@ -639,6 +648,8 @@ namespace KnowPulse.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("PromptTemplateId");
+
+                    b.HasIndex("TenantId", "OwnerTeacherId");
 
                     b.HasIndex("Type", "Difficulty");
 
@@ -954,6 +965,10 @@ namespace KnowPulse.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("PlanId", "TargetId")
+                        .IsUnique()
+                        .HasFilter("\"ScopeType\" = 3");
+
                     b.HasIndex("PlanId", "ScopeType", "TargetId");
 
                     b.HasIndex("TenantId", "ScopeType", "TargetId", "IsActive");
@@ -992,7 +1007,7 @@ namespace KnowPulse.Migrations
                         .HasColumnType("timestamp without time zone")
                         .HasColumnName("DeletionTime");
 
-                    b.Property<DateTime>("ExpiresTime")
+                    b.Property<DateTime?>("ExpiresTime")
                         .HasColumnType("timestamp without time zone");
 
                     b.Property<string>("ExtraProperties")
@@ -1279,10 +1294,10 @@ namespace KnowPulse.Migrations
                         .HasMaxLength(1024)
                         .HasColumnType("character varying(1024)");
 
-                    b.Property<int>("DurationMinutes")
+                    b.Property<int?>("DurationMinutes")
                         .HasColumnType("integer");
 
-                    b.Property<DateTime>("EndTime")
+                    b.Property<DateTime?>("EndTime")
                         .HasColumnType("timestamp without time zone");
 
                     b.Property<string>("ExtraProperties")
@@ -1312,17 +1327,20 @@ namespace KnowPulse.Migrations
                         .HasMaxLength(256)
                         .HasColumnType("character varying(256)");
 
+                    b.Property<Guid?>("OwnerId")
+                        .HasColumnType("uuid");
+
                     b.Property<Guid>("PaperId")
                         .HasColumnType("uuid");
 
-                    b.Property<decimal>("PassingScore")
+                    b.Property<decimal?>("PassingScore")
                         .HasPrecision(18, 2)
                         .HasColumnType("numeric(18,2)");
 
                     b.Property<int>("ResultVisibility")
                         .HasColumnType("integer");
 
-                    b.Property<DateTime>("StartTime")
+                    b.Property<DateTime?>("StartTime")
                         .HasColumnType("timestamp without time zone");
 
                     b.Property<int>("Status")
@@ -1335,6 +1353,8 @@ namespace KnowPulse.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("PaperId");
+
+                    b.HasIndex("TenantId", "OwnerId");
 
                     b.HasIndex("TenantId", "Status", "StartTime");
 
@@ -1850,6 +1870,9 @@ namespace KnowPulse.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("LastModifierId");
 
+                    b.Property<Guid?>("OwnerTeacherId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("Summary")
                         .HasMaxLength(1024)
                         .HasColumnType("character varying(1024)");
@@ -1868,6 +1891,8 @@ namespace KnowPulse.Migrations
                     b.HasIndex("CategoryId");
 
                     b.HasIndex("CurrentPublishedVersionId");
+
+                    b.HasIndex("TenantId", "OwnerTeacherId");
 
                     b.ToTable("AppKnowledgeItems", (string)null);
                 });
@@ -3318,6 +3343,9 @@ namespace KnowPulse.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("LastModifierId");
 
+                    b.Property<Guid?>("OwnerTeacherId")
+                        .HasColumnType("uuid");
+
                     b.Property<Guid?>("ReviewedByUserId")
                         .HasColumnType("uuid");
 
@@ -3359,6 +3387,8 @@ namespace KnowPulse.Migrations
                     b.HasIndex("ApplicablePositionId");
 
                     b.HasIndex("CreationSource");
+
+                    b.HasIndex("TenantId", "OwnerTeacherId");
 
                     b.HasIndex("TenantId", "Status", "Type");
 
@@ -4207,6 +4237,153 @@ namespace KnowPulse.Migrations
                     b.HasIndex("TenantId", "Passed", "CreationTime");
 
                     b.ToTable("AppRagEvaluationRunCaseResults", (string)null);
+                });
+
+            modelBuilder.Entity("KnowPulse.Teaching.TeacherInvitation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ConcurrencyStamp")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("ConcurrencyStamp");
+
+                    b.Property<DateTime>("CreationTime")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("CreationTime");
+
+                    b.Property<Guid?>("CreatorId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("CreatorId");
+
+                    b.Property<Guid?>("DeleterId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("DeleterId");
+
+                    b.Property<DateTime?>("DeletionTime")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("DeletionTime");
+
+                    b.Property<string>("ExtraProperties")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("ExtraProperties");
+
+                    b.Property<string>("InvitationCode")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("IsDeleted");
+
+                    b.Property<DateTime?>("LastModificationTime")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("LastModificationTime");
+
+                    b.Property<Guid?>("LastModifierId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("LastModifierId");
+
+                    b.Property<Guid>("TeacherId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("TenantId");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("InvitationCode")
+                        .IsUnique();
+
+                    b.HasIndex("TeacherId")
+                        .IsUnique();
+
+                    b.ToTable("AppTeacherInvitations", (string)null);
+                });
+
+            modelBuilder.Entity("KnowPulse.Teaching.TeachingRelationship", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ConcurrencyStamp")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("ConcurrencyStamp");
+
+                    b.Property<DateTime>("CreationTime")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("CreationTime");
+
+                    b.Property<Guid?>("CreatorId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("CreatorId");
+
+                    b.Property<Guid?>("DeleterId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("DeleterId");
+
+                    b.Property<DateTime?>("DeletionTime")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("DeletionTime");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("ExtraProperties")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("ExtraProperties");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("IsDeleted");
+
+                    b.Property<DateTime?>("LastModificationTime")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("LastModificationTime");
+
+                    b.Property<Guid?>("LastModifierId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("LastModifierId");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("StudentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("TeacherId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("TenantId");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TeacherId", "StudentId")
+                        .IsUnique();
+
+                    b.HasIndex("TenantId", "StudentId", "Status");
+
+                    b.HasIndex("TenantId", "TeacherId", "Status");
+
+                    b.ToTable("AppTeachingRelationships", (string)null);
                 });
 
             modelBuilder.Entity("Volo.Abp.AuditLogging.AuditLog", b =>

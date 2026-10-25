@@ -11,6 +11,7 @@ public class ExamPlan : FullAuditedAggregateRoot<Guid>, IMultiTenant
     public const int MaxDescriptionLength = 1024;
 
     public Guid? TenantId { get; protected set; }
+    public Guid? OwnerId { get; private set; }
 
     public string Name { get; private set; } = string.Empty;
 
@@ -18,13 +19,13 @@ public class ExamPlan : FullAuditedAggregateRoot<Guid>, IMultiTenant
 
     public Guid PaperId { get; private set; }
 
-    public DateTime StartTime { get; private set; }
+    public DateTime? StartTime { get; private set; }
 
-    public DateTime EndTime { get; private set; }
+    public DateTime? EndTime { get; private set; }
 
-    public int DurationMinutes { get; private set; }
+    public int? DurationMinutes { get; private set; }
 
-    public decimal PassingScore { get; private set; }
+    public decimal? PassingScore { get; private set; }
 
     public int MaxAttempts { get; private set; }
 
@@ -41,16 +42,18 @@ public class ExamPlan : FullAuditedAggregateRoot<Guid>, IMultiTenant
         Guid? tenantId,
         string name,
         Guid paperId,
-        DateTime startTime,
-        DateTime endTime,
-        int durationMinutes,
-        decimal passingScore,
+        DateTime? startTime,
+        DateTime? endTime,
+        int? durationMinutes,
+        decimal? passingScore,
         int maxAttempts,
         ExamResultVisibility resultVisibility,
-        string? description = null)
+        string? description = null,
+        Guid? ownerId = null)
         : base(id)
     {
         TenantId = tenantId;
+        OwnerId = ownerId;
         Name = Check.NotNullOrWhiteSpace(name, nameof(name), MaxNameLength);
         Description = Check.Length(description, nameof(description), MaxDescriptionLength);
         PaperId = paperId;
@@ -59,6 +62,8 @@ public class ExamPlan : FullAuditedAggregateRoot<Guid>, IMultiTenant
         SetDuration(durationMinutes);
         SetAttempts(maxAttempts);
         PassingScore = passingScore;
+        if (passingScore < 0 || !Enum.IsDefined(resultVisibility))
+            throw new UserFriendlyException("答题任务的评分或展示规则无效。");
         ResultVisibility = resultVisibility;
         Status = ExamPlanStatus.Published;
         EnsureWindowIsValid();
@@ -76,20 +81,20 @@ public class ExamPlan : FullAuditedAggregateRoot<Guid>, IMultiTenant
             throw new BusinessException(KnowPulseDomainErrorCodes.ExamPlanNotPublished);
         }
 
-        if (now < StartTime)
+        if (StartTime.HasValue && now < StartTime.Value)
         {
             throw new BusinessException(KnowPulseDomainErrorCodes.ExamPlanNotStarted);
         }
 
-        if (now > EndTime)
+        if (EndTime.HasValue && now > EndTime.Value)
         {
             throw new BusinessException(KnowPulseDomainErrorCodes.ExamPlanEnded);
         }
     }
 
-    private void SetDuration(int durationMinutes)
+    private void SetDuration(int? durationMinutes)
     {
-        if (durationMinutes <= 0)
+        if (durationMinutes.HasValue && durationMinutes.Value <= 0)
         {
             throw new BusinessException(KnowPulseDomainErrorCodes.ExamPlanDurationInvalid);
         }
@@ -109,7 +114,7 @@ public class ExamPlan : FullAuditedAggregateRoot<Guid>, IMultiTenant
 
     private void EnsureWindowIsValid()
     {
-        if (EndTime <= StartTime)
+        if (EndTime.HasValue && StartTime.HasValue && EndTime.Value <= StartTime.Value)
         {
             throw new BusinessException(KnowPulseDomainErrorCodes.ExamPlanWindowInvalid);
         }

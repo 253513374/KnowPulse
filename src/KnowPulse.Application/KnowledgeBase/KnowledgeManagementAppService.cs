@@ -53,6 +53,8 @@ public class KnowledgeManagementAppService : KnowPulseAppService, IKnowledgeMana
 
         var snapshot = await LoadSnapshotAsync();
         var visibleItems = await GetVisibleItemsAsync(snapshot.Items, snapshot.Scopes);
+        if (input.OwnOnly) visibleItems = visibleItems.Where(x => x.OwnerTeacherId == CurrentUser.Id).ToList();
+        if (input.SharedOnly) visibleItems = visibleItems.Where(x => x.OwnerTeacherId.HasValue && x.OwnerTeacherId != CurrentUser.Id && x.CurrentPublishedVersionId.HasValue && x.IsActive).ToList();
         var models = visibleItems
             .Select(item => BuildListItem(
                 item,
@@ -103,7 +105,7 @@ public class KnowledgeManagementAppService : KnowPulseAppService, IKnowledgeMana
         var item = await _itemRepository.GetAsync(id);
         var scopes = await LoadScopesAsync([id]);
         var accessContext = await _accessContextProvider.CreateAsync();
-        if (!KnowledgeAccessEvaluator.CanAccess(scopes, accessContext))
+        if (!KnowledgeAccessEvaluator.CanAccess(item, scopes, accessContext, IsLegacyAdministrator))
         {
             throw new AbpAuthorizationException("The current user is not allowed to access this knowledge item.");
         }
@@ -125,6 +127,16 @@ public class KnowledgeManagementAppService : KnowPulseAppService, IKnowledgeMana
             indexJobs,
             feedback);
 
+        if (item.OwnerTeacherId.HasValue && item.OwnerTeacherId != CurrentUser.Id)
+        {
+            if (!item.IsActive || !item.CurrentPublishedVersionId.HasValue)
+                throw new AbpAuthorizationException("资料共享当前不可用。");
+            versions = versions.Where(x => x.Id == item.CurrentPublishedVersionId).ToList();
+            attachments = attachments.Where(x => x.KnowledgeVersionId == item.CurrentPublishedVersionId).ToList();
+            indexJobs = [];
+            feedback = [];
+            scopes = [];
+        }
         return BuildDetail(listItem, versions, scopes, indexJobs, feedback, attachments);
     }
 
@@ -172,8 +184,8 @@ public class KnowledgeManagementAppService : KnowPulseAppService, IKnowledgeMana
 
         return items
             .Where(item => KnowledgeAccessEvaluator.CanAccess(
-                scopesByItem.GetValueOrDefault(item.Id) ?? [],
-                accessContext))
+                item, scopesByItem.GetValueOrDefault(item.Id) ?? [],
+                accessContext, IsLegacyAdministrator))
             .ToList();
     }
 
@@ -233,7 +245,7 @@ public class KnowledgeManagementAppService : KnowPulseAppService, IKnowledgeMana
         return await AsyncExecuter.ToListAsync(queryable.Where(x => versionIds.Contains(x.KnowledgeVersionId)));
     }
 
-    private static KnowledgeManagementListItemDto BuildListItem(
+    private KnowledgeManagementListItemDto BuildListItem(
         KnowledgeItem item,
         IReadOnlyCollection<KnowledgeCategory> categories,
         IReadOnlyCollection<KnowledgeVersion> allVersions,
@@ -241,8 +253,9 @@ public class KnowledgeManagementAppService : KnowPulseAppService, IKnowledgeMana
         IReadOnlyCollection<KnowledgeIndexJob> allIndexJobs,
         IReadOnlyCollection<KnowledgeFeedback> allFeedback)
     {
+        var isSharedReader = item.OwnerTeacherId.HasValue && item.OwnerTeacherId != CurrentUser.Id;
         var versions = allVersions
-            .Where(x => x.KnowledgeItemId == item.Id)
+            .Where(x => x.KnowledgeItemId == item.Id && (!isSharedReader || x.Id == item.CurrentPublishedVersionId))
             .OrderByDescending(x => x.VersionNumber)
             .ToList();
         var latestVersion = versions.FirstOrDefault();
@@ -266,6 +279,7 @@ public class KnowledgeManagementAppService : KnowPulseAppService, IKnowledgeMana
         return new KnowledgeManagementListItemDto
         {
             Id = item.Id,
+            OwnerTeacherId = item.OwnerTeacherId,
             CategoryId = item.CategoryId,
             CategoryName = categories.FirstOrDefault(x => x.Id == item.CategoryId)?.Name ?? "未分类",
             Title = item.Title,
@@ -281,17 +295,18 @@ public class KnowledgeManagementAppService : KnowPulseAppService, IKnowledgeMana
             CurrentVersionPublishedTime = currentVersion?.PublishedTime,
             VersionCount = versions.Count,
             Status = status,
-            StatusReason = GetStatusReason(status, latestIndexJob),
+            StatusReason = isSharedReader && status != KnowledgeManagementStatus.Ready
+                ? "资料暂不可用于出题，请联系共享教师" : GetStatusReason(status, latestIndexJob),
             IsAccessRestricted = IsAccessRestricted(scopes),
             HasExplicitAccessPolicy = scopes.Count > 0,
-            AccessScopeText = BuildAccessScopeText(scopes),
-            EnabledPermissionScopeCount = scopes.Count,
-            LatestIndexJobId = latestIndexJob?.Id,
-            LatestIndexStatus = latestIndexJob?.Status,
-            LatestIndexFailureStage = latestIndexJob?.FailureStage,
-            LatestIndexFailureReason = latestIndexJob?.FailureReason,
-            LatestIndexTime = latestIndexJob == null ? null : GetIndexJobTime(latestIndexJob),
-            PendingFeedbackCount = allFeedback.Count(x =>
+            AccessScopeText = isSharedReader ? "已授权共享" : BuildAccessScopeText(scopes),
+            EnabledPermissionScopeCount = isSharedReader ? 0 : scopes.Count,
+            LatestIndexJobId = isSharedReader ? null : latestIndexJob?.Id,
+            LatestIndexStatus = isSharedReader ? null : latestIndexJob?.Status,
+            LatestIndexFailureStage = isSharedReader ? null : latestIndexJob?.FailureStage,
+            LatestIndexFailureReason = isSharedReader ? null : latestIndexJob?.FailureReason,
+            LatestIndexTime = isSharedReader || latestIndexJob == null ? null : GetIndexJobTime(latestIndexJob),
+            PendingFeedbackCount = isSharedReader ? 0 : allFeedback.Count(x =>
                 x.KnowledgeItemId == item.Id &&
                 (x.Status == KnowledgeFeedbackStatus.Submitted ||
                  x.Status == KnowledgeFeedbackStatus.Processing))
@@ -323,6 +338,7 @@ public class KnowledgeManagementAppService : KnowPulseAppService, IKnowledgeMana
         return new KnowledgeManagementDetailDto
         {
             Id = item.Id,
+            OwnerTeacherId = item.OwnerTeacherId,
             CategoryId = item.CategoryId,
             CategoryName = item.CategoryName,
             Title = item.Title,

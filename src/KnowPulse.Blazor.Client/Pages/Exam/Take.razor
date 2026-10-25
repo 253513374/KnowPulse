@@ -401,7 +401,8 @@
             return "-";
         }
 
-        var remaining = CurrentAttempt.ExpiresTime - DateTime.UtcNow;
+        if (!CurrentAttempt.ExpiresTime.HasValue) return "不限时";
+        var remaining = CurrentAttempt.ExpiresTime.Value - DateTime.UtcNow;
         if (remaining <= TimeSpan.Zero)
         {
             return "已到期";

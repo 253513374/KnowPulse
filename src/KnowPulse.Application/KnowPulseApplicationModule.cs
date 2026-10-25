@@ -10,6 +10,8 @@ using Volo.Abp.PermissionManagement;
 using Volo.Abp.SettingManagement;
 using Volo.Abp.TenantManagement;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
+using KnowPulse.Teaching;
 
 namespace KnowPulse;
 
@@ -32,11 +34,15 @@ public class KnowPulseApplicationModule : AbpModule
     public override void ConfigureServices(ServiceConfigurationContext context)
     {
         var configuration = context.Services.GetConfiguration();
+        context.Services.Configure<WeChatMiniProgramOptions>(configuration.GetSection(WeChatMiniProgramOptions.SectionName));
         context.Services.Configure<RagAiOptions>(configuration.GetSection(RagAiOptions.SectionName));
         context.Services.AddTransient<IKnowledgeEmbeddingClient, LiteLlmKnowledgeEmbeddingClient>();
         context.Services.AddTransient<IRagChatClient, LiteLlmRagChatClient>();
-        context.Services.AddTransient<IKnowledgeVectorStore, QdrantKnowledgeVectorStore>();
-        context.Services.AddTransient<IKnowledgeVectorStoreMaintenance, QdrantKnowledgeVectorStore>();
+        // 显式使用生产构造函数，避免 DI 选中接受未配置 HttpClient 的测试构造函数。
+        context.Services.AddTransient<IKnowledgeVectorStore>(provider =>
+            new QdrantKnowledgeVectorStore(provider.GetRequiredService<IOptions<RagAiOptions>>()));
+        context.Services.AddTransient<IKnowledgeVectorStoreMaintenance>(provider =>
+            new QdrantKnowledgeVectorStore(provider.GetRequiredService<IOptions<RagAiOptions>>()));
         context.Services.AddTransient<IKnowledgeDocumentMarkdownConverter, MarkItDownKnowledgeDocumentMarkdownConverter>();
         context.Services.AddTransient<IAiModelResolver, AiModelResolver>();
         context.Services.AddTransient<IKnowledgeRetriever, KnowledgeRetriever>();

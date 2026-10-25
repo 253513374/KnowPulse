@@ -333,7 +333,7 @@ foreach ($name in @(
     "KNOWPULSE_QDRANT_API_KEY",
     "LITELLM_MASTER_KEY",
     "KNOWPULSE_LITELLM_API_KEY",
-    "OPENAI_API_KEY",
+    "DASHSCOPE_API_KEY",
     "DEEPSEEK_API_KEY",
     "ConnectionStrings__Default",
     "BlobStoring__Minio__SecretKey",
@@ -348,7 +348,7 @@ foreach ($name in @(
     Test-EnvExampleValue -EnvMap $envExample -Name $name
 }
 
-Test-TextContains -Name "LiteLLM embedding key comes from environment" -Text $liteLlmConfig -ExpectedText "api_key: os.environ/OPENAI_API_KEY"
+Test-TextContains -Name "LiteLLM embedding key comes from environment" -Text $liteLlmConfig -ExpectedText "api_key: os.environ/DASHSCOPE_API_KEY"
 Test-TextContains -Name "LiteLLM chat key comes from environment" -Text $liteLlmConfig -ExpectedText "api_key: os.environ/DEEPSEEK_API_KEY"
 Test-TextContains -Name "LiteLLM master key comes from environment" -Text $liteLlmConfig -ExpectedText "master_key: os.environ/LITELLM_MASTER_KEY"
 
@@ -433,7 +433,7 @@ if ($Environment -ne "Development") {
         "MINIO_ROOT_PASSWORD",
         "LITELLM_MASTER_KEY",
         "KNOWPULSE_LITELLM_API_KEY",
-        "OPENAI_API_KEY",
+        "DASHSCOPE_API_KEY",
         "DEEPSEEK_API_KEY",
         "ConnectionStrings__Default",
         "BlobStoring__Minio__SecretKey",

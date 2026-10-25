@@ -63,6 +63,17 @@ public class AiQuestionGenerationTask : FullAuditedAggregateRoot<Guid>, IMultiTe
     /// </summary>
     public Guid? TenantId { get; protected set; }
 
+    public Guid? OwnerTeacherId { get; private set; }
+    public string KnowledgeItemIdsJson { get; private set; } = "[]";
+
+    public void SetTeacherSource(Guid teacherId, string knowledgeItemIdsJson)
+    {
+        if (teacherId == Guid.Empty || (OwnerTeacherId.HasValue && OwnerTeacherId != teacherId))
+            throw new ArgumentException("出题任务归属不能被改写。", nameof(teacherId));
+        OwnerTeacherId = teacherId;
+        KnowledgeItemIdsJson = Check.NotNullOrWhiteSpace(knowledgeItemIdsJson, nameof(knowledgeItemIdsJson));
+    }
+
     /// <summary>
     /// 任务生命周期状态。
     /// </summary>

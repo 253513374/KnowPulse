@@ -177,7 +177,10 @@ $configText = Get-Content -LiteralPath $configPath -Raw
 Test-TextContains $results "LiteLLM template embedding alias" $configText "model_name: $expectedEmbeddingModel"
 Test-TextContains $results "LiteLLM template fallback alias" $configText "model_name: $expectedFallbackModel"
 Test-TextContains $results "LiteLLM template chat alias" $configText "model_name: $expectedChatModel"
-Test-TextContains $results "LiteLLM template uses OPENAI_API_KEY" $configText "api_key: os.environ/OPENAI_API_KEY"
+Test-TextContains $results "LiteLLM template uses DASHSCOPE_API_KEY" $configText "api_key: os.environ/DASHSCOPE_API_KEY"
+Test-TextContains $results "LiteLLM template uses DashScope endpoint" $configText "api_base: os.environ/DASHSCOPE_API_BASE"
+Add-CheckResult $results "Both embedding aliases use Qwen v4" ([regex]::Matches($configText, 'model: openai/text-embedding-v4').Count -eq 2) "same vector model for default and fallback"
+Add-CheckResult $results "Both embedding aliases fix dimensions in request body" ([regex]::Matches($configText, 'extra_body:\s+dimensions: 1536').Count -eq 2) "1536 dimensions via extra_body"
 Test-TextContains $results "LiteLLM template routes chat to DeepSeek" $configText "model: deepseek/deepseek-chat"
 Test-TextContains $results "LiteLLM template uses DEEPSEEK_API_KEY" $configText "api_key: os.environ/$expectedDeepSeekApiKeyVariable"
 
@@ -185,7 +188,8 @@ $envExamplePath = Join-Path $Root ".env.example"
 $envExampleText = Get-Content -LiteralPath $envExamplePath -Raw
 Test-TextContains $results ".env.example app LiteLLM API key" $envExampleText "$expectedApiKeyVariable="
 Test-TextContains $results ".env.example LiteLLM master key" $envExampleText "LITELLM_MASTER_KEY="
-Test-TextContains $results ".env.example upstream model key" $envExampleText "OPENAI_API_KEY="
+Test-TextContains $results ".env.example Qwen model key" $envExampleText "DASHSCOPE_API_KEY="
+Test-TextContains $results ".env.example Qwen endpoint" $envExampleText "DASHSCOPE_API_BASE="
 Test-TextContains $results ".env.example DeepSeek model key" $envExampleText "$expectedDeepSeekApiKeyVariable="
 
 if ($Live) {

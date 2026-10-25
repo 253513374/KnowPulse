@@ -236,18 +236,13 @@ public class Mvp1KnowledgeRetrieverTests : KnowPulseEntityFrameworkCoreTestBase
         string title,
         CreateKnowledgePermissionScopeDto? scope = null)
     {
-        // 走真实应用服务创建、发布和摄取，避免测试绕过版本状态和权限范围副作用。
-        var item = await _itemAppService.CreateAsync(new CreateKnowledgeItemDto
+        // 企业权限夹具无教师归属；版本发布和摄取仍走真实应用服务。
+        var item = await CreateLegacyKnowledgeAsync(new CreateKnowledgeItemDto
         {
             CategoryId = categoryId,
             Title = title,
             Summary = "MVP-1 retriever test item"
         });
-
-        if (scope != null)
-        {
-            await _itemAppService.CreatePermissionScopeAsync(item.Id, scope);
-        }
 
         var version = await _itemAppService.CreateVersionAsync(item.Id, new CreateKnowledgeVersionDto
         {
@@ -255,6 +250,12 @@ public class Mvp1KnowledgeRetrieverTests : KnowPulseEntityFrameworkCoreTestBase
             ContentText = $"{title} 正文内容。"
         });
         await _itemAppService.PublishVersionAsync(item.Id, version.Id);
+
+        if (scope != null)
+        {
+            await _itemAppService.CreatePermissionScopeAsync(item.Id, scope);
+        }
+
         var ingestion = await _ingestionPipeline.IngestAsync(version.Id);
         ingestion.Succeeded.ShouldBeTrue();
 

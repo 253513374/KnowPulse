@@ -118,8 +118,7 @@ public class Mvp1KnowledgeIndexingAppServiceTests : KnowPulseEntityFrameworkCore
         retry.Status.ShouldBe(KnowledgeIndexJobStatus.Pending);
         retry.RetryCount.ShouldBe(0);
 
-        var indexed = await _indexJobAppService.StartAsync(retry.Id);
-        indexed = await _indexJobAppService.MarkIndexedAsync(indexed.Id);
+        var indexed = await _indexJobAppService.MarkIndexedAsync(retry.Id);
         indexed.Status.ShouldBe(KnowledgeIndexJobStatus.Indexed);
         indexed.CompletedTime.ShouldNotBeNull();
 
@@ -208,6 +207,37 @@ public class Mvp1KnowledgeIndexingAppServiceTests : KnowPulseEntityFrameworkCore
         failed.NextRetryTime.ShouldNotBeNull();
         failed.NextRetryTime!.Value.ShouldBeGreaterThan(DateTime.UtcNow);
         _vectorStore.UpsertRequests.ShouldBeEmpty();
+
+        var firstChunkIds = (await GetChunksAsync(version.Id)).Select(x => x.Id).ToArray();
+        _embeddingClient.ShouldFail = false;
+        await _jobProcessor.ProcessAsync(job.Id, ignoreRetrySchedule: true);
+
+        (await _indexJobAppService.GetAsync(job.Id)).Status.ShouldBe(KnowledgeIndexJobStatus.Indexed);
+        var resumedChunks = await GetChunksAsync(version.Id);
+        resumedChunks.Select(x => x.Id).ShouldBe(firstChunkIds);
+        resumedChunks.ShouldAllBe(x => x.IsActive && x.IsPublishedSnapshot);
+        _vectorStore.UpsertRequests.ShouldHaveSingleItem();
+    }
+
+    [Fact]
+    public async Task IngestAsync_Should_Keep_Existing_Chunks_When_The_Same_Job_Source_Changes()
+    {
+        var (item, version) = await CreateKnowledgeVersionAsync("第一次摄取的正文。");
+        var job = await _indexJobAppService.ReindexVersionAsync(version.Id);
+        (await _ingestionPipeline.IngestAsync(version.Id, job.Id, completeIndexJob: false)).Succeeded.ShouldBeTrue();
+        var firstChunks = await GetChunksAsync(version.Id);
+        await _itemAppService.UpdateDraftVersionAsync(item.Id, version.Id, new()
+        {
+            Title = version.Title, ContentText = "已经修改的正文，应使用新的索引任务。"
+        });
+
+        var retry = await _ingestionPipeline.IngestAsync(version.Id, job.Id, completeIndexJob: false);
+
+        retry.Succeeded.ShouldBeFalse();
+        retry.FailureStage.ShouldBe("persistence");
+        var chunks = await GetChunksAsync(version.Id);
+        chunks.Select(x => x.Id).ShouldBe(firstChunks.Select(x => x.Id));
+        chunks.ShouldAllBe(x => x.Content == "第一次摄取的正文。");
     }
 
     /// <summary>
@@ -281,7 +311,7 @@ public class Mvp1KnowledgeIndexingAppServiceTests : KnowPulseEntityFrameworkCore
     public async Task Permission_Scope_Changes_Should_Queue_Reindex_And_Outdate_Chunks()
     {
         // 权限范围改变后必须重新索引，因为向量 payload 中保存的是权限快照。
-        var (item, version) = await CreateKnowledgeVersionAsync();
+        var (item, version) = await CreateKnowledgeVersionAsync(legacy: true);
         await _itemAppService.PublishVersionAsync(item.Id, version.Id);
         var publishJob = await GetSingleJobAsync(version.Id, KnowledgeIndexJobTriggerType.Publish);
         var firstChunkId = await InsertChunkAsync(item.Id, version.Id, publishJob.Id, sequence: 0);
@@ -533,6 +563,46 @@ public class Mvp1KnowledgeIndexingAppServiceTests : KnowPulseEntityFrameworkCore
     }
 
     /// <summary>
+    /// 切换模型后，旧 collection 或维度的任务必须在调用模型和写入向量前失败，并保留已有记录。
+    /// </summary>
+    [Theory]
+    [InlineData("knowledge_chunks_previous_provider", 1536)]
+    [InlineData("knowledge_chunks_1536_mvp1", 1024)]
+    public async Task GenerateForVersionAsync_Should_Reject_ModelVersion_Outside_Current_VectorStore(
+        string collectionName,
+        int vectorDimension)
+    {
+        var (item, version) = await CreateKnowledgeVersionAsync("切换模型前已有的资料分块。");
+        await _itemAppService.PublishVersionAsync(item.Id, version.Id);
+        await _ingestionPipeline.IngestAsync(version.Id);
+        var chunk = (await GetChunksAsync(version.Id)).Single();
+        var modelVersionId = await InsertEmbeddingModelVersionAsync(
+            "previous-embedding-model", "previous-provider-version", collectionName, vectorDimension);
+        var recordId = Guid.NewGuid();
+        await WithUnitOfWorkAsync(() => _embeddingRecordRepository.InsertAsync(new KnowledgeEmbeddingRecord(
+            recordId, null, chunk.Id, version.Id, modelVersionId, chunk.Id.ToString("D"),
+            chunk.ContentHash, vectorDimension, DateTime.UtcNow), autoSave: true));
+
+        var result = await _embeddingPipeline.GenerateForVersionAsync(version.Id, modelVersionId);
+
+        _embeddingClient.CallCount.ShouldBe(0);
+        _vectorStore.UpsertRequests.ShouldBeEmpty();
+        result.Succeeded.ShouldBeFalse();
+        result.FailureStage.ShouldBe("model-switch");
+        result.FailureReason.ShouldNotBeNull();
+        result.FailureReason!.ShouldContain("模型已切换");
+        result.FailureReason.ShouldContain("新建");
+        var record = (await GetEmbeddingRecordsAsync(version.Id)).ShouldHaveSingleItem();
+        record.Id.ShouldBe(recordId);
+        record.IsActive.ShouldBeTrue();
+        record.DeletedTime.ShouldBeNull();
+        record.EmbeddingModelVersionId.ShouldBe(modelVersionId);
+        var job = await GetSingleJobAsync(version.Id, KnowledgeIndexJobTriggerType.Publish);
+        job.Status.ShouldBe(KnowledgeIndexJobStatus.Failed);
+        job.FailureStage.ShouldBe("model-switch");
+    }
+
+    /// <summary>
     /// 验证需要重建的 chunk 按 embedding 模型版本隔离计算。
     /// </summary>
     [Fact]
@@ -621,7 +691,7 @@ public class Mvp1KnowledgeIndexingAppServiceTests : KnowPulseEntityFrameworkCore
     /// <summary>
     /// 创建测试用知识条目和知识版本。
     /// </summary>
-    private async Task<(KnowledgeItemDto Item, KnowledgeVersionDto Version)> CreateKnowledgeVersionAsync(string? contentText = "MVP-1 indexable content")
+    private async Task<(KnowledgeItemDto Item, KnowledgeVersionDto Version)> CreateKnowledgeVersionAsync(string? contentText = "MVP-1 indexable content", bool legacy = false)
     {
         var suffix = Guid.NewGuid().ToString("N")[..8];
         var category = await _categoryAppService.CreateAsync(new CreateUpdateKnowledgeCategoryDto
@@ -630,12 +700,21 @@ public class Mvp1KnowledgeIndexingAppServiceTests : KnowPulseEntityFrameworkCore
             Name = $"Index Category {suffix}"
         });
 
-        var item = await _itemAppService.CreateAsync(new CreateKnowledgeItemDto
+        KnowledgeItemDto item;
+        if (legacy)
         {
-            CategoryId = category.Id,
-            Title = $"Index Knowledge {suffix}",
-            Summary = "MVP-1 indexing integration test item"
-        });
+            // 企业组织权限测试保留无教师归属的历史资料语义。
+            var entity = await WithUnitOfWorkAsync(() => GetRequiredService<IRepository<KnowledgeItem, Guid>>().InsertAsync(
+                new KnowledgeItem(Guid.NewGuid(), null, $"Index Knowledge {suffix}", category.Id), autoSave: true));
+            item = await _itemAppService.GetAsync(entity.Id);
+        }
+        else
+        {
+            item = await _itemAppService.CreateAsync(new CreateKnowledgeItemDto
+            {
+                CategoryId = category.Id, Title = $"Index Knowledge {suffix}", Summary = "MVP-1 indexing integration test item"
+            });
+        }
 
         var version = await _itemAppService.CreateVersionAsync(item.Id, new CreateKnowledgeVersionDto
         {
@@ -744,7 +823,11 @@ public class Mvp1KnowledgeIndexingAppServiceTests : KnowPulseEntityFrameworkCore
     /// <summary>
     /// 直接插入测试 embedding 模型版本。
     /// </summary>
-    private Task<Guid> InsertEmbeddingModelVersionAsync(string modelName, string modelVersion)
+    private Task<Guid> InsertEmbeddingModelVersionAsync(
+        string modelName,
+        string modelVersion,
+        string collectionName = "knowledge_chunks_1536_mvp1",
+        int vectorDimension = 1536)
     {
         return WithUnitOfWorkAsync(async () =>
         {
@@ -754,8 +837,8 @@ public class Mvp1KnowledgeIndexingAppServiceTests : KnowPulseEntityFrameworkCore
                 provider: "LiteLLM",
                 modelName,
                 modelVersion,
-                vectorDimension: 1536,
-                collectionName: "knowledge_chunks_1536_mvp1");
+                vectorDimension,
+                collectionName);
 
             await _modelVersionRepository.InsertAsync(model, autoSave: true);
             return model.Id;

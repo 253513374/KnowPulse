@@ -1,12 +1,20 @@
 model_list:
   - model_name: knowpulse-embedding-default
     litellm_params:
-      model: openai/text-embedding-3-small
-      api_key: os.environ/OPENAI_API_KEY
+      model: openai/text-embedding-v4
+      api_base: os.environ/DASHSCOPE_API_BASE
+      api_key: os.environ/DASHSCOPE_API_KEY
+      encoding_format: float
+      extra_body:
+        dimensions: 1536
   - model_name: knowpulse-embedding-fallback
     litellm_params:
-      model: openai/text-embedding-3-small
-      api_key: os.environ/OPENAI_API_KEY
+      model: openai/text-embedding-v4
+      api_base: os.environ/DASHSCOPE_API_BASE
+      api_key: os.environ/DASHSCOPE_API_KEY
+      encoding_format: float
+      extra_body:
+        dimensions: 1536
   - model_name: knowpulse-chat-default
     litellm_params:
       model: deepseek/deepseek-chat

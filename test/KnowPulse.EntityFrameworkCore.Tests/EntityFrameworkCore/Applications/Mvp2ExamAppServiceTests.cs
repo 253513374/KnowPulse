@@ -3,6 +3,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using KnowPulse.Exam;
 using KnowPulse.QuestionBank;
+using KnowPulse.Teaching;
 using Shouldly;
 using Volo.Abp;
 using Volo.Abp.Domain.Repositories;
@@ -187,6 +188,7 @@ public class Mvp2ExamAppServiceTests : KnowPulseEntityFrameworkCoreTestBase
         await CreateApprovedQuestionAsync("score truefalse", QuestionType.TrueFalse, "true", point);
         await CreateApprovedQuestionAsync("score fill", QuestionType.FillBlank, "制度", point);
 
+        await EnsureRecipientAsync();
         var plan = await _examAppService.CreatePlanAsync(new CreateExamPlanDto
         {
             Name = "Scoring exam",
@@ -195,9 +197,11 @@ public class Mvp2ExamAppServiceTests : KnowPulseEntityFrameworkCoreTestBase
             DurationMinutes = 30,
             PassingScore = 20,
             MaxAttempts = 1,
+            ResultVisibility = ExamResultVisibility.FullReview,
             Paper = new GenerateExamPaperDto
             {
                 Title = "Scoring paper",
+                BuildMode = ExamPaperBuildMode.Random,
                 Rules =
                 {
                     Rule(point, QuestionType.SingleChoice, 1, 10),
@@ -208,7 +212,7 @@ public class Mvp2ExamAppServiceTests : KnowPulseEntityFrameworkCoreTestBase
             },
             Assignments =
             {
-                new ExamAssignmentInputDto { ScopeType = ExamAssignmentScopeType.All }
+                new ExamAssignmentInputDto { ScopeType = ExamAssignmentScopeType.User, TargetId = CurrentUserId }
             }
         });
 
@@ -293,6 +297,7 @@ public class Mvp2ExamAppServiceTests : KnowPulseEntityFrameworkCoreTestBase
         int count,
         decimal passingScore = 0)
     {
+        await EnsureRecipientAsync();
         return await _examAppService.CreatePlanAsync(new CreateExamPlanDto
         {
             Name = $"Exam {point}",
@@ -301,9 +306,11 @@ public class Mvp2ExamAppServiceTests : KnowPulseEntityFrameworkCoreTestBase
             DurationMinutes = 30,
             PassingScore = passingScore,
             MaxAttempts = 1,
+            ResultVisibility = ExamResultVisibility.FullReview,
             Paper = new GenerateExamPaperDto
             {
                 Title = $"Paper {point}",
+                BuildMode = ExamPaperBuildMode.Random,
                 Rules =
                 {
                     Rule(point, type, count, 10)
@@ -311,10 +318,19 @@ public class Mvp2ExamAppServiceTests : KnowPulseEntityFrameworkCoreTestBase
             },
             Assignments =
             {
-                new ExamAssignmentInputDto { ScopeType = ExamAssignmentScopeType.All }
+                new ExamAssignmentInputDto { ScopeType = ExamAssignmentScopeType.User, TargetId = CurrentUserId }
             }
         });
     }
+
+    private Task EnsureRecipientAsync() => WithUnitOfWorkAsync(async () =>
+    {
+        var repository = GetRequiredService<IRepository<TeachingRelationship, Guid>>();
+        if (await repository.AnyAsync(x => x.TeacherId == CurrentUserId && x.StudentId == CurrentUserId)) return;
+        var relationship = new TeachingRelationship(Guid.NewGuid(), null, CurrentUserId, CurrentUserId, "评分测试学生");
+        relationship.Confirm();
+        await repository.InsertAsync(relationship, autoSave: true);
+    });
 
     private static GenerateExamPaperDto FixedPaper(Guid questionId)
     {

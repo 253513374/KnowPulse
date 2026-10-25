@@ -71,7 +71,7 @@ MVP-1 初始 embedding 只通过 LiteLLM 模型 alias 调用，不在业务代�
 | Embedding model alias | `knowpulse-embedding-default` | LiteLLM 内部映射到实际供应商模型 |
 | Model version | `2026-06-mvp1` | 写入 `EmbeddingModelVersion.ModelVersion` 和向量 payload |
 | Vector dimension | `1536` | 维度固定后才允许创建 Qdrant collection |
-| Knowledge collection | `knowledge_chunks_1536_mvp1` | collection 名包含维度和阶段，避免维度变更污染旧索引 |
+| Knowledge collection | `knowledge_chunks_qwen_v4_1536` | 千问 v4 使用独立集合，同维度的不同模型也不能混用旧向量 |
 | Fallback alias | `knowpulse-embedding-fallback` | fallback 也必须保持相同向量维度 |
 | API key | `KNOWPULSE_LITELLM_API_KEY` 环境变量 | 仓库只保存环境变量名，不保存真实 key |
 
@@ -102,7 +102,7 @@ RAG 回答服务只能把 PostgreSQL 二次校验后的 chunk 传给 chat alias�
 
 `IKnowledgeVectorStore` 是业务层唯一可见的向量库接口。MVP-1 Qdrant 适配使用 REST API 封装 upsert、search 和按知识版本删除，不把 Qdrant SDK、SemanticKernel Qdrant connector、VectorData provider 或 DataIngestion provider 类型暴露给 Application.Contracts、Application 或 Domain。
 
-`IKnowledgeVectorStoreMaintenance` 只负责 collection 和 payload index 的显式初始化/健康检查，不保存业务最终状态。MVP-1 默认 collection 为 `knowledge_chunks_1536_mvp1`，向量维度为 `1536`，距离函数为 `Cosine`。
+`IKnowledgeVectorStoreMaintenance` 只负责 collection 和 payload index 的显式初始化/健康检查，不保存业务最终状态。当前应用显式配置 collection 为 `knowledge_chunks_qwen_v4_1536`，向量维度为 `1536`，距离函数为 `Cosine`；旧 MVP-1 集合保留，切换后应重新处理资料，不能将旧向量直接复制到新集合。
 
 MVP-1 必建 payload index：
 

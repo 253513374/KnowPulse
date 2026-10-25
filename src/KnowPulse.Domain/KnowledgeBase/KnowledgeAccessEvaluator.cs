@@ -9,6 +9,27 @@ namespace KnowPulse.KnowledgeBase;
 /// </summary>
 public static class KnowledgeAccessEvaluator
 {
+    public static bool CanAccess(
+        KnowledgeItem item,
+        IEnumerable<KnowledgePermissionScope> scopes,
+        KnowledgeAccessContext context,
+        bool allowLegacy = false)
+    {
+        if (!context.UserId.HasValue)
+        {
+            return false;
+        }
+
+        if (!item.OwnerTeacherId.HasValue)
+        {
+            return allowLegacy && CanAccess(scopes, context);
+        }
+
+        return item.OwnerTeacherId == context.UserId || (item.IsActive && item.CurrentPublishedVersionId.HasValue && scopes.Any(scope =>
+            scope.IsEnabled && scope.ScopeType == KnowledgePermissionScopeType.User &&
+            scope.TargetId == context.UserId && CanAccess(scope, context)));
+    }
+
     /// <summary>
     /// 判断当前上下文是否可以访问某个知识文档。
     /// 没有任何启用范围时按 MVP-0 规则视为默认可见；一旦配置了启用范围，则至少命中一条规则才可见。

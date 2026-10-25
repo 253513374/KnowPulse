@@ -6,6 +6,7 @@ using KnowPulse.KnowledgeIndexing;
 using Shouldly;
 using Volo.Abp;
 using Volo.Abp.Authorization;
+using Volo.Abp.Domain.Repositories;
 using Xunit;
 
 namespace KnowPulse.EntityFrameworkCore.Applications;
@@ -35,7 +36,6 @@ public class KnowledgeManagementAppServiceTests : KnowPulseEntityFrameworkCoreTe
 
         var readyVersion = await _itemAppService.PublishVersionAsync(ready.Item.Id, ready.Version.Id);
         var readyJob = await GetLatestJobAsync(readyVersion.Id);
-        await _indexJobAppService.StartAsync(readyJob.Id);
         await _indexJobAppService.MarkIndexedAsync(readyJob.Id);
 
         var publishingVersion = await _itemAppService.PublishVersionAsync(publishing.Item.Id, publishing.Version.Id);
@@ -104,7 +104,6 @@ public class KnowledgeManagementAppServiceTests : KnowPulseEntityFrameworkCoreTe
         var knowledge = await CreateVersionAsync($"atomic-publish-{Guid.NewGuid():N}");
         var firstPublish = await _itemAppService.PublishVersionAsync(knowledge.Item.Id, knowledge.Version.Id);
         var firstJob = await GetLatestJobAsync(firstPublish.Id);
-        await _indexJobAppService.StartAsync(firstJob.Id);
         await _indexJobAppService.MarkIndexedAsync(firstJob.Id);
 
         var nextVersion = await _itemAppService.CreateVersionAsync(knowledge.Item.Id, new CreateKnowledgeVersionDto
@@ -211,11 +210,10 @@ public class KnowledgeManagementAppServiceTests : KnowPulseEntityFrameworkCoreTe
 
     private async Task<(KnowledgeItemDto Item, KnowledgeVersionDto Version)> CreateVersionAsync(string title)
     {
-        var item = await _itemAppService.CreateAsync(new CreateKnowledgeItemDto
-        {
-            Title = title,
-            Summary = $"{title} summary"
-        });
+        // 此组兼容测试保留企业资料的原有权限规则，教师隔离由教学集成测试覆盖。
+        var entity = await WithUnitOfWorkAsync(() => GetRequiredService<IRepository<KnowledgeItem, Guid>>().InsertAsync(
+            new KnowledgeItem(Guid.NewGuid(), null, title, summary: $"{title} summary"), autoSave: true));
+        var item = await _itemAppService.GetAsync(entity.Id);
         var version = await _itemAppService.CreateVersionAsync(item.Id, new CreateKnowledgeVersionDto
         {
             Title = $"{title} v1",

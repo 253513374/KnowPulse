@@ -132,6 +132,12 @@ public class QuestionsController : KnowPulseController
         return _questionWorkflowAppService.SubmitAsync(id);
     }
 
+    [HttpPost("{id:guid}/confirm")]
+    public Task<QuestionDto> ConfirmAsync(Guid id)
+    {
+        return _questionWorkflowAppService.ConfirmAsync(id);
+    }
+
     /// <summary>
     /// 审核通过题目，使其进入正式题库并可用于后续组卷。
     /// </summary>

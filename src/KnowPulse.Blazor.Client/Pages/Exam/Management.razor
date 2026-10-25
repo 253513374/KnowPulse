@@ -223,8 +223,8 @@
                                         <div class="kp-text-small kp-text-muted">@plan.Description</div>
                                     </td>
                                     <td class="kp-text-small">
-                                        <div>@plan.StartTime.ToString("yyyy-MM-dd HH:mm")</div>
-                                        <div>@plan.EndTime.ToString("yyyy-MM-dd HH:mm")</div>
+                                        <div>@(plan.StartTime?.ToString("yyyy-MM-dd HH:mm") ?? "发布即可参加")</div>
+                                        <div>@(plan.EndTime?.ToString("yyyy-MM-dd HH:mm") ?? "无截止时间")</div>
                                     </td>
                                     <td>
                                         <div>@plan.Paper?.Title</div>

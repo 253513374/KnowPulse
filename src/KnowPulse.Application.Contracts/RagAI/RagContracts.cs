@@ -554,6 +554,7 @@ public class KnowledgeVectorSearchRequest
 /// </summary>
 public class KnowledgeVectorPermissionFilter
 {
+    public IReadOnlyList<Guid> KnowledgeItemIds { get; set; } = Array.Empty<Guid>();
     /// <summary>
     /// 当前租户编号。
     /// </summary>
@@ -641,6 +642,7 @@ public class VectorSearchHit
 /// </summary>
 public class RagSearchRequest
 {
+    public IReadOnlyList<Guid> KnowledgeItemIds { get; set; } = Array.Empty<Guid>();
     /// <summary>
     /// 用户查询文本。
     /// </summary>

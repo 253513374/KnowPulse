@@ -5,6 +5,7 @@ namespace KnowPulse.KnowledgeBase;
 
 public class KnowledgeItemDto : FullAuditedEntityDto<Guid>
 {
+    public Guid? OwnerTeacherId { get; set; }
     public Guid? CategoryId { get; set; }
     public Guid? CurrentPublishedVersionId { get; set; }
     public string Title { get; set; } = string.Empty;

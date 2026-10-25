@@ -54,7 +54,7 @@ MVP-4 当前基线仍是模块化单体应用加独立基础设施：
 | PostgreSQL | `postgres:18-alpine` | 固定主版本；主版本升级必须单独演练迁移 |
 | MinIO | `minio/minio:RELEASE.2025-09-07T16-13-09Z` | 使用 RELEASE tag，不使用 `latest` |
 | Qdrant | `qdrant/qdrant:v1.15.1` | 固定版本 tag；embedding 维度变化时新建 collection |
-| LiteLLM | `ghcr.io/berriai/litellm:v1.89.4` | 固定 release tag；生产可替换为内部镜像 digest |
+| LiteLLM | `ghcr.io/berriai/litellm:v1.106.3` | 固定 release tag；生产可替换为内部镜像 digest |
 
 禁止在演示和生产使用 `latest`、`main`、`main-stable`、`rc`、`dev`、`nightly` 等浮动或预发布 channel tag。
 
@@ -122,7 +122,7 @@ MVP-4 当前基线仍是模块化单体应用加独立基础设施：
 
 | 配置 | 开发默认 | 演示/生产 |
 | --- | --- | --- |
-| `LITELLM_IMAGE` | `ghcr.io/berriai/litellm:v1.89.4` | 固定 release tag、digest 或内部镜像 |
+| `LITELLM_IMAGE` | `ghcr.io/berriai/litellm:v1.106.3` | 固定 release tag、digest 或内部镜像 |
 | `KNOWPULSE_LITELLM_PORT` | `4000` | 内网端口 |
 | `LITELLM_MASTER_KEY` | `sk-local-dev-only` | secret/env 注入 |
 | `KNOWPULSE_LITELLM_API_KEY` | `sk-local-dev-only` | API Host 使用的 app key，secret/env 注入 |

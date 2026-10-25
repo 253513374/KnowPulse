@@ -14,7 +14,7 @@
 - 文件存储：MinIO。
 - 向量库：Qdrant，MVP-0 仅做健康检查。
 - 模型网关：LiteLLM，MVP-0 仅做健康检查。
-- LiteLLM 本地镜像默认使用固定 release tag `ghcr.io/berriai/litellm:v1.89.4`。如需生产级固定，可在 `.env` 或部署 secret 中替换为内部镜像摘要。
+- LiteLLM 本地镜像默认使用固定 release tag `ghcr.io/berriai/litellm:v1.106.3`。如需生产级固定，可在 `.env` 或部署 secret 中替换为内部镜像摘要。
 
 ## 2. 依赖服务
 
@@ -321,7 +321,7 @@ Pop-Location
 
 - 只提交 `.env.example`。
 - 不提交 `.env`、`appsettings.secrets.json`、真实模型密钥、真实对象存储密钥。
-- LiteLLM 的 `OPENAI_API_KEY` 在 MVP-0 可以为空；MVP-0 不调用模型推理。
+- 仅做基础健康检查时可不填模型密钥；教学资料处理使用千问 `text-embedding-v4`，须在本地 `.env` 填写 `DASHSCOPE_API_KEY`。`DASHSCOPE_API_BASE` 默认北京地域的兼容接口；不同地域须使用对应密钥和地址。修改后执行 `docker compose up -d --no-deps litellm`，仅重启容器不能更新环境变量。
 - LiteLLM 的 MVP-1 应用访问 key 使用 `KNOWPULSE_LITELLM_API_KEY`，真实供应商 key 只放在本地 `.env` 或安全配置源。
 - Qdrant 在 MVP-0/MVP-1 都不保存业务事实数据；MVP-1 索引可由 PostgreSQL 和 MinIO 重建。
 

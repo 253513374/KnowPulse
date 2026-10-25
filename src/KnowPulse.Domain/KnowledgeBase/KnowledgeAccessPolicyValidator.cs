@@ -50,4 +50,4 @@ public static class KnowledgeAccessPolicyValidator
 public sealed record KnowledgeAccessPolicyRule(
     KnowledgePermissionScopeType ScopeType,
     Guid? TargetId,
-    int? MinimumSecurityLevel);
+    int? MinimumSecurityLevel = null);

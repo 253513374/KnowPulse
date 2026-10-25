@@ -8,6 +8,7 @@ using KnowPulse.QuestionBank;
 using Volo.Abp.DependencyInjection;
 using Volo.Abp.Domain.Repositories;
 using Volo.Abp.Linq;
+using Volo.Abp.Users;
 
 namespace KnowPulse.AiQuestioning;
 
@@ -64,16 +65,19 @@ public class QuestionSimilarityService : IQuestionSimilarityService, ITransientD
 
     private readonly IRepository<Question, Guid> _questionRepository;
     private readonly IAsyncQueryableExecuter _asyncExecuter;
+    private readonly ICurrentUser _currentUser;
 
     /// <summary>
     /// 创建相似题检测服务。
     /// </summary>
     public QuestionSimilarityService(
         IRepository<Question, Guid> questionRepository,
-        IAsyncQueryableExecuter asyncExecuter)
+        IAsyncQueryableExecuter asyncExecuter,
+        ICurrentUser currentUser)
     {
         _questionRepository = questionRepository;
         _asyncExecuter = asyncExecuter;
+        _currentUser = currentUser;
     }
 
     /// <summary>
@@ -86,7 +90,10 @@ public class QuestionSimilarityService : IQuestionSimilarityService, ITransientD
         Guid? ignoredQuestionId = null,
         CancellationToken cancellationToken = default)
     {
+        if (!_currentUser.Id.HasValue) return null;
         var queryable = await _questionRepository.GetQueryableAsync();
+        queryable = queryable.Where(x => x.OwnerTeacherId == _currentUser.Id ||
+            (x.OwnerTeacherId == null && _currentUser.IsInRole("admin")));
         var questions = await _asyncExecuter.ToListAsync(
             queryable.Where(x =>
                 x.Status != QuestionStatus.Archived &&

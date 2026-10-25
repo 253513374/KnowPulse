@@ -10,6 +10,7 @@ namespace KnowPulse.QuestionBank;
 /// </summary>
 public class QuestionDto : FullAuditedEntityDto<Guid>
 {
+    public Guid? OwnerTeacherId { get; set; }
     /// <summary>
     /// 题型，例如单选、多选、判断或填空。
     /// </summary>

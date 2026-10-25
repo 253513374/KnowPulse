@@ -25,6 +25,15 @@ public interface IExamAppService : IApplicationService
     Task<PagedResultDto<ExamPlanDto>> GetMyPlanListAsync(GetExamPlanListInput input);
 
     [Authorize(KnowPulsePermissions.Exam.Participate)]
+    Task<ExamPlanDto> GetMyPlanAsync(Guid id);
+
+    [Authorize(KnowPulsePermissions.Exam.Manage)]
+    Task<ExamPlanResultsDto> GetPlanResultsAsync(Guid id);
+
+    [Authorize(KnowPulsePermissions.Exam.Manage)]
+    Task<ExamAttemptDto> GetStudentAttemptAsync(Guid attemptId);
+
+    [Authorize(KnowPulsePermissions.Exam.Participate)]
     Task<ExamAttemptDto> StartAttemptAsync(Guid planId);
 
     [Authorize(KnowPulsePermissions.Exam.Participate)]

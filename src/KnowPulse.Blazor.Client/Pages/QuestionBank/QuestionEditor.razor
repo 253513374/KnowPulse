@@ -1,21 +1,30 @@
 @page "/question-bank/questions/new"
 @page "/question-bank/questions/{Id:guid}/edit"
+@page "/teacher/questions/new"
+@page "/teacher/questions/{Id:guid}/edit"
 @attribute [Authorize(KnowPulsePermissions.QuestionBank.Questions)]
 @inherits KnowPulseComponentBase
 @inject IQuestionAppService QuestionAppService
 @inject IPositionAppService PositionAppService
+@inject IQuestionWorkflowAppService QuestionWorkflow
 @inject NavigationManager Navigation
+@inject IDialogService TeacherDialogs
 
 <PageTitle>@(Id.HasValue ? "编辑题目草稿" : "新建人工题")</PageTitle>
 
-<QuestionBankFlowNav ActiveStage="drafts" />
+<NavigationLock OnBeforeInternalNavigation="ConfirmTeacherNavigationAsync" ConfirmExternalNavigation="@(IsTeacherWorkspace && _teacherDirty && !_savedNavigation)" />
+<div class="@(IsTeacherWorkspace ? "teacher-page" : null)" data-teacher-section="@(IsTeacherWorkspace ? "questions" : null)" @oninput="MarkTeacherDirty" @onchange="MarkTeacherDirty">
+@if (!IsTeacherWorkspace)
+{
+    <QuestionBankFlowNav ActiveStage="drafts" />
+}
 
 <div class="kp-flex kp-flex-wrap kp-align-start kp-justify-between kp-gap-3 kp-mb-3">
     <div>
         <h1 class="kp-heading-4 kp-mb-1">@(Id.HasValue ? "编辑题目草稿" : "新建人工题")</h1>
-        <div class="kp-text-muted kp-text-small">先把内容和依据补完整；保存只会更新草稿，不会自动送审。</div>
+        <div class="kp-text-muted kp-text-small">@(IsTeacherWorkspace ? "检查题干、答案与解析；经你本人确认后才可用于发布。" : "先把内容和依据补完整；保存只会更新草稿，不会自动送审。")</div>
     </div>
-    <a class="kp-button kp-button--secondary kp-button--sm" href="/question-bank/drafts">返回出题与草稿</a>
+    <a class="kp-button kp-button--secondary kp-button--sm" href="@(IsTeacherWorkspace ? "/teacher/questions" : "/question-bank/drafts")">返回我的题库</a>
 </div>
 
 @if (!string.IsNullOrWhiteSpace(ErrorMessage))
@@ -53,7 +62,7 @@ else
                                     <option value="@QuestionType.SingleChoice">单选</option>
                                     <option value="@QuestionType.MultipleChoice">多选</option>
                                     <option value="@QuestionType.TrueFalse">判断</option>
-                                    <option value="@QuestionType.FillBlank">填空</option>
+                                    @if (!IsTeacherWorkspace) { <option value="@QuestionType.FillBlank">填空</option> }
                                 </select>
                             </div>
                             <div class="kp-col-md-4">
@@ -64,6 +73,8 @@ else
                                     <option value="@QuestionDifficulty.Hard">困难</option>
                                 </select>
                             </div>
+                            @if (!IsTeacherWorkspace)
+                            {
                             <div class="kp-col-md-4">
                                 <label class="kp-label" for="editor-position">适用岗位</label>
                                 <select id="editor-position" class="kp-select" @bind="FormModel.ApplicablePositionIdText">
@@ -74,11 +85,12 @@ else
                                     }
                                 </select>
                             </div>
+                            }
                         </div>
 
                         <div class="kp-mt-3">
                             <label class="kp-label" for="editor-title">标题</label>
-                            <input id="editor-title" class="kp-input" @bind="FormModel.Title" @bind:event="oninput" placeholder="用于题库检索和审核识别" />
+                            <input id="editor-title" class="kp-input" @bind="FormModel.Title" @bind:event="oninput" placeholder="用于在题库中查找" />
                             <ValidationMessage For="@(() => FormModel.Title)" />
                         </div>
 
@@ -150,21 +162,21 @@ else
                 <div class="kp-card kp-mb-3 qb-editor-card">
                     <div class="kp-card__body kp-p-4">
                         <div class="kp-text-primary kp-text-small kp-text-semibold kp-mb-1">STEP 2</div>
-                        <h2 class="kp-heading-6">补充适用范围与依据</h2>
+                        <h2 class="kp-heading-6">@(IsTeacherWorkspace ? "补充出题依据" : "补充适用范围与依据")</h2>
                         <div class="kp-mt-3">
                             <label class="kp-label" for="editor-points">知识点</label>
-                            <input id="editor-points" class="kp-input" @bind="FormModel.KnowledgePointText" @bind:event="oninput" placeholder="例如：信息安全、请假制度" />
+                            <input id="editor-points" class="kp-input" @bind="FormModel.KnowledgePointText" @bind:event="oninput" placeholder="@(IsTeacherWorkspace ? "例如：分数的意义、大小比较" : "例如：信息安全、请假制度")" />
                             <div class="kp-help">多个知识点用逗号分隔。</div>
                         </div>
 
                         <div class="kp-mt-3">
                             <label class="kp-label" for="editor-tags">标签</label>
-                            <input id="editor-tags" class="kp-input" @bind="FormModel.Tags" @bind:event="oninput" placeholder="用于搜索和运营分类" />
+                            <input id="editor-tags" class="kp-input" @bind="FormModel.Tags" @bind:event="oninput" placeholder="用于搜索和分类" />
                         </div>
 
                         @if (FormModel.CreationSource == QuestionCreationSource.AiGenerated)
                         {
-                            <div class="kp-alert kp-alert--info kp-text-small kp-mt-3 kp-mb-2">AI 引用会随草稿保留，审核人可以回看依据。</div>
+                            <div class="kp-alert kp-alert--info kp-text-small kp-mt-3 kp-mb-2">@(IsTeacherWorkspace ? "出题依据随题目保留，仅供你检查，不向学生提前展示。" : "AI 引用会随草稿保留，审核人可以回看依据。")</div>
                             @foreach (var source in OriginalSources)
                             {
                                 <div class="kp-border kp-rounded kp-p-2 kp-text-small kp-mb-2">
@@ -177,14 +189,16 @@ else
                         {
                             <div class="kp-mt-3">
                                 <label class="kp-label" for="editor-source-title">来源标题</label>
-                                <input id="editor-source-title" class="kp-input" @bind="FormModel.SourceTitle" @bind:event="oninput" placeholder="制度、手册或课程名称" />
+                                <input id="editor-source-title" class="kp-input" @bind="FormModel.SourceTitle" @bind:event="oninput" placeholder="@(IsTeacherWorkspace ? "讲义、教材或资料名称" : "制度、手册或课程名称")" />
                             </div>
                             <div class="kp-mt-3">
                                 <label class="kp-label" for="editor-source-description">来源说明</label>
-                                <textarea id="editor-source-description" class="kp-input" rows="4" @bind="FormModel.ManualSourceDescription" @bind:event="oninput" placeholder="写明答案依据，便于审核人复核"></textarea>
+                                <textarea id="editor-source-description" class="kp-input" rows="4" @bind="FormModel.ManualSourceDescription" @bind:event="oninput" placeholder="写明答案依据，便于回看"></textarea>
                             </div>
                         }
 
+                        @if (!IsTeacherWorkspace)
+                        {
                         <details class="kp-mt-3 qb-advanced">
                             <summary>高级设置</summary>
                             <div class="kp-mt-3">
@@ -193,6 +207,7 @@ else
                                 <div class="kp-help">0 为默认。仅在题目包含受限内容时调整。</div>
                             </div>
                         </details>
+                        }
                     </div>
                 </div>
 
@@ -202,16 +217,26 @@ else
                         <ul class="kp-list-unstyled kp-text-small kp-text-muted kp-mb-3">
                             <li>题干能独立理解</li>
                             <li>已经设置标准答案</li>
-                            <li>解析和来源足以支持审核</li>
+                            <li>解析和来源足以说明答案</li>
                         </ul>
-                        <button class="kp-button kp-button--primary kp-full-width" type="submit" disabled="@IsBusy">@(IsBusy ? "正在保存…" : "保存并返回草稿")</button>
-                        <div class="kp-text-center kp-text-muted kp-text-small kp-mt-2">保存后由你主动提交审核</div>
+                        @if (IsTeacherWorkspace)
+                        {
+                            <button class="kp-button kp-button--primary kp-full-width" type="submit" @onclick="() => _confirmAfterSave = true" disabled="@IsBusy">@(IsBusy ? "正在保存…" : "保存并确认")</button>
+                            <button class="kp-button kp-button--secondary kp-full-width kp-mt-2" type="submit" @onclick="() => _confirmAfterSave = false" disabled="@IsBusy">仅保存草稿</button>
+                            <div class="kp-text-center kp-text-muted kp-text-small kp-mt-2">由你本人确认，无需另一个审核员。</div>
+                        }
+                        else
+                        {
+                            <button class="kp-button kp-button--primary kp-full-width" type="submit" disabled="@IsBusy">@(IsBusy ? "正在保存…" : "保存并返回草稿")</button>
+                            <div class="kp-text-center kp-text-muted kp-text-small kp-mt-2">保存后由你主动提交审核</div>
+                        }
                     </div>
                 </div>
             </div>
         </div>
     </EditForm>
 }
+</div>
 
 @code {
     [Parameter]
@@ -224,14 +249,28 @@ else
     private bool IsBusy { get; set; }
     private string? ErrorMessage { get; set; }
     private bool IsChoiceQuestion => FormModel.Type is QuestionType.SingleChoice or QuestionType.MultipleChoice;
+    private bool IsTeacherWorkspace => Navigation.ToBaseRelativePath(Navigation.Uri).StartsWith("teacher/", StringComparison.OrdinalIgnoreCase);
+    private bool _confirmAfterSave = true;
+    private Guid? _savedQuestionId;
+    private bool _teacherDirty, _savedNavigation;
+
+    private void MarkTeacherDirty() { if (IsTeacherWorkspace) _teacherDirty = true; }
+    private async Task ConfirmTeacherNavigationAsync(LocationChangingContext context)
+    {
+        if (!IsTeacherWorkspace || !_teacherDirty || _savedNavigation) return;
+        if (await TeacherDialogs.ShowMessageBoxAsync("离开题目编辑", "还有未保存的修改，离开后将丢失。是否继续？", yesText: "离开", cancelText: "继续编辑") != true) context.PreventNavigation();
+    }
 
     protected override async Task OnInitializedAsync()
     {
         IsLoading = true;
         try
         {
-            var positions = await PositionAppService.GetListAsync(new PagedAndSortedResultRequestDto { MaxResultCount = 200 });
-            Positions.AddRange(positions.Items.OrderBy(x => x.Name));
+            if (!IsTeacherWorkspace)
+            {
+                var positions = await PositionAppService.GetListAsync(new PagedAndSortedResultRequestDto { MaxResultCount = 200 });
+                Positions.AddRange(positions.Items.OrderBy(x => x.Name));
+            }
 
             if (Id.HasValue)
             {
@@ -291,7 +330,16 @@ else
             ErrorMessage = null;
             IsBusy = true;
             var input = BuildInput();
-            if (Id.HasValue)
+            if (IsTeacherWorkspace)
+            {
+                var questionId = _savedQuestionId ?? Id;
+                var saved = questionId.HasValue
+                    ? await QuestionWorkflow.SaveDraftAsync(questionId.Value, input)
+                    : await QuestionWorkflow.CreateManualDraftAsync(input);
+                _savedQuestionId = saved.Id;
+                if (_confirmAfterSave) await QuestionWorkflow.ConfirmAsync(saved.Id);
+            }
+            else if (Id.HasValue)
             {
                 await QuestionAppService.UpdateAsync(Id.Value, input);
             }
@@ -300,7 +348,8 @@ else
                 await QuestionAppService.CreateAsync(input);
             }
 
-            Navigation.NavigateTo("/question-bank/drafts");
+            _savedNavigation = true;
+            Navigation.NavigateTo(IsTeacherWorkspace ? "/teacher/questions" : "/question-bank/drafts");
         }
         catch (Exception ex)
         {

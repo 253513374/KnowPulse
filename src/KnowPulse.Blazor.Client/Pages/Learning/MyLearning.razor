@@ -352,9 +352,9 @@ else
         return value.HasValue ? value.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm") : "-";
     }
 
-    private static string FormatRange(DateTime startTime, DateTime endTime)
+    private static string FormatRange(DateTime? startTime, DateTime? endTime)
     {
-        return $"{startTime.ToLocalTime():yyyy-MM-dd HH:mm} - {endTime.ToLocalTime():yyyy-MM-dd HH:mm}";
+        return $"{(startTime?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") ?? "发布即可参加")} - {(endTime?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") ?? "无截止时间")}";
     }
 
     private static string GetScoreText(LearningPathRequiredExamDto exam)

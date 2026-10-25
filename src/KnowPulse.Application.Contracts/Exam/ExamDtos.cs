@@ -7,13 +7,19 @@ namespace KnowPulse.Exam;
 
 public class ExamPlanDto : FullAuditedEntityDto<Guid>
 {
+    public Guid? OwnerId { get; set; }
+    public Guid? TeacherId { get; set; }
+    public string TeacherName { get; set; } = string.Empty;
+    public Guid? MyAttemptId { get; set; }
+    public ExamAttemptStatus? MyStatus { get; set; }
+    public decimal? MyScore { get; set; }
     public string Name { get; set; } = string.Empty;
     public string? Description { get; set; }
     public Guid PaperId { get; set; }
-    public DateTime StartTime { get; set; }
-    public DateTime EndTime { get; set; }
-    public int DurationMinutes { get; set; }
-    public decimal PassingScore { get; set; }
+    public DateTime? StartTime { get; set; }
+    public DateTime? EndTime { get; set; }
+    public int? DurationMinutes { get; set; }
+    public decimal? PassingScore { get; set; }
     public int MaxAttempts { get; set; }
     public ExamResultVisibility ResultVisibility { get; set; }
     public ExamPlanStatus Status { get; set; }
@@ -74,7 +80,7 @@ public class ExamAttemptDto : FullAuditedEntityDto<Guid>
     public int AttemptNumber { get; set; }
     public ExamAttemptStatus Status { get; set; }
     public DateTime StartedTime { get; set; }
-    public DateTime ExpiresTime { get; set; }
+    public DateTime? ExpiresTime { get; set; }
     public DateTime? LastSavedTime { get; set; }
     public DateTime? SubmittedTime { get; set; }
     public DateTime? ScoredTime { get; set; }
@@ -82,6 +88,22 @@ public class ExamAttemptDto : FullAuditedEntityDto<Guid>
     public ExamPaperDto? Paper { get; set; }
     public List<ExamAnswerDto> Answers { get; set; } = new();
     public ExamScoreDto? Score { get; set; }
+}
+
+public class ExamPlanResultsDto
+{
+    public ExamPlanDto Plan { get; set; } = new();
+    public List<ExamRecipientResultDto> Recipients { get; set; } = new();
+}
+
+public class ExamRecipientResultDto
+{
+    public Guid StudentId { get; set; }
+    public string DisplayName { get; set; } = string.Empty;
+    public Guid? AttemptId { get; set; }
+    public ExamAttemptStatus? Status { get; set; }
+    public decimal? ObtainedScore { get; set; }
+    public DateTime? SubmittedTime { get; set; }
 }
 
 public class ExamAnswerDto : EntityDto<Guid>

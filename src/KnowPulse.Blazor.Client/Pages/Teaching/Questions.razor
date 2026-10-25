@@ -1,0 +1,80 @@
+@page "/teacher/questions"
+@attribute [Authorize(KnowPulsePermissions.QuestionBank.Questions)]
+@inherits KnowPulseComponentBase
+@inject IQuestionAppService QuestionsService
+@inject IQuestionWorkflowAppService Workflow
+@inject IAiQuestionGenerationAppService Generation
+@inject IPermissionChecker PermissionChecker
+
+<PageTitle>我的题库 · 知脉空间</PageTitle>
+<main class="teacher-page" data-teacher-section="questions">
+    <TeacherPageHeader Title="我的题库" Description="只管理自己的题目；草稿经本人确认后才能发布给学生。">
+        <Actions><MudButton Href="/teacher/questions/new" Variant="Variant.Outlined">手工建题</MudButton><MudButton Href="/teacher/generate" Variant="Variant.Filled" Color="Color.Primary">基于资料出题</MudButton></Actions>
+    </TeacherPageHeader>
+    @if (_error is not null) { <MudAlert Severity="Severity.Error" role="alert">@_error</MudAlert> }
+    @if (_canGenerate)
+    {
+        <MudPaper Class="teacher-panel" Elevation="0">
+            <h2>出题记录</h2><p class="teacher-muted">离开后，可以从这里继续查看处理状态和候选题。</p>
+            <MudTable T="AiQuestionGenerationTaskDto" Items="_tasks" Elevation="0" Loading="_busy">
+                <HeaderContent><MudTh>学习主题</MudTh><MudTh>状态</MudTh><MudTh>操作</MudTh></HeaderContent>
+                <RowTemplate><MudTd>@context.KnowledgeScope</MudTd><MudTd>@TaskStatus(context.Status)</MudTd><MudTd><MudButton Color="Color.Primary" Href="@($"/teacher/generate/{context.Id}")">@(context.Status == AiQuestionGenerationTaskStatus.Failed ? "查看并重试" : "继续检查")</MudButton></MudTd></RowTemplate>
+                <NoRecordsContent><MudText>暂无出题记录。</MudText></NoRecordsContent>
+            </MudTable>
+            <MvpPager SkipCount="_taskSkip" TotalCount="_taskTotal" IsBusy="_busy" OnSkipCountChanged="TaskPageAsync" />
+        </MudPaper>
+    }
+    <MudPaper Class="teacher-panel" Elevation="0">
+        <h2>题目列表</h2><p class="teacher-muted">选择已确认题目，组织一份答题任务。</p>
+        <div class="teacher-actions">
+            @foreach (var filter in new[] { (Label: "全部题目", Value: (QuestionWorklistKind?)null), (Label: "已确认", Value: (QuestionWorklistKind?)QuestionWorklistKind.Formal), (Label: "草稿", Value: (QuestionWorklistKind?)QuestionWorklistKind.Drafts) })
+            { <MudButton Variant="@(_filter == filter.Value ? Variant.Filled : Variant.Text)" Color="Color.Primary" OnClick="() => FilterAsync(filter.Value)" Disabled="_busy">@filter.Label</MudButton> }
+        </div>
+        <div class="teacher-toolbar"><MudTextField T="string" Immediate="true" Label="搜索题目" @bind-Value="_keyword" Variant="Variant.Outlined" Disabled="_busy" /><MudButton OnClick="SearchAsync" Variant="Variant.Outlined" Disabled="_busy">搜索</MudButton><MudButton OnClick="LoadAsync" Disabled="_busy">刷新</MudButton></div>
+        <MudTable T="QuestionDto" Items="_questions" Elevation="0" Hover="true" Loading="_busy">
+            <HeaderContent><MudTh>题目</MudTh><MudTh>题型</MudTh><MudTh>状态</MudTh><MudTh>操作</MudTh></HeaderContent>
+            <RowTemplate>
+                <MudTd>@context.Title</MudTd><MudTd>@TypeText(context.Type)</MudTd><MudTd>@(context.IsUsableForExam ? "已确认" : context.Status == QuestionStatus.Draft ? "草稿" : "不可发布")</MudTd>
+                <MudTd><MudButton Color="Color.Primary" Href="@($"/teacher/questions/{context.Id}/edit")">检查／编辑</MudButton>@if (!context.IsUsableForExam && context.Status == QuestionStatus.Draft) { <MudButton Color="Color.Primary" OnClick="() => ConfirmAsync(context.Id)" Disabled="_busy">本人确认</MudButton> }</MudTd>
+            </RowTemplate>
+            <NoRecordsContent><MudText>@(_error is null ? "暂无符合条件的题目。可手工建题，也可基于资料生成。" : "列表未能加载，请重试。")</MudText></NoRecordsContent>
+        </MudTable>
+        <MvpPager SkipCount="_skip" TotalCount="_total" IsBusy="_busy" OnSkipCountChanged="PageAsync" />
+        <MudButton Href="/teacher/tasks/new" Variant="Variant.Filled" Color="Color.Primary">选择题目创建任务</MudButton>
+    </MudPaper>
+</main>
+@code {
+    private IReadOnlyList<QuestionDto> _questions = [];
+    private IReadOnlyList<AiQuestionGenerationTaskDto> _tasks = [];
+    private QuestionWorklistKind? _filter = QuestionWorklistKind.Formal;
+    private bool _busy, _canGenerate;
+    private string? _keyword, _error;
+    private int _skip, _taskSkip;
+    private long _total, _taskTotal;
+    protected override async Task OnInitializedAsync() { _canGenerate = await PermissionChecker.IsGrantedAsync(KnowPulsePermissions.QuestionBank.AiGeneration); await LoadAsync(); }
+    private Task SearchAsync() => PageAsync(0);
+    private async Task FilterAsync(QuestionWorklistKind? filter) { _filter = filter; await PageAsync(0); }
+    private async Task PageAsync(int skip) { _skip = skip; await LoadAsync(); }
+    private async Task TaskPageAsync(int skip) { _taskSkip = skip; await LoadAsync(); }
+    private async Task LoadAsync()
+    {
+        _busy = true; _error = null;
+        try
+        {
+            var questions = await QuestionsService.GetListAsync(new() { Worklist = _filter, Keyword = _keyword, SkipCount = _skip, MaxResultCount = 20 });
+            _questions = questions.Items; _total = questions.TotalCount;
+            if (_canGenerate) { var tasks = await Generation.GetListAsync(new() { SkipCount = _taskSkip, MaxResultCount = 20 }); _tasks = tasks.Items; _taskTotal = tasks.TotalCount; }
+        }
+        catch (Exception ex) { _error = GetUserFriendlyErrorMessage(ex); }
+        finally { _busy = false; }
+    }
+    private async Task ConfirmAsync(Guid id)
+    {
+        _busy = true; _error = null;
+        try { await Workflow.ConfirmAsync(id); await LoadAsync(); }
+        catch (Exception ex) { _error = GetUserFriendlyErrorMessage(ex); }
+        finally { _busy = false; }
+    }
+    internal static string TypeText(QuestionType type) => type switch { QuestionType.SingleChoice => "单选", QuestionType.MultipleChoice => "多选", QuestionType.TrueFalse => "判断", _ => "其他题型" };
+    private static string TaskStatus(AiQuestionGenerationTaskStatus status) => status switch { AiQuestionGenerationTaskStatus.Pending => "等待生成", AiQuestionGenerationTaskStatus.Processing => "生成中", AiQuestionGenerationTaskStatus.Generated => "候选题待检查", AiQuestionGenerationTaskStatus.Failed => "生成失败", _ => "已取消" };
+}

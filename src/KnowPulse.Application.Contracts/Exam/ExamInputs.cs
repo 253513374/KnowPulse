@@ -28,17 +28,15 @@ public class CreateExamPlanDto
     [StringLength(1024)]
     public string? Description { get; set; }
 
-    [Required]
-    public DateTime StartTime { get; set; }
+    public DateTime? StartTime { get; set; }
 
-    [Required]
-    public DateTime EndTime { get; set; }
+    public DateTime? EndTime { get; set; }
 
     [Range(1, 1440)]
-    public int DurationMinutes { get; set; } = 60;
+    public int? DurationMinutes { get; set; }
 
     [Range(0, 100000)]
-    public decimal PassingScore { get; set; } = 60;
+    public decimal? PassingScore { get; set; }
 
     [Range(1, 20)]
     public int MaxAttempts { get; set; } = 1;
@@ -48,7 +46,10 @@ public class CreateExamPlanDto
     [Required]
     public GenerateExamPaperDto Paper { get; set; } = new();
 
+    [Required]
     public List<ExamAssignmentInputDto> Assignments { get; set; } = new();
+    [Required]
+    public List<Guid> StudentIds { get; set; } = new();
 }
 
 public class GenerateExamPaperDto
@@ -57,15 +58,27 @@ public class GenerateExamPaperDto
     [StringLength(256)]
     public string Title { get; set; } = string.Empty;
 
-    public ExamPaperBuildMode BuildMode { get; set; } = ExamPaperBuildMode.Random;
+    public ExamPaperBuildMode BuildMode { get; set; } = ExamPaperBuildMode.Fixed;
 
     public Guid? ApplicablePositionId { get; set; }
 
     public bool Randomize { get; set; }
 
+    [Required]
     public List<Guid> FixedQuestionIds { get; set; } = new();
+    [Required]
+    public List<ExamFixedQuestionInputDto> FixedQuestions { get; set; } = new();
 
+    [Required]
     public List<ExamPaperRuleDto> Rules { get; set; } = new();
+}
+
+public class ExamFixedQuestionInputDto
+{
+    public Guid QuestionId { get; set; }
+    [Range(0.01, 1000)]
+    public decimal Score { get; set; } = 10;
+    public MultipleChoiceScoringMode MultipleChoiceScoringMode { get; set; } = MultipleChoiceScoringMode.AllOrNothing;
 }
 
 public class ExamPaperRuleDto
@@ -96,12 +109,14 @@ public class SaveExamAnswersDto
     [StringLength(128)]
     public string? IdempotencyKey { get; set; }
 
+    [Required]
     public List<SaveExamAnswerItemDto> Answers { get; set; } = new();
 }
 
 public class SaveExamAnswerItemDto
 {
     public Guid PaperQuestionId { get; set; }
+    [Required]
     public List<string> Values { get; set; } = new();
     public int? ClientVersion { get; set; }
 }

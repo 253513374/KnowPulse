@@ -3,14 +3,16 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
-using KnowPulse.Organization;
 using KnowPulse.Permissions;
 using KnowPulse.QuestionBank;
+using KnowPulse.Teaching;
 using Microsoft.AspNetCore.Authorization;
 using Volo.Abp;
 using Volo.Abp.Application.Dtos;
 using Volo.Abp.Authorization;
 using Volo.Abp.Domain.Repositories;
+using Volo.Abp.Identity;
+using Volo.Abp.Uow;
 
 namespace KnowPulse.Exam;
 
@@ -24,7 +26,7 @@ public class ExamAppService : KnowPulseAppService, IExamAppService
     private readonly IRepository<ExamPaper, Guid> _paperRepository;
     private readonly IRepository<ExamPaperQuestion, Guid> _paperQuestionRepository;
     private readonly IRepository<ExamAssignment, Guid> _assignmentRepository;
-    private readonly IRepository<ExamAttempt, Guid> _attemptRepository;
+    private readonly IExamAttemptRepository _attemptRepository;
     private readonly IRepository<ExamAnswer, Guid> _answerRepository;
     private readonly IRepository<ExamScore, Guid> _scoreRepository;
     private readonly IRepository<WrongQuestionRecord, Guid> _wrongQuestionRepository;
@@ -34,14 +36,15 @@ public class ExamAppService : KnowPulseAppService, IExamAppService
     private readonly IRepository<QuestionAnalysis, Guid> _questionAnalysisRepository;
     private readonly IRepository<QuestionKnowledgePoint, Guid> _questionKnowledgePointRepository;
     private readonly IRepository<QuestionSource, Guid> _questionSourceRepository;
-    private readonly IRepository<UserOrganizationAssignment, Guid> _userOrganizationAssignmentRepository;
+    private readonly IRepository<TeachingRelationship, Guid> _teachingRelationships;
+    private readonly IRepository<IdentityUser, Guid> _users;
 
     public ExamAppService(
         IRepository<ExamPlan, Guid> planRepository,
         IRepository<ExamPaper, Guid> paperRepository,
         IRepository<ExamPaperQuestion, Guid> paperQuestionRepository,
         IRepository<ExamAssignment, Guid> assignmentRepository,
-        IRepository<ExamAttempt, Guid> attemptRepository,
+        IExamAttemptRepository attemptRepository,
         IRepository<ExamAnswer, Guid> answerRepository,
         IRepository<ExamScore, Guid> scoreRepository,
         IRepository<WrongQuestionRecord, Guid> wrongQuestionRepository,
@@ -51,7 +54,8 @@ public class ExamAppService : KnowPulseAppService, IExamAppService
         IRepository<QuestionAnalysis, Guid> questionAnalysisRepository,
         IRepository<QuestionKnowledgePoint, Guid> questionKnowledgePointRepository,
         IRepository<QuestionSource, Guid> questionSourceRepository,
-        IRepository<UserOrganizationAssignment, Guid> userOrganizationAssignmentRepository)
+        IRepository<TeachingRelationship, Guid> teachingRelationships,
+        IRepository<IdentityUser, Guid> users)
     {
         _planRepository = planRepository;
         _paperRepository = paperRepository;
@@ -67,7 +71,8 @@ public class ExamAppService : KnowPulseAppService, IExamAppService
         _questionAnalysisRepository = questionAnalysisRepository;
         _questionKnowledgePointRepository = questionKnowledgePointRepository;
         _questionSourceRepository = questionSourceRepository;
-        _userOrganizationAssignmentRepository = userOrganizationAssignmentRepository;
+        _teachingRelationships = teachingRelationships;
+        _users = users;
     }
 
     public virtual async Task<PagedResultDto<ExamPlanDto>> GetPlanListAsync(GetExamPlanListInput input)
@@ -75,6 +80,7 @@ public class ExamAppService : KnowPulseAppService, IExamAppService
         await CheckMvpPermissionAsync(KnowPulsePermissions.Exam.Manage);
 
         var queryable = await _planRepository.GetQueryableAsync();
+        queryable = queryable.Where(x => x.OwnerId == CurrentUser.Id || (x.OwnerId == null && IsLegacyAdministrator));
         queryable = ApplyPlanFilters(queryable, input);
 
         var totalCount = await AsyncExecuter.CountAsync(queryable);
@@ -89,7 +95,7 @@ public class ExamAppService : KnowPulseAppService, IExamAppService
     public virtual async Task<ExamPlanDto> GetPlanAsync(Guid id)
     {
         await CheckMvpPermissionAsync(KnowPulsePermissions.Exam.Manage);
-        return await MapPlanAsync(await _planRepository.GetAsync(id));
+        return await MapPlanAsync(await GetOwnedPlanAsync(id));
     }
 
     public virtual async Task<ExamPaperDto> PreviewPaperAsync(GenerateExamPaperDto input)
@@ -99,45 +105,45 @@ public class ExamAppService : KnowPulseAppService, IExamAppService
         return await MapPaperAsync(build.Paper, build.Questions);
     }
 
+    [UnitOfWork]
     public virtual async Task<ExamPlanDto> CreatePlanAsync(CreateExamPlanDto input)
     {
         await CheckMvpPermissionAsync(KnowPulsePermissions.Exam.Manage);
 
+        var studentIds = await ValidateRecipientsAsync(input);
+        if (input.Paper == null) throw new UserFriendlyException("请选择已确认的题目。");
         var build = await BuildPaperAsync(input.Paper);
-        var paper = await _paperRepository.InsertAsync(build.Paper, autoSave: true);
-        foreach (var question in build.Questions)
-        {
-            await _paperQuestionRepository.InsertAsync(question, autoSave: true);
-        }
-
+        await ValidateRecipientsAsync(input);
         var plan = new ExamPlan(
             GuidGenerator.Create(),
             CurrentTenant.Id,
             input.Name.Trim(),
-            paper.Id,
+            build.Paper.Id,
             input.StartTime,
             input.EndTime,
             input.DurationMinutes,
             input.PassingScore,
             input.MaxAttempts,
             input.ResultVisibility,
-            TrimToNull(input.Description));
+            TrimToNull(input.Description),
+            GetCurrentUserId());
 
+        await _paperRepository.InsertAsync(build.Paper, autoSave: true);
+        foreach (var question in build.Questions)
+        {
+            await _paperQuestionRepository.InsertAsync(question, autoSave: true);
+        }
         await _planRepository.InsertAsync(plan, autoSave: true);
 
-        var assignments = input.Assignments.Count == 0
-            ? new List<ExamAssignmentInputDto> { new() { ScopeType = ExamAssignmentScopeType.All } }
-            : input.Assignments;
-
-        foreach (var assignment in assignments)
+        foreach (var studentId in studentIds)
         {
             await _assignmentRepository.InsertAsync(
                 new ExamAssignment(
                     GuidGenerator.Create(),
                     CurrentTenant.Id,
                     plan.Id,
-                    assignment.ScopeType,
-                    assignment.TargetId),
+                    ExamAssignmentScopeType.User,
+                    studentId),
                 autoSave: true);
         }
 
@@ -147,23 +153,60 @@ public class ExamAppService : KnowPulseAppService, IExamAppService
     public virtual async Task<PagedResultDto<ExamPlanDto>> GetMyPlanListAsync(GetExamPlanListInput input)
     {
         await CheckMvpPermissionAsync(KnowPulsePermissions.Exam.Participate);
-
         var userId = GetCurrentUserId();
-        var queryable = await _planRepository.GetQueryableAsync();
-        queryable = ApplyPlanFilters(queryable, input).Where(x => x.Status == ExamPlanStatus.Published);
+        var assignments = await _assignmentRepository.GetQueryableAsync();
+        var query = ApplyPlanFilters(await _planRepository.GetQueryableAsync(), input)
+            .Where(x => x.Status == ExamPlanStatus.Published &&
+                (x.OwnerId != null || IsLegacyAdministrator) && assignments.Any(a => a.PlanId == x.Id &&
+                    a.IsActive && a.ScopeType == ExamAssignmentScopeType.User && a.TargetId == userId));
+        var count = await AsyncExecuter.CountAsync(query);
+        var plans = await AsyncExecuter.ToListAsync(query.OrderByDescending(x => x.CreationTime)
+            .Skip(input.SkipCount).Take(input.MaxResultCount));
+        var result = new List<ExamPlanDto>();
+        foreach (var plan in plans) result.Add(await MapStudentPlanAsync(plan));
+        return new PagedResultDto<ExamPlanDto>(count, result);
+    }
 
-        var allPlans = await AsyncExecuter.ToListAsync(queryable.OrderByDescending(x => x.StartTime));
-        var assignedPlans = new List<ExamPlan>();
-        foreach (var plan in allPlans)
+    public virtual async Task<ExamPlanDto> GetMyPlanAsync(Guid id)
+    {
+        await CheckMvpPermissionAsync(KnowPulsePermissions.Exam.Participate);
+        return await MapStudentPlanAsync(await GetAssignedPlanAsync(id));
+    }
+
+    public virtual async Task<ExamPlanResultsDto> GetPlanResultsAsync(Guid id)
+    {
+        await CheckMvpPermissionAsync(KnowPulsePermissions.Exam.Manage);
+        var plan = await GetOwnedPlanAsync(id);
+        var assignments = (await GetAssignmentsAsync(id)).Where(x => x.IsActive &&
+            x.ScopeType == ExamAssignmentScopeType.User && x.TargetId.HasValue).ToList();
+        var studentIds = assignments.Select(x => x.TargetId!.Value).Distinct().ToList();
+        var relationships = await AsyncExecuter.ToListAsync((await _teachingRelationships.GetQueryableAsync())
+            .Where(x => x.TeacherId == plan.OwnerId && studentIds.Contains(x.StudentId)));
+        var attempts = await AsyncExecuter.ToListAsync((await _attemptRepository.GetQueryableAsync()).Where(x => x.PlanId == id));
+        var scores = await AsyncExecuter.ToListAsync((await _scoreRepository.GetQueryableAsync()).Where(x => x.PlanId == id));
+        return new ExamPlanResultsDto
         {
-            if (await IsAssignedAsync(plan.Id, userId))
+            Plan = await MapPlanAsync(plan),
+            Recipients = studentIds.Select(studentId =>
             {
-                assignedPlans.Add(plan);
-            }
-        }
+                var attempt = attempts.Where(x => x.UserId == studentId).OrderByDescending(x => x.AttemptNumber).FirstOrDefault();
+                return new ExamRecipientResultDto
+                {
+                    StudentId = studentId,
+                    DisplayName = relationships.FirstOrDefault(x => x.StudentId == studentId)?.DisplayName ?? "学生",
+                    AttemptId = attempt?.Id, Status = attempt?.Status, SubmittedTime = attempt?.SubmittedTime,
+                    ObtainedScore = scores.FirstOrDefault(x => x.AttemptId == attempt?.Id)?.ObtainedScore
+                };
+            }).ToList()
+        };
+    }
 
-        var paged = assignedPlans.Skip(input.SkipCount).Take(input.MaxResultCount).ToList();
-        return new PagedResultDto<ExamPlanDto>(assignedPlans.Count, await MapPlansAsync(paged));
+    public virtual async Task<ExamAttemptDto> GetStudentAttemptAsync(Guid attemptId)
+    {
+        await CheckMvpPermissionAsync(KnowPulsePermissions.Exam.Manage);
+        var attempt = await _attemptRepository.GetAsync(attemptId);
+        await GetOwnedPlanAsync(attempt.PlanId);
+        return await MapAttemptAsync(attempt, forTeacher: true);
     }
 
     public virtual async Task<ExamAttemptDto> StartAttemptAsync(Guid planId)
@@ -172,15 +215,10 @@ public class ExamAppService : KnowPulseAppService, IExamAppService
 
         var userId = GetCurrentUserId();
         var now = DateTime.UtcNow;
-        var plan = await _planRepository.GetAsync(planId);
-        plan.EnsureCanStart(now);
-
-        if (!await IsAssignedAsync(plan.Id, userId))
-        {
-            throw new BusinessException(KnowPulseDomainErrorCodes.ExamNotAssigned);
-        }
-
+        var plan = await GetAssignedPlanAsync(planId);
         var attempts = await GetAttemptsAsync(plan.Id, userId);
+        foreach (var expired in attempts.Where(x => x.Status == ExamAttemptStatus.InProgress))
+            if (expired.ExpireIfNeeded(now)) await _attemptRepository.UpdateAsync(expired, autoSave: true);
         var inProgress = attempts
             .Where(x => x.Status == ExamAttemptStatus.InProgress)
             .OrderByDescending(x => x.StartedTime)
@@ -192,14 +230,14 @@ public class ExamAppService : KnowPulseAppService, IExamAppService
 
         if (attempts.Count(x => x.Status != ExamAttemptStatus.Cancelled) >= plan.MaxAttempts)
         {
+            var completed = attempts.Where(x => x.Status is ExamAttemptStatus.Submitted or ExamAttemptStatus.Scored)
+                .OrderByDescending(x => x.AttemptNumber).FirstOrDefault();
+            if (completed != null) return await MapAttemptAsync(completed);
             throw new BusinessException(KnowPulseDomainErrorCodes.ExamAttemptLimitReached);
         }
-
-        var expiresTime = now.AddMinutes(plan.DurationMinutes);
-        if (expiresTime > plan.EndTime)
-        {
-            expiresTime = plan.EndTime;
-        }
+        plan.EnsureCanStart(now);
+        DateTime? expiresTime = plan.DurationMinutes.HasValue ? now.AddMinutes(plan.DurationMinutes.Value) : null;
+        if (plan.EndTime.HasValue && (!expiresTime.HasValue || expiresTime > plan.EndTime)) expiresTime = plan.EndTime;
 
         var attempt = await _attemptRepository.InsertAsync(
             new ExamAttempt(
@@ -228,7 +266,7 @@ public class ExamAppService : KnowPulseAppService, IExamAppService
     {
         await CheckMvpPermissionAsync(KnowPulsePermissions.Exam.Participate);
 
-        var attempt = await _attemptRepository.GetAsync(attemptId);
+        var attempt = await _attemptRepository.GetForUpdateAsync(attemptId);
         EnsureAttemptOwner(attempt);
 
         var now = DateTime.UtcNow;
@@ -276,8 +314,10 @@ public class ExamAppService : KnowPulseAppService, IExamAppService
     {
         await CheckMvpPermissionAsync(KnowPulsePermissions.Exam.Participate);
 
-        var attempt = await _attemptRepository.GetAsync(attemptId);
+        var attempt = await _attemptRepository.GetForUpdateAsync(attemptId);
         EnsureAttemptOwner(attempt);
+
+        if (attempt.Status == ExamAttemptStatus.Scored) return await MapAttemptAsync(attempt);
 
         attempt.Submit(DateTime.UtcNow, input.IdempotencyKey);
         await _attemptRepository.UpdateAsync(attempt, autoSave: true);
@@ -293,14 +333,19 @@ public class ExamAppService : KnowPulseAppService, IExamAppService
     public virtual async Task<ExamScoreDto> GradeAttemptAsync(Guid attemptId)
     {
         await CheckMvpPermissionAsync(KnowPulsePermissions.Exam.Manage);
-        return await GradeAttemptCoreAsync(await _attemptRepository.GetAsync(attemptId));
+        var attempt = await _attemptRepository.GetForUpdateAsync(attemptId);
+        await GetOwnedPlanAsync(attempt.PlanId);
+        return await GradeAttemptCoreAsync(attempt);
     }
 
     public virtual async Task<PagedResultDto<ExamScoreDto>> GetScoreListAsync(GetExamScoreListInput input)
     {
         await CheckMvpPermissionAsync(KnowPulsePermissions.Exam.Results);
 
-        var queryable = await _scoreRepository.GetQueryableAsync();
+        var ownedPlans = (await _planRepository.GetQueryableAsync())
+            .Where(x => x.OwnerId == CurrentUser.Id || (x.OwnerId == null && IsLegacyAdministrator));
+        if (input.PlanId.HasValue) await GetOwnedPlanAsync(input.PlanId.Value);
+        var queryable = (await _scoreRepository.GetQueryableAsync()).Where(x => ownedPlans.Any(p => p.Id == x.PlanId));
         if (input.PlanId.HasValue)
         {
             queryable = queryable.Where(x => x.PlanId == input.PlanId.Value);
@@ -327,6 +372,8 @@ public class ExamAppService : KnowPulseAppService, IExamAppService
 
     private async Task<ExamScoreDto> GradeAttemptCoreAsync(ExamAttempt attempt)
     {
+        if (attempt.Status is not ExamAttemptStatus.Submitted and not ExamAttemptStatus.Scored)
+            throw new BusinessException(KnowPulseDomainErrorCodes.ExamAttemptCannotScore);
         var plan = await _planRepository.GetAsync(attempt.PlanId);
         var paper = await _paperRepository.GetAsync(attempt.PaperId);
         var paperQuestions = await GetPaperQuestionsAsync(attempt.PaperId);
@@ -359,14 +406,14 @@ public class ExamAppService : KnowPulseAppService, IExamAppService
                     attempt.UserId,
                     paper.TotalScore,
                     obtainedScore,
-                    plan.PassingScore,
+                    plan.PassingScore ?? 0,
                     now,
                     ScoringVersion),
                 autoSave: true);
         }
         else
         {
-            existingScore.Refresh(paper.TotalScore, obtainedScore, plan.PassingScore, now, ScoringVersion);
+            existingScore.Refresh(paper.TotalScore, obtainedScore, plan.PassingScore ?? 0, now, ScoringVersion);
             score = await _scoreRepository.UpdateAsync(existingScore, autoSave: true);
             await DeleteWrongQuestionsAsync(score.Id);
         }
@@ -433,28 +480,21 @@ public class ExamAppService : KnowPulseAppService, IExamAppService
 
     private async Task<List<SelectedQuestion>> SelectFixedQuestionsAsync(GenerateExamPaperDto input)
     {
-        var ids = input.FixedQuestionIds.Distinct().ToList();
-        if (ids.Count == 0)
-        {
-            throw new BusinessException(KnowPulseDomainErrorCodes.ExamPaperQuestionInsufficient);
-        }
-
-        var queryable = await _questionRepository.GetQueryableAsync();
-        var questions = await AsyncExecuter.ToListAsync(queryable
-            .Where(x => ids.Contains(x.Id) && x.Status == QuestionStatus.Approved));
-
-        if (questions.Count != ids.Count)
-        {
-            throw new BusinessException(KnowPulseDomainErrorCodes.ExamPaperQuestionInsufficient);
-        }
-
-        var defaultScore = input.Rules.FirstOrDefault()?.ScorePerQuestion ?? 5m;
-        var scoringMode = input.Rules.FirstOrDefault()?.MultipleChoiceScoringMode ?? MultipleChoiceScoringMode.AllOrNothing;
-        return ids.Select(id => new SelectedQuestion(
-                questions.Single(x => x.Id == id),
-                defaultScore,
-                scoringMode))
-            .ToList();
+        var selected = input.FixedQuestions.Count > 0 ? input.FixedQuestions : input.FixedQuestionIds
+            .Distinct().Select(id => new ExamFixedQuestionInputDto
+            {
+                QuestionId = id, Score = input.Rules.FirstOrDefault()?.ScorePerQuestion ?? 5m,
+                MultipleChoiceScoringMode = input.Rules.FirstOrDefault()?.MultipleChoiceScoringMode ?? MultipleChoiceScoringMode.AllOrNothing
+            }).ToList();
+        var ids = selected.Select(x => x.QuestionId).ToList();
+        if (ids.Count == 0 || ids.Count > 200 || ids.Distinct().Count() != ids.Count ||
+            selected.Any(x => x.Score <= 0 || x.Score > 1000 || !Enum.IsDefined(x.MultipleChoiceScoringMode)))
+            throw new UserFriendlyException("请选择有效且不重复的题目，并检查分值。");
+        var query = FilterQuestionOwnership(await _questionRepository.GetQueryableAsync());
+        var questions = await AsyncExecuter.ToListAsync(query.Where(x => ids.Contains(x.Id) && x.Status == QuestionStatus.Approved));
+        if (questions.Count != ids.Count) throw new BusinessException(KnowPulseDomainErrorCodes.ExamPaperQuestionInsufficient);
+        return selected.Select(item => new SelectedQuestion(questions.Single(x => x.Id == item.QuestionId),
+            item.Score, item.MultipleChoiceScoringMode)).ToList();
     }
 
     private async Task<List<SelectedQuestion>> SelectByRulesAsync(GenerateExamPaperDto input)
@@ -494,7 +534,7 @@ public class ExamAppService : KnowPulseAppService, IExamAppService
         ExamPaperRuleDto rule,
         HashSet<Guid> usedIds)
     {
-        var queryable = await _questionRepository.GetQueryableAsync();
+        var queryable = FilterQuestionOwnership(await _questionRepository.GetQueryableAsync());
         queryable = queryable.Where(x => x.Status == QuestionStatus.Approved && !usedIds.Contains(x.Id));
 
         if (rule.Type.HasValue)
@@ -568,26 +608,8 @@ public class ExamAppService : KnowPulseAppService, IExamAppService
 
     private async Task<bool> IsAssignedAsync(Guid planId, Guid userId)
     {
-        var assignments = await GetAssignmentsAsync(planId);
-        if (assignments.Count == 0 || assignments.Any(x => x.IsActive && x.ScopeType == ExamAssignmentScopeType.All))
-        {
-            return true;
-        }
-
-        if (assignments.Any(x => x.IsActive && x.ScopeType == ExamAssignmentScopeType.User && x.TargetId == userId))
-        {
-            return true;
-        }
-
-        var assignmentQueryable = await _userOrganizationAssignmentRepository.GetQueryableAsync();
-        var userAssignments = await AsyncExecuter.ToListAsync(assignmentQueryable.Where(x => x.UserId == userId && x.IsActive));
-        var departmentIds = userAssignments.Select(x => x.DepartmentId).ToHashSet();
-        var positionIds = userAssignments.Where(x => x.PositionId.HasValue).Select(x => x.PositionId!.Value).ToHashSet();
-
-        return assignments.Any(x =>
-            x.IsActive &&
-            ((x.ScopeType == ExamAssignmentScopeType.Department && x.TargetId.HasValue && departmentIds.Contains(x.TargetId.Value)) ||
-             (x.ScopeType == ExamAssignmentScopeType.Position && x.TargetId.HasValue && positionIds.Contains(x.TargetId.Value))));
+        return await _assignmentRepository.AnyAsync(x => x.PlanId == planId && x.IsActive &&
+            x.ScopeType == ExamAssignmentScopeType.User && x.TargetId == userId);
     }
 
     private async Task<List<ExamAttempt>> GetAttemptsAsync(Guid planId, Guid userId)
@@ -700,6 +722,9 @@ public class ExamAppService : KnowPulseAppService, IExamAppService
         return new ExamPlanDto
         {
             Id = plan.Id,
+            OwnerId = plan.OwnerId,
+            TeacherId = plan.OwnerId,
+            TeacherName = await GetTeacherNameAsync(plan.OwnerId),
             CreationTime = plan.CreationTime,
             CreatorId = plan.CreatorId,
             LastModificationTime = plan.LastModificationTime,
@@ -784,13 +809,22 @@ public class ExamAppService : KnowPulseAppService, IExamAppService
         };
     }
 
-    private async Task<ExamAttemptDto> MapAttemptAsync(ExamAttempt attempt)
+    private async Task<ExamAttemptDto> MapAttemptAsync(ExamAttempt attempt, bool forTeacher = false)
     {
         var plan = await _planRepository.GetAsync(attempt.PlanId);
         var paper = await _paperRepository.GetAsync(attempt.PaperId);
         var answers = await GetAnswersAsync(attempt.Id);
         var score = await GetScoreByAttemptAsync(attempt.Id);
 
+        if (!forTeacher) await GetAssignedPlanAsync(attempt.PlanId);
+        var revealAnswers = forTeacher || (attempt.Status == ExamAttemptStatus.Scored && plan.ResultVisibility == ExamResultVisibility.FullReview);
+        var paperDto = await MapPaperAsync(paper);
+        if (!forTeacher) TrimStudentPaper(paperDto, revealAnswers);
+        var scoreDto = score == null || (!forTeacher && plan.ResultVisibility == ExamResultVisibility.Hidden)
+            ? null : await MapScoreAsync(score);
+        if (!forTeacher && !revealAnswers && scoreDto != null) scoreDto.WrongQuestions.Clear();
+        if (!forTeacher && scoreDto != null)
+            foreach (var wrong in scoreDto.WrongQuestions) wrong.OriginalQuestionId = Guid.Empty;
         return new ExamAttemptDto
         {
             Id = attempt.Id,
@@ -811,10 +845,10 @@ public class ExamAppService : KnowPulseAppService, IExamAppService
             LastSavedTime = attempt.LastSavedTime,
             SubmittedTime = attempt.SubmittedTime,
             ScoredTime = attempt.ScoredTime,
-            Plan = await MapPlanAsync(plan),
-            Paper = await MapPaperAsync(paper),
+            Plan = forTeacher ? await MapPlanAsync(plan) : await MapStudentPlanAsync(plan, revealAnswers),
+            Paper = paperDto,
             Answers = answers.Select(MapAnswer).ToList(),
-            Score = score == null ? null : await MapScoreAsync(score)
+            Score = scoreDto
         };
     }
 
@@ -890,6 +924,76 @@ public class ExamAppService : KnowPulseAppService, IExamAppService
         };
     }
 
+    private async Task<ExamPlan> GetOwnedPlanAsync(Guid id)
+    {
+        var plan = await _planRepository.GetAsync(id);
+        EnsureTeachingOwner(plan.OwnerId);
+        return plan;
+    }
+
+    private async Task<ExamPlan> GetAssignedPlanAsync(Guid id)
+    {
+        var plan = await _planRepository.GetAsync(id);
+        if (plan.OwnerId == null) EnsureTeachingOwner(null);
+        if (!await IsAssignedAsync(id, GetCurrentUserId()))
+            throw new BusinessException(KnowPulseDomainErrorCodes.ExamNotAssigned);
+        return plan;
+    }
+
+    private async Task<List<Guid>> ValidateRecipientsAsync(CreateExamPlanDto input)
+    {
+        if (input.Assignments.Any(x => x.ScopeType != ExamAssignmentScopeType.User || !x.TargetId.HasValue) ||
+            (input.StudentIds.Count > 0 && input.Assignments.Count > 0))
+            throw new UserFriendlyException("请使用具体学生名单，不能向全员或组织发布。");
+        var ids = (input.StudentIds.Count > 0 ? input.StudentIds : input.Assignments.Select(x => x.TargetId!.Value))
+            .Distinct().ToList();
+        if (ids.Count == 0 || ids.Any(x => x == Guid.Empty)) throw new UserFriendlyException("至少选择一位接收学生。");
+        var activeIds = await AsyncExecuter.ToListAsync((await _teachingRelationships.GetQueryableAsync())
+            .Where(x => x.TeacherId == CurrentUser.Id && x.Status == TeachingRelationshipStatus.Active && ids.Contains(x.StudentId))
+            .Select(x => x.StudentId));
+        if (activeIds.Distinct().Count() != ids.Count) throw new UserFriendlyException("部分学生不在你的有效名单中，请重新选择。");
+        return ids;
+    }
+
+    private IQueryable<Question> FilterQuestionOwnership(IQueryable<Question> query) =>
+        query.Where(x => x.OwnerTeacherId == CurrentUser.Id || (x.OwnerTeacherId == null && IsLegacyAdministrator));
+
+    private async Task<string> GetTeacherNameAsync(Guid? teacherId)
+    {
+        if (!teacherId.HasValue) return "历史任务";
+        var user = await _users.FindAsync(teacherId.Value);
+        return user?.Name ?? user?.UserName ?? "教师";
+    }
+
+    private async Task<ExamPlanDto> MapStudentPlanAsync(ExamPlan plan, bool revealAnswers = false)
+    {
+        var dto = await MapPlanAsync(plan);
+        dto.Assignments.Clear();
+        if (dto.Paper != null) TrimStudentPaper(dto.Paper, revealAnswers);
+        var attempts = await GetAttemptsAsync(plan.Id, GetCurrentUserId());
+        var latest = attempts.OrderByDescending(x => x.AttemptNumber).FirstOrDefault();
+        dto.MyAttemptId = latest?.Id;
+        dto.MyStatus = latest?.Status;
+        if (latest?.Status == ExamAttemptStatus.Scored && plan.ResultVisibility != ExamResultVisibility.Hidden)
+            dto.MyScore = (await GetScoreByAttemptAsync(latest.Id))?.ObtainedScore;
+        return dto;
+    }
+
+    private static void TrimStudentPaper(ExamPaperDto paper, bool revealAnswers)
+    {
+        foreach (var question in paper.Questions)
+        {
+            question.OriginalQuestionId = Guid.Empty;
+            question.SourceSnapshot = null;
+            question.KnowledgePointsSnapshot = null;
+            if (!revealAnswers)
+            {
+                question.CorrectAnswers.Clear();
+                question.Analysis = null;
+            }
+        }
+    }
+
     private void EnsureAttemptOwner(ExamAttempt attempt)
     {
         if (attempt.UserId != GetCurrentUserId())
@@ -907,6 +1011,12 @@ public class ExamAppService : KnowPulseAppService, IExamAppService
     {
         var normalizedUser = NormalizeValues(userValues);
         var normalizedCorrect = NormalizeValues(correctValues);
+
+        if (question.Type == QuestionType.TrueFalse)
+        {
+            normalizedUser = normalizedUser.Select(NormalizeTrueFalse).ToList();
+            normalizedCorrect = normalizedCorrect.Select(NormalizeTrueFalse).ToList();
+        }
 
         if (question.Type == QuestionType.MultipleChoice)
         {
@@ -932,6 +1042,13 @@ public class ExamAppService : KnowPulseAppService, IExamAppService
         return left.Count == right.Count &&
                left.All(x => right.Contains(x, StringComparer.OrdinalIgnoreCase));
     }
+
+    private static string NormalizeTrueFalse(string value) => value switch
+    {
+        "对" => "true",
+        "错" => "false",
+        _ => value
+    };
 
     private static List<string> NormalizeValues(IEnumerable<string> values)
     {

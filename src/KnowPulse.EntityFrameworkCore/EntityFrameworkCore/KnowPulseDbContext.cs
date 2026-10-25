@@ -27,7 +27,7 @@ namespace KnowPulse.EntityFrameworkCore;
 [ReplaceDbContext(typeof(IIdentityDbContext))]
 [ReplaceDbContext(typeof(ITenantManagementDbContext))]
 [ConnectionStringName("Default")]
-public class KnowPulseDbContext :
+public partial class KnowPulseDbContext :
     AbpDbContext<KnowPulseDbContext>,
     IIdentityDbContext,
     ITenantManagementDbContext
@@ -137,6 +137,8 @@ public class KnowPulseDbContext :
         builder.ConfigureOpenIddict();
         builder.ConfigureFeatureManagement();
         builder.ConfigureTenantManagement();
+        builder.ConfigureTeaching();
+        builder.ConfigureTeachingOwnership();
 
         builder.Entity<Department>(b =>
         {

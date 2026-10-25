@@ -215,17 +215,16 @@ public class Mvp1RagAuditTests : KnowPulseEntityFrameworkCoreTestBase
             Code = $"RAU-{suffix}",
             Name = $"{titlePrefix} Category {suffix}"
         });
-        var item = await _itemAppService.CreateAsync(new CreateKnowledgeItemDto
+        var itemInput = new CreateKnowledgeItemDto
         {
             CategoryId = category.Id,
             Title = $"{titlePrefix} {suffix}",
             Summary = "RAG audit integration test item"
-        });
+        };
 
-        if (scope != null)
-        {
-            await _itemAppService.CreatePermissionScopeAsync(item.Id, scope);
-        }
+        var item = scope == null
+            ? await _itemAppService.CreateAsync(itemInput)
+            : await CreateLegacyKnowledgeAsync(itemInput);
 
         var version = await _itemAppService.CreateVersionAsync(item.Id, new CreateKnowledgeVersionDto
         {
@@ -233,6 +232,12 @@ public class Mvp1RagAuditTests : KnowPulseEntityFrameworkCoreTestBase
             ContentText = content
         });
         await _itemAppService.PublishVersionAsync(item.Id, version.Id);
+
+        if (scope != null)
+        {
+            await _itemAppService.CreatePermissionScopeAsync(item.Id, scope);
+        }
+
         var ingestion = await _ingestionPipeline.IngestAsync(version.Id);
         ingestion.Succeeded.ShouldBeTrue();
 

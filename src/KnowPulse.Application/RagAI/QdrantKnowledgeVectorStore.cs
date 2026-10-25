@@ -385,6 +385,10 @@ public class QdrantKnowledgeVectorStore : IKnowledgeVectorStore, IKnowledgeVecto
         // - must 中每项都必须满足；
         // - should 中至少满足一个范围即可成为候选。
         var must = new List<object>();
+        if (filter.KnowledgeItemIds.Count > 0)
+        {
+            must.Add(new { key = "knowledgeItemId", match = new { any = filter.KnowledgeItemIds.Select(x => x.ToString("D")).ToArray() } });
+        }
         var should = new List<object>
         {
             // All 表示公开范围，任何当前用户都可以作为候选。

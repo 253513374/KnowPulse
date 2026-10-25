@@ -10,6 +10,8 @@ namespace KnowPulse.KnowledgeBase;
 /// </summary>
 public class GetKnowledgeManagementListInput : PagedAndSortedResultRequestDto
 {
+    public bool OwnOnly { get; set; }
+    public bool SharedOnly { get; set; }
     /// <summary>
     /// 按标题、摘要或分类名称搜索。
     /// </summary>
@@ -48,6 +50,7 @@ public class KnowledgeManagementListResultDto
 /// </summary>
 public class KnowledgeManagementListItemDto : EntityDto<Guid>
 {
+    public Guid? OwnerTeacherId { get; set; }
     public Guid? CategoryId { get; set; }
     public string CategoryName { get; set; } = "未分类";
     public string Title { get; set; } = string.Empty;

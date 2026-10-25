@@ -1,0 +1,184 @@
+@page "/teacher/tasks/new"
+@attribute [Authorize(KnowPulsePermissions.Exam.Manage)]
+@inherits KnowPulseComponentBase
+@inject IExamAppService Exams
+@inject IQuestionAppService Questions
+@inject ITeachingAppService Teaching
+@inject NavigationManager Navigation
+@inject IDialogService Dialogs
+
+<PageTitle>发布答题任务 · 知脉空间</PageTitle>
+<NavigationLock OnBeforeInternalNavigation="ConfirmNavigationAsync" ConfirmExternalNavigation="@(HasUnsavedContent && !_published)" />
+<main class="teacher-page" data-teacher-section="tasks">
+    <TeacherPageHeader Title="@(_step == 1 ? "组织答题内容" : _step == 2 ? "选择接收学生" : "预览并发布任务")" Description="@($"第 {_step} 步，共 3 步 · 只向你选择的学生布置任务。")">
+        <Actions><MudButton Href="/teacher/tasks" Variant="Variant.Outlined" Disabled="_busy">返回任务列表</MudButton></Actions>
+    </TeacherPageHeader>
+    @if (_error is not null) { <MudAlert Severity="Severity.Error" role="alert">@_error</MudAlert> }
+    @if (_busy) { <MudProgressLinear Indeterminate="true" aria-label="正在处理" /> }
+    @if (_step == 1)
+    {
+        <MudPaper Class="teacher-panel" Elevation="0">
+            <h2>任务信息</h2>
+            <MudTextField T="string" Immediate="true" Label="任务名称" @bind-Value="_name" Required="true" MaxLength="256" Variant="Variant.Outlined" Disabled="_busy" />
+            <MudTextField T="string" Immediate="true" Label="简要说明（选填）" @bind-Value="_description" MaxLength="1024" Lines="3" Variant="Variant.Outlined" Disabled="_busy" />
+            <MudSelect T="ExamResultVisibility" Label="学生提交后可见的结果" @bind-Value="_visibility" Variant="Variant.Outlined" Disabled="_busy">
+                <MudSelectItem Value="ExamResultVisibility.ScoreOnly">仅展示分数</MudSelectItem>
+                <MudSelectItem Value="ExamResultVisibility.Hidden">仅确认提交</MudSelectItem>
+                <MudSelectItem Value="ExamResultVisibility.FullReview">分数、答案与解析</MudSelectItem>
+            </MudSelect>
+            <p class="teacher-muted">每人一次正式提交，无时限；中途退出后可继续本人已保存的作答。</p>
+        </MudPaper>
+        <MudPaper Class="teacher-panel" Elevation="0">
+            <h2>已选 @_selected.Count 题 · 共 @_selected.Sum(x => x.Score) 分</h2>
+            @foreach (var entry in _selected.ToArray())
+            {
+                var index = _selected.IndexOf(entry);
+                <div class="teacher-question-row" @key="entry.Question.Id">
+                    <div><strong>@(index + 1). @entry.Question.Title</strong><p class="teacher-muted">@entry.Question.Stem</p></div>
+                    <MudNumericField T="decimal" Label="分值" @bind-Value="entry.Score" Min="0.01m" Max="1000m" Variant="Variant.Outlined" Disabled="_busy" />
+                    <div class="teacher-actions">
+                        <MudIconButton Icon="@Icons.Material.Filled.ArrowUpward" aria-label="上移题目" Disabled="@(_busy || index == 0)" OnClick="() => Move(entry, -1)" />
+                        <MudIconButton Icon="@Icons.Material.Filled.ArrowDownward" aria-label="下移题目" Disabled="@(_busy || index == _selected.Count - 1)" OnClick="() => Move(entry, 1)" />
+                        <MudIconButton Icon="@Icons.Material.Filled.Close" aria-label="移除题目" Disabled="_busy" OnClick="() => _selected.Remove(entry)" />
+                    </div>
+                </div>
+            }
+            <h3>从自己的已确认题目中选择</h3>
+            <div class="teacher-toolbar">
+                <MudTextField T="string" Immediate="true" Label="搜索题目" @bind-Value="_questionKeyword" Variant="Variant.Outlined" Disabled="_busy" />
+                <MudButton OnClick="SearchQuestionsAsync" Disabled="_busy">搜索</MudButton>
+            </div>
+            <MudTable T="QuestionDto" Items="_questions" Elevation="0" Loading="_busy">
+                <HeaderContent><MudTh>题目</MudTh><MudTh>操作</MudTh></HeaderContent>
+                <RowTemplate><MudTd>@context.Title</MudTd><MudTd><MudButton Color="Color.Primary" Disabled="@(_busy || _selected.Any(x => x.Question.Id == context.Id))" OnClick="() => Add(context)">@(_selected.Any(x => x.Question.Id == context.Id) ? "已选择" : "选择")</MudButton></MudTd></RowTemplate>
+                <NoRecordsContent><MudText>暂无已确认题目。先到题库检查并确认题目。</MudText></NoRecordsContent>
+            </MudTable>
+            <MvpPager SkipCount="_questionSkip" TotalCount="_questionTotal" IsBusy="_busy" OnSkipCountChanged="QuestionPageAsync" />
+            <MudButton Href="/teacher/questions">打开我的题库</MudButton>
+        </MudPaper>
+    }
+    else if (_step == 2)
+    {
+        <MudPaper Class="teacher-panel" Elevation="0">
+            <h2>从我的有效学生中选择</h2><p class="teacher-muted">本次已选择 @_recipients.Count 人。选择只影响这一份任务。</p>
+            <div class="teacher-toolbar">
+                <MudTextField T="string" Immediate="true" Label="搜索学生" @bind-Value="_studentKeyword" Variant="Variant.Outlined" Disabled="_busy" />
+                <MudButton OnClick="SearchStudentsAsync" Disabled="_busy">搜索</MudButton>
+            </div>
+            @if (_students.Count > 0)
+            {
+                <MudCheckBox T="bool" Value="@_students.All(x => _recipients.ContainsKey(x.StudentId))" ValueChanged="SelectCurrentPage" Label="选择当前页的全部学生" Disabled="_busy" />
+                <div class="teacher-form-grid">
+                    @foreach (var student in _students)
+                    {
+                        <MudCheckBox T="bool" Value="@_recipients.ContainsKey(student.StudentId)" ValueChanged="value => SelectStudent(student, value)" Label="@student.DisplayName" Disabled="_busy" />
+                    }
+                </div>
+            }
+            else { <p>还没有符合条件的有效学生。邀请学生并确认加入后，再回来选择。</p> }
+            <MvpPager SkipCount="_studentSkip" TotalCount="_studentTotal" IsBusy="_busy" OnSkipCountChanged="StudentPageAsync" />
+            <MudButton Href="/teacher/students" Variant="Variant.Outlined">管理学生名单</MudButton>
+        </MudPaper>
+        <MudPaper Class="teacher-panel" Elevation="0">
+            <h2>已选择：@string.Join("、", _recipients.Values)</h2>
+            <MudAlert Severity="Severity.Info">发布时固定保存这 @_recipients.Count 人的指派。以后新加入学生不会自动收到本任务；不选择学生时不能发布。</MudAlert>
+        </MudPaper>
+    }
+    else if (_preview is not null)
+    {
+        <div class="teacher-metrics">
+            <div class="teacher-metric"><span>任务名称</span><h2>@_name</h2></div>
+            <div class="teacher-metric"><span>题量／总分</span><strong>@_preview.QuestionCount / @_preview.TotalScore</strong></div>
+            <div class="teacher-metric"><span>指定接收人</span><strong>@_recipients.Count 人</strong></div>
+        </div>
+        <MudPaper Class="teacher-panel" Elevation="0">
+            <h2>固定接收名单</h2><p>@string.Join("、", _recipients.Values)</p>
+            <p>提交后可见：@(_visibility switch { ExamResultVisibility.FullReview => "分数、答案与解析", ExamResultVisibility.Hidden => "仅确认提交", _ => "仅展示分数" })</p>
+            <p class="teacher-muted">每人一次正式提交，无时限。学生打开或刷新小程序即可查看。</p>
+        </MudPaper>
+        <MudPaper Class="teacher-panel" Elevation="0">
+            <h2>任务内容</h2><p class="teacher-muted">教师预览包含答案；学生作答前不会收到标准答案与解析。</p>
+            @foreach (var question in _preview.Questions.OrderBy(x => x.DisplayOrder))
+            {
+                <div class="teacher-preview-question">
+                    <h3>@question.DisplayOrder. @question.Stem <span class="teacher-muted">（@question.Score 分）</span></h3>
+                    @foreach (var option in question.Options.OrderBy(x => x.DisplayOrder)) { <p>@option.OptionKey. @option.Content</p> }
+                    <p>标准答案：@TeacherAnswer.Format(question.Type, question.CorrectAnswers)</p>
+                    <p class="teacher-muted">@question.Analysis</p>
+                </div>
+            }
+        </MudPaper>
+    }
+    <div class="teacher-actions">
+        @if (_step > 1) { <MudButton Variant="Variant.Outlined" OnClick="() => _step--" Disabled="_busy">上一步</MudButton> }
+        @if (_step < 3) { <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="NextAsync" Disabled="_busy">@(_step == 1 ? "下一步：选择学生" : "下一步：预览发布")</MudButton> }
+        else { <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="PublishAsync" Disabled="_busy">发布给 @_recipients.Count 名学生</MudButton> }
+    </div>
+</main>
+
+@code {
+    private sealed class SelectedQuestion { public required QuestionDto Question { get; init; } public decimal Score { get; set; } = 10; }
+    private readonly List<SelectedQuestion> _selected = [];
+    private readonly Dictionary<Guid, string> _recipients = [];
+    private IReadOnlyList<QuestionDto> _questions = [];
+    private IReadOnlyList<TeachingStudentDto> _students = [];
+    private ExamPaperDto? _preview;
+    private string _name = string.Empty;
+    private string? _description, _questionKeyword, _studentKeyword, _error;
+    private ExamResultVisibility _visibility = ExamResultVisibility.ScoreOnly;
+    private int _step = 1, _questionSkip, _studentSkip;
+    private long _questionTotal, _studentTotal;
+    private bool _busy, _published;
+    private bool HasUnsavedContent => _selected.Count > 0 || !string.IsNullOrWhiteSpace(_name) || !string.IsNullOrWhiteSpace(_description);
+    protected override Task OnInitializedAsync() => QuestionPageAsync(0);
+    private void Add(QuestionDto question) { if (_selected.All(x => x.Question.Id != question.Id)) _selected.Add(new() { Question = question }); }
+    private void Move(SelectedQuestion question, int offset) { var index = _selected.IndexOf(question); var target = index + offset; if (target < 0 || target >= _selected.Count) return; _selected.RemoveAt(index); _selected.Insert(target, question); }
+    private void SelectStudent(TeachingStudentDto student, bool selected) { if (selected) _recipients[student.StudentId] = student.DisplayName; else _recipients.Remove(student.StudentId); }
+    private void SelectCurrentPage(bool selected) { foreach (var student in _students) SelectStudent(student, selected); }
+    private Task SearchQuestionsAsync() => QuestionPageAsync(0);
+    private Task SearchStudentsAsync() => StudentPageAsync(0);
+    private async Task QuestionPageAsync(int skip)
+    {
+        _busy = true; _error = null;
+        try { var result = await Questions.GetFormalListAsync(new() { Keyword = _questionKeyword, SkipCount = skip, MaxResultCount = 20 }); _questions = result.Items; _questionTotal = result.TotalCount; _questionSkip = skip; }
+        catch (Exception ex) { _error = GetUserFriendlyErrorMessage(ex); }
+        finally { _busy = false; }
+    }
+    private async Task StudentPageAsync(int skip)
+    {
+        _busy = true; _error = null;
+        try { var result = await Teaching.GetStudentsAsync(new() { Status = TeachingRelationshipStatus.Active, Keyword = _studentKeyword, SkipCount = skip, MaxResultCount = 20 }); _students = result.Items; _studentTotal = result.TotalCount; _studentSkip = skip; }
+        catch (Exception ex) { _error = GetUserFriendlyErrorMessage(ex); }
+        finally { _busy = false; }
+    }
+    private GenerateExamPaperDto PaperInput() => new() { Title = _name.Trim(), BuildMode = ExamPaperBuildMode.Fixed, FixedQuestions = _selected.Select(x => new ExamFixedQuestionInputDto { QuestionId = x.Question.Id, Score = x.Score, MultipleChoiceScoringMode = MultipleChoiceScoringMode.AllOrNothing }).ToList() };
+    private async Task NextAsync()
+    {
+        _error = null;
+        if (string.IsNullOrWhiteSpace(_name) || _selected.Count == 0 || _selected.Any(x => x.Score <= 0 || x.Score > 1000)) { _error = "请填写任务名称，选择至少一道已确认题目，并为每题设置有效分值。"; return; }
+        if (_step == 1) { _step = 2; await StudentPageAsync(0); return; }
+        if (_recipients.Count == 0) { _error = "请至少选择一位有效学生，不能向空名单发布任务。"; return; }
+        _busy = true;
+        try { _preview = await Exams.PreviewPaperAsync(PaperInput()); _step = 3; }
+        catch (Exception ex) { _error = GetUserFriendlyErrorMessage(ex); }
+        finally { _busy = false; }
+    }
+    private async Task PublishAsync()
+    {
+        if (_busy || _step != 3 || _preview is null || _recipients.Count == 0) return;
+        _busy = true; _error = null;
+        try
+        {
+            var plan = await Exams.CreatePlanAsync(new() { Name = _name.Trim(), Description = _description, MaxAttempts = 1, ResultVisibility = _visibility, StudentIds = _recipients.Keys.ToList(), Paper = PaperInput() });
+            _published = true;
+            Navigation.NavigateTo($"/teacher/tasks/{plan.Id}/results");
+        }
+        catch (Exception ex) { _error = GetUserFriendlyErrorMessage(ex); }
+        finally { _busy = false; }
+    }
+    private async Task ConfirmNavigationAsync(LocationChangingContext context)
+    {
+        if (!HasUnsavedContent || _published) return;
+        if (await Dialogs.ShowMessageBoxAsync("离开任务编辑", "任务尚未发布。离开后本次未发布内容不会保存，是否继续？", yesText: "离开", cancelText: "继续编辑") != true) context.PreventNavigation();
+    }
+}

@@ -6,6 +6,10 @@ The current application includes organization and permission management, knowled
 
 ## KnowPulse docs
 
+* [项目业务文档：教师知识库出题与学生小程序答题](docs/business-requirements.md)
+* [项目改造计划：功能保留、调整、移除与实施顺序](docs/project-refactoring-plan.md)
+* [教学核心闭环：运行方式、实施边界与验证记录](docs/teaching-core-verification.md)
+* [项目全景导读：目录、架构、业务流程、数据权限与代码审计](docs/project-guide/README.md)
 * [详细使用操作手册](docs/user-operation-guide.md)
 * [Development environment](docs/development-environment.md)
 * [MVP-0 task breakdown](docs/mvp-0-task-breakdown.md)
@@ -27,6 +31,53 @@ This is a layered startup solution based on [Domain Driven Design (DDD)](https:/
 The solution comes with a default configuration that works out of the box. However, you may consider to change the following configuration before running your solution:
 
 * Check the `ConnectionStrings` in `appsettings.json` files under the `KnowPulse.HttpApi.Host` and `KnowPulse.DbMigrator` projects and change it if you need.
+
+#### 千问 Embedding 配置
+
+资料处理通过 LiteLLM 调用千问 `text-embedding-v4`，输出固定为 1536 维。主、备用 alias 均使用同一模型，聊天出题继续使用现有 DeepSeek 配置。
+
+在后端仓库根目录的本地 `.env` 填写 `DASHSCOPE_API_KEY`，不要提交或放入 API Host／小程序。`DASHSCOPE_API_BASE` 默认为 `https://dashscope.aliyuncs.com/compatible-mode/v1`（北京地域）；其他地域或业务空间专属域名按[阿里云官方接口说明](https://help.aliyun.com/zh/model-studio/embedding-interfaces-compatible-with-openai)配置，与密钥所属地域保持一致。填写后执行：
+
+```powershell
+docker compose up -d --no-deps litellm
+```
+
+配置使用新集合 `knowledge_chunks_qwen_v4_1536`，不删除或混用原集合；已有资料需要创建新的处理任务。已有数据库的模型目录与用途绑定属于持久化设置，应在维护页 `/rag/models` 同步 Embedding 业务版本 `2026-10-qwen-embedding-v4-1536`；仅修改 appsettings 不会覆盖已保存的绑定。当前隔离验证环境使用单独的千问集合，详见[验证记录](docs/teaching-core-verification.md)。
+
+Qdrant 服务端 `QDRANT__SERVICE__API_KEY` 与应用端 `KNOWPULSE_QDRANT_API_KEY` 必须一致。示例仅提供开发值，本机验证已使用独立随机值；真实值仍放在本地 `.env`。API Host 启动前须将 `KNOWPULSE_LITELLM_API_KEY`、`KNOWPULSE_QDRANT_API_KEY` 注入进程环境，仓库 `.env` 不会由 `dotnet run` 自动加载。
+
+#### 微信小程序登录配置
+
+后端 API Host 已自动加载项目目录下的 `appsettings.secrets.json`。在后端仓库 `KnowPulse/` 根目录执行以下命令，从模板创建本地配置；已有文件会保留：
+
+```powershell
+if (-not (Test-Path .\src\KnowPulse.HttpApi.Host\appsettings.secrets.json)) {
+    Copy-Item .\src\KnowPulse.HttpApi.Host\appsettings.secrets.example.json .\src\KnowPulse.HttpApi.Host\appsettings.secrets.json
+}
+```
+
+编辑 `src/KnowPulse.HttpApi.Host/appsettings.secrets.json`，填入同一个微信小程序的 AppID 和 AppSecret；若已有其他配置，只合并下面的 `WeChat` 节：
+
+```json
+{
+  "WeChat": {
+    "MiniProgram": {
+      "AppId": "填写你的小程序 AppID",
+      "AppSecret": "填写你的小程序 AppSecret"
+    }
+  }
+}
+```
+
+保存后重启 API Host：
+
+```powershell
+dotnet run --project .\src\KnowPulse.HttpApi.Host
+```
+
+- 后端 `AppId` 必须与平级小程序工程 `KnowPulse.MiniProgram/project.config.json` 中的 `appid` 一致；API 地址在该工程的 `miniprogram/config.js` 中配置。
+- `appsettings.secrets.example.json` 只保留空值模板；真实密钥只填入 `appsettings.secrets.json`。该文件已加入 `.gitignore`，不要提交到 Git 或放入小程序代码。
+- 仓库根目录的 `.env` 不会自动加载到 API Host，不要只把微信配置写在 `.env` 中。
 
 ### Before running the application
 

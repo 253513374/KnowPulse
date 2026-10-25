@@ -16,6 +16,8 @@ using Volo.Abp.AspNetCore.Mvc.UI.Theme.LeptonXLite;
 using Volo.Abp.AspNetCore.Mvc.UI.Theme.LeptonXLite.Bundling;
 using Microsoft.OpenApi;
 using OpenIddict.Validation.AspNetCore;
+using KnowPulse.Authentication;
+using Volo.Abp.OpenIddict.ExtensionGrantTypes;
 using Volo.Abp;
 using Volo.Abp.Account;
 using Volo.Abp.Account.Web;
@@ -57,6 +59,7 @@ public class KnowPulseHttpApiHostModule : AbpModule
     /// </summary>
     public override void PreConfigureServices(ServiceConfigurationContext context)
     {
+        PreConfigure<OpenIddictServerBuilder>(builder => builder.Configure(options => options.GrantTypes.Add(WeChatTokenExtensionGrant.GrantType)));
         PreConfigure<OpenIddictBuilder>(builder =>
         {
             builder.AddValidation(options =>
@@ -105,6 +108,23 @@ public class KnowPulseHttpApiHostModule : AbpModule
     /// </summary>
     private void ConfigureAuthentication(ServiceConfigurationContext context)
     {
+        context.Services.Configure<Microsoft.AspNetCore.Authentication.Cookies.CookieAuthenticationOptions>(
+            Microsoft.AspNetCore.Identity.IdentityConstants.ApplicationScheme, options =>
+            {
+                options.Events.OnRedirectToLogin = redirect =>
+                {
+                    if (redirect.Request.Path.StartsWithSegments("/api")) redirect.Response.StatusCode = 401;
+                    else redirect.Response.Redirect(redirect.RedirectUri);
+                    return System.Threading.Tasks.Task.CompletedTask;
+                };
+                options.Events.OnRedirectToAccessDenied = redirect =>
+                {
+                    if (redirect.Request.Path.StartsWithSegments("/api")) redirect.Response.StatusCode = 403;
+                    else redirect.Response.Redirect(redirect.RedirectUri);
+                    return System.Threading.Tasks.Task.CompletedTask;
+                };
+            });
+        Configure<AbpOpenIddictExtensionGrantsOptions>(options => options.Grants.Add(WeChatTokenExtensionGrant.GrantType, new WeChatTokenExtensionGrant()));
         context.Services.ForwardIdentityAuthenticationForBearer(OpenIddictValidationAspNetCoreDefaults.AuthenticationScheme);
         context.Services.Configure<AbpClaimsPrincipalFactoryOptions>(options =>
         {

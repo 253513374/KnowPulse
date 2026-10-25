@@ -8,6 +8,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using KnowPulse.AiModelManagement;
+using KnowPulse.KnowledgeBase;
 using KnowPulse.Permissions;
 using KnowPulse.QuestionBank;
 using KnowPulse.RagAI;
@@ -26,7 +27,7 @@ namespace KnowPulse.AiQuestioning;
 /// 但始终只产出候选题或待审核题，不能绕过题库审核流直接生成正式考试题。
 /// </summary>
 [Authorize(KnowPulsePermissions.QuestionBank.AiGeneration)]
-public class AiQuestionGenerationAppService : KnowPulseAppService, IAiQuestionGenerationAppService
+public partial class AiQuestionGenerationAppService : KnowPulseAppService, IAiQuestionGenerationAppService
 {
     /// <summary>
     /// 模型响应 JSON 解析选项。
@@ -165,6 +166,10 @@ public class AiQuestionGenerationAppService : KnowPulseAppService, IAiQuestionGe
         await CheckMvpPermissionAsync(KnowPulsePermissions.QuestionBank.AiGeneration);
 
         var queryable = await _modelCallLogRepository.GetQueryableAsync();
+        var tasks = await _taskRepository.GetQueryableAsync();
+        var ownIds = tasks.Where(x => x.OwnerTeacherId == CurrentUser.Id ||
+            (x.OwnerTeacherId == null && IsLegacyAdministrator)).Select(x => x.Id);
+        queryable = queryable.Where(x => ownIds.Contains(x.TaskId));
         if (input.TaskId.HasValue)
         {
             queryable = queryable.Where(x => x.TaskId == input.TaskId.Value);
@@ -229,6 +234,8 @@ public class AiQuestionGenerationAppService : KnowPulseAppService, IAiQuestionGe
         await CheckMvpPermissionAsync(KnowPulsePermissions.QuestionBank.AiGeneration);
 
         var queryable = await _taskRepository.GetQueryableAsync();
+        queryable = queryable.Where(x => x.OwnerTeacherId == CurrentUser.Id ||
+            (x.OwnerTeacherId == null && IsLegacyAdministrator));
         if (input.Status.HasValue)
         {
             queryable = queryable.Where(x => x.Status == input.Status.Value);
@@ -277,7 +284,7 @@ public class AiQuestionGenerationAppService : KnowPulseAppService, IAiQuestionGe
     public virtual async Task<AiQuestionGenerationTaskDto> GetAsync(Guid id)
     {
         await CheckMvpPermissionAsync(KnowPulsePermissions.QuestionBank.AiGeneration);
-        return await MapTaskToDtoAsync(await _taskRepository.GetAsync(id));
+        return await MapTaskToDtoAsync(await GetOwnedTaskAsync(id));
     }
 
     /// <summary>
@@ -287,7 +294,9 @@ public class AiQuestionGenerationAppService : KnowPulseAppService, IAiQuestionGe
     public virtual async Task<AiQuestionCandidateDto> GetCandidateAsync(Guid id)
     {
         await CheckMvpPermissionAsync(KnowPulsePermissions.QuestionBank.AiGeneration);
-        return await MapCandidateToDtoAsync(await _candidateRepository.GetAsync(id));
+        var candidate = await _candidateRepository.GetAsync(id);
+        await GetOwnedTaskAsync(candidate.TaskId);
+        return await MapCandidateToDtoAsync(candidate);
     }
 
     /// <summary>
@@ -297,6 +306,10 @@ public class AiQuestionGenerationAppService : KnowPulseAppService, IAiQuestionGe
     public virtual async Task<AiQuestionGenerationTaskDto> CreateAsync(CreateAiQuestionGenerationTaskDto input)
     {
         await CheckMvpPermissionAsync(KnowPulsePermissions.QuestionBank.AiGeneration);
+        var selectedIds = input.KnowledgeItemIds.Distinct().ToList();
+        if (selectedIds.Count == 0 && !IsLegacyAdministrator)
+            throw new UserFriendlyException("请先选择本次用于出题的资料。");
+        await EnsureSourcesAvailableAsync(selectedIds);
 
         var template = await EnsureDefaultPromptTemplateAsync();
         // 使用配置上限兜底前端输入，避免任务一次性请求过多候选题或上下文片段。
@@ -322,6 +335,7 @@ public class AiQuestionGenerationAppService : KnowPulseAppService, IAiQuestionGe
             input.SecurityLevel,
             NormalizeTags(input.Tags));
 
+        task.SetTeacherSource(CurrentUser.Id!.Value, JsonSerializer.Serialize(selectedIds));
         await _taskRepository.InsertAsync(task, autoSave: true);
         await ExecuteTaskAsync(task, template, CancellationToken.None);
         return await GetAsync(task.Id);
@@ -335,7 +349,7 @@ public class AiQuestionGenerationAppService : KnowPulseAppService, IAiQuestionGe
     {
         await CheckMvpPermissionAsync(KnowPulsePermissions.QuestionBank.AiGeneration);
 
-        var task = await _taskRepository.GetAsync(id);
+        var task = await GetOwnedTaskAsync(id);
         await DeleteCandidatesAsync(task.Id);
 
         var template = await _promptTemplateRepository.GetAsync(task.PromptTemplateId);
@@ -379,14 +393,19 @@ public class AiQuestionGenerationAppService : KnowPulseAppService, IAiQuestionGe
         IReadOnlyList<RetrievedChunk> chunks;
         try
         {
+            var selectedIds = JsonSerializer.Deserialize<List<Guid>>(task.KnowledgeItemIdsJson) ?? [];
+            await EnsureSourcesAvailableAsync(selectedIds);
             // RAG 检索必须带上租户和用户上下文，确保进入 prompt 的知识片段已经通过 MVP-1 权限边界。
             chunks = await _knowledgeRetriever.SearchAsync(new RagSearchRequest
             {
                 Query = task.RetrievalQuery,
+                KnowledgeItemIds = selectedIds,
                 TopK = task.TopK,
                 TenantId = CurrentTenant.Id,
                 UserId = CurrentUser.Id
             }, cancellationToken);
+            if (selectedIds.Count > 0)
+                chunks = chunks.Where(x => selectedIds.Contains(x.KnowledgeItemId)).ToList();
         }
         catch (Exception ex)
         {
@@ -829,13 +848,14 @@ public class AiQuestionGenerationAppService : KnowPulseAppService, IAiQuestionGe
             contexts.AppendLine(TrimInline(chunk.Chunk.Content, _options.AiQuestionGeneration.MaxPromptChunkLength));
         }
 
-        return template.UserPromptTemplate
+        var prompt = template.UserPromptTemplate
             .Replace("{questionType}", task.Type.ToString(), StringComparison.OrdinalIgnoreCase)
             .Replace("{difficulty}", task.Difficulty.ToString(), StringComparison.OrdinalIgnoreCase)
             .Replace("{count}", task.RequestedCount.ToString(), StringComparison.OrdinalIgnoreCase)
             .Replace("{knowledgeScope}", task.KnowledgeScope, StringComparison.OrdinalIgnoreCase)
             .Replace("{securityLevel}", task.SecurityLevel.ToString(), StringComparison.OrdinalIgnoreCase)
             .Replace("{contexts}", contexts.ToString(), StringComparison.OrdinalIgnoreCase);
+        return prompt + "\n\n教师提供的出题范围与要求（须遵守上述题型、难度、数量和引用来源约束）：\n" + task.RetrievalQuery;
     }
 
     /// <summary>
@@ -966,6 +986,8 @@ public class AiQuestionGenerationAppService : KnowPulseAppService, IAiQuestionGe
         return new AiQuestionGenerationTaskDto
         {
             Id = task.Id,
+            OwnerTeacherId = task.OwnerTeacherId,
+            KnowledgeItemIds = JsonSerializer.Deserialize<List<Guid>>(task.KnowledgeItemIdsJson) ?? [],
             CreationTime = task.CreationTime,
             CreatorId = task.CreatorId,
             LastModificationTime = task.LastModificationTime,

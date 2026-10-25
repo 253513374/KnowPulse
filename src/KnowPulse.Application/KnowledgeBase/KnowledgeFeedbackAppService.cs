@@ -55,14 +55,25 @@ public class KnowledgeFeedbackAppService : KnowPulseAppService, IKnowledgeFeedba
         await CheckMvpPermissionAsync(KnowPulsePermissions.KnowledgeBase.Items);
         var submitterUserId = GetCurrentUserId();
         var item = await GetVisibleItemAsync(input.KnowledgeItemId);
-        await EnsureSourceVersionBelongsToItemAsync(item.Id, input.KnowledgeVersionId);
+        var sourceVersionId = input.KnowledgeVersionId;
+        if (item.OwnerTeacherId.HasValue && item.OwnerTeacherId != CurrentUser.Id)
+        {
+            if (!item.IsActive || !item.CurrentPublishedVersionId.HasValue ||
+                (sourceVersionId.HasValue && sourceVersionId != item.CurrentPublishedVersionId))
+                throw new AbpAuthorizationException("共享资料只能针对当前发布版本提交反馈。");
+            sourceVersionId = item.CurrentPublishedVersionId;
+            var current = await _versionRepository.GetAsync(sourceVersionId.Value);
+            if (current.Status != KnowledgeVersionStatus.Published || !current.IsCurrentPublished)
+                throw new AbpAuthorizationException("共享资料当前不可访问。");
+        }
+        await EnsureSourceVersionBelongsToItemAsync(item.Id, sourceVersionId);
 
         var feedback = await _feedbackRepository.InsertAsync(
             new KnowledgeFeedback(
                 GuidGenerator.Create(),
                 CurrentTenant.Id,
                 item.Id,
-                input.KnowledgeVersionId,
+                sourceVersionId,
                 submitterUserId,
                 input.Type,
                 input.Title.Trim(),
@@ -82,7 +93,9 @@ public class KnowledgeFeedbackAppService : KnowPulseAppService, IKnowledgeFeedba
     {
         await CheckMvpPermissionAsync(KnowPulsePermissions.KnowledgeBase.Feedback);
 
-        var queryable = await _feedbackRepository.GetQueryableAsync();
+        var ownedItems = (await _itemRepository.GetQueryableAsync()).Where(x => x.OwnerTeacherId == CurrentUser.Id ||
+            (x.OwnerTeacherId == null && IsLegacyAdministrator));
+        var queryable = (await _feedbackRepository.GetQueryableAsync()).Where(x => ownedItems.Any(item => item.Id == x.KnowledgeItemId));
         queryable = ApplyFilters(queryable, input);
 
         var totalCount = await AsyncExecuter.CountAsync(queryable);
@@ -105,7 +118,7 @@ public class KnowledgeFeedbackAppService : KnowPulseAppService, IKnowledgeFeedba
     public virtual async Task<KnowledgeFeedbackDto> GetAsync(Guid id)
     {
         await CheckMvpPermissionAsync(KnowPulsePermissions.KnowledgeBase.Feedback);
-        return await MapToDtoAsync(await _feedbackRepository.GetAsync(id));
+        return await MapToDtoAsync(await GetOwnedFeedbackAsync(id));
     }
 
     /// <summary>
@@ -118,7 +131,7 @@ public class KnowledgeFeedbackAppService : KnowPulseAppService, IKnowledgeFeedba
     public virtual async Task<KnowledgeFeedbackDto> ProcessAsync(Guid id, ProcessKnowledgeFeedbackDto input)
     {
         await CheckMvpPermissionAsync(KnowPulsePermissions.KnowledgeBase.Feedback);
-        var feedback = await _feedbackRepository.GetAsync(id);
+        var feedback = await GetOwnedFeedbackAsync(id);
         feedback.StartProcessing(GetCurrentUserId(), DateTime.UtcNow, TrimToNull(input.Resolution));
         feedback = await _feedbackRepository.UpdateAsync(feedback, autoSave: true);
         return await MapToDtoAsync(feedback);
@@ -135,7 +148,7 @@ public class KnowledgeFeedbackAppService : KnowPulseAppService, IKnowledgeFeedba
         await CheckMvpPermissionAsync(KnowPulsePermissions.KnowledgeBase.Feedback);
         await CheckMvpPermissionAsync(KnowPulsePermissions.KnowledgeBase.Versions);
 
-        var feedback = await _feedbackRepository.GetAsync(id);
+        var feedback = await GetOwnedFeedbackAsync(id);
         if (feedback.Status != KnowledgeFeedbackStatus.Processing)
         {
             throw new BusinessException(KnowPulseDomainErrorCodes.KnowledgeFeedbackRevisionRequiresProcessing);
@@ -185,7 +198,7 @@ public class KnowledgeFeedbackAppService : KnowPulseAppService, IKnowledgeFeedba
     public virtual async Task<KnowledgeFeedbackDto> ResolveAsync(Guid id, ResolveKnowledgeFeedbackDto input)
     {
         await CheckMvpPermissionAsync(KnowPulsePermissions.KnowledgeBase.Feedback);
-        var feedback = await _feedbackRepository.GetAsync(id);
+        var feedback = await GetOwnedFeedbackAsync(id);
         var linkedVersionId = feedback.LinkedKnowledgeVersionId;
         if (!linkedVersionId.HasValue)
         {
@@ -227,7 +240,7 @@ public class KnowledgeFeedbackAppService : KnowPulseAppService, IKnowledgeFeedba
     public virtual async Task<KnowledgeFeedbackDto> CloseAsync(Guid id, CloseKnowledgeFeedbackDto input)
     {
         await CheckMvpPermissionAsync(KnowPulsePermissions.KnowledgeBase.Feedback);
-        var feedback = await _feedbackRepository.GetAsync(id);
+        var feedback = await GetOwnedFeedbackAsync(id);
         feedback.Close(GetCurrentUserId(), DateTime.UtcNow, TrimToNull(input.CloseReason));
         feedback = await _feedbackRepository.UpdateAsync(feedback, autoSave: true);
         return await MapToDtoAsync(feedback);
@@ -243,7 +256,7 @@ public class KnowledgeFeedbackAppService : KnowPulseAppService, IKnowledgeFeedba
     public virtual async Task<KnowledgeFeedbackDto> LinkVersionAsync(Guid id, LinkKnowledgeFeedbackVersionDto input)
     {
         await CheckMvpPermissionAsync(KnowPulsePermissions.KnowledgeBase.Feedback);
-        var feedback = await _feedbackRepository.GetAsync(id);
+        var feedback = await GetOwnedFeedbackAsync(id);
         await EnsureLinkedVersionBelongsToFeedbackItemAsync(feedback, input.LinkedKnowledgeVersionId);
 
         feedback.LinkKnowledgeVersion(
@@ -295,13 +308,21 @@ public class KnowledgeFeedbackAppService : KnowPulseAppService, IKnowledgeFeedba
         return queryable;
     }
 
+    private async Task<KnowledgeFeedback> GetOwnedFeedbackAsync(Guid id)
+    {
+        var feedback = await _feedbackRepository.GetAsync(id);
+        var item = await _itemRepository.GetAsync(feedback.KnowledgeItemId);
+        EnsureTeachingOwner(item.OwnerTeacherId);
+        return feedback;
+    }
+
     private async Task<KnowledgeItem> GetVisibleItemAsync(Guid id)
     {
         var item = await _itemRepository.GetAsync(id);
         var scopes = await GetEnabledScopesAsync(id);
         var accessContext = await _accessContextProvider.CreateAsync();
 
-        if (!KnowledgeAccessEvaluator.CanAccess(scopes, accessContext))
+        if (!KnowledgeAccessEvaluator.CanAccess(item, scopes, accessContext, IsLegacyAdministrator))
         {
             throw new AbpAuthorizationException("The current user is not allowed to access this knowledge item.");
         }

@@ -180,7 +180,11 @@ public class Mvp2AiQuestionGenerationAppServiceTests : KnowPulseEntityFrameworkC
             "员工请假流程考点",
             "员工请假流程第一步是什么？");
 
-        var task = await _generationAppService.CreateAsync(CreateInput("员工请假流程"));
+        var input = CreateInput("员工请假流程");
+        input.KnowledgePointText = "只考概念，不出计算题";
+        input.KnowledgeItemIds = [chunk.KnowledgeItemId];
+
+        var task = await _generationAppService.CreateAsync(input);
 
         task.Status.ShouldBe(AiQuestionGenerationTaskStatus.Generated);
         task.GeneratedCount.ShouldBe(1);
@@ -198,7 +202,16 @@ public class Mvp2AiQuestionGenerationAppServiceTests : KnowPulseEntityFrameworkC
         candidate.Citations[0].SourceExcerpt.Length.ShouldBeLessThanOrEqualTo(512);
         candidate.Citations[0].SourceHash.ShouldNotBeNullOrWhiteSpace();
         _chatClient.CallCount.ShouldBe(1);
-        _chatClient.Requests[0].UserPrompt.ShouldContain(chunk.Id.ToString());
+        var prompt = _chatClient.Requests.Single().UserPrompt;
+        prompt.ShouldContain("题型=SingleChoice");
+        prompt.ShouldContain("难度=Normal");
+        prompt.ShouldContain("数量=1");
+        prompt.ShouldContain("知识范围=员工请假流程");
+        prompt.ShouldContain("每道题必须至少引用一个 citations.chunkId");
+        prompt.ShouldContain("chunkId 必须来自下方知识片段");
+        prompt.ShouldContain(chunk.Id.ToString());
+        task.RetrievalQuery.ShouldContain("只考概念，不出计算题");
+        prompt.ShouldContain("只考概念，不出计算题");
 
         var adopted = await _questionWorkflowAppService.AdoptAiCandidateAsync(candidate.Id);
 
@@ -221,6 +234,12 @@ public class Mvp2AiQuestionGenerationAppServiceTests : KnowPulseEntityFrameworkC
         logs[0].QueryHash.ShouldNotBeNullOrWhiteSpace();
         logs[0].QuerySummary.ShouldContain("员工请假流程");
         logs[0].CandidateCount.ShouldBe(1);
+
+        var retried = await _generationAppService.RetryAsync(task.Id);
+
+        retried.Status.ShouldBe(AiQuestionGenerationTaskStatus.Generated);
+        _chatClient.CallCount.ShouldBe(2);
+        _chatClient.Requests[1].UserPrompt.ShouldContain("只考概念，不出计算题");
     }
 
     /// <summary>
@@ -563,17 +582,16 @@ public class Mvp2AiQuestionGenerationAppServiceTests : KnowPulseEntityFrameworkC
             Code = $"AI-{suffix}",
             Name = $"{titlePrefix} Category {suffix}"
         });
-        var item = await _itemAppService.CreateAsync(new CreateKnowledgeItemDto
+        var itemInput = new CreateKnowledgeItemDto
         {
             CategoryId = category.Id,
             Title = $"{titlePrefix} {suffix}",
             Summary = "AI question generation test item"
-        });
+        };
 
-        if (scope != null)
-        {
-            await _itemAppService.CreatePermissionScopeAsync(item.Id, scope);
-        }
+        var item = scope == null
+            ? await _itemAppService.CreateAsync(itemInput)
+            : await CreateLegacyKnowledgeAsync(itemInput);
 
         var version = await _itemAppService.CreateVersionAsync(item.Id, new CreateKnowledgeVersionDto
         {
@@ -581,6 +599,12 @@ public class Mvp2AiQuestionGenerationAppServiceTests : KnowPulseEntityFrameworkC
             ContentText = content
         });
         await _itemAppService.PublishVersionAsync(item.Id, version.Id);
+
+        if (scope != null)
+        {
+            await _itemAppService.CreatePermissionScopeAsync(item.Id, scope);
+        }
+
         var ingestion = await _ingestionPipeline.IngestAsync(version.Id);
         ingestion.Succeeded.ShouldBeTrue();
 

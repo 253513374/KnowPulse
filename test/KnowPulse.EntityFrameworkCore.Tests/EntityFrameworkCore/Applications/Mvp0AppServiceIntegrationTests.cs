@@ -127,7 +127,7 @@ public class Mvp0AppServiceIntegrationTests : KnowPulseEntityFrameworkCoreTestBa
             Name = $"Tag {suffix}"
         });
 
-        var item = await _itemAppService.CreateAsync(new CreateKnowledgeItemDto
+        var item = await CreateLegacyKnowledgeAsync(new CreateKnowledgeItemDto
         {
             CategoryId = category.Id,
             Title = $"Knowledge {suffix}",
@@ -159,16 +159,11 @@ public class Mvp0AppServiceIntegrationTests : KnowPulseEntityFrameworkCoreTestBa
         });
         visibleList.Items.ShouldContain(x => x.Id == item.Id);
 
-        var hiddenItem = await _itemAppService.CreateAsync(new CreateKnowledgeItemDto
+        var hiddenItem = await CreateLegacyKnowledgeAsync(new CreateKnowledgeItemDto
         {
             CategoryId = category.Id,
             Title = $"Hidden Knowledge {suffix}",
             Summary = "Should not be visible to current user"
-        });
-        await _itemAppService.CreatePermissionScopeAsync(hiddenItem.Id, new CreateKnowledgePermissionScopeDto
-        {
-            ScopeType = KnowledgePermissionScopeType.Department,
-            TargetId = blockedDepartment.Id
         });
         var hiddenVersion = await _itemAppService.CreateVersionAsync(hiddenItem.Id, new CreateKnowledgeVersionDto
         {
@@ -180,6 +175,12 @@ public class Mvp0AppServiceIntegrationTests : KnowPulseEntityFrameworkCoreTestBa
             hiddenItem.Id,
             hiddenVersion.Id,
             new RemoteStreamContent(new MemoryStream(hiddenBytes), "hidden.txt", "text/plain", hiddenBytes.Length));
+
+        await _itemAppService.CreatePermissionScopeAsync(hiddenItem.Id, new CreateKnowledgePermissionScopeDto
+        {
+            ScopeType = KnowledgePermissionScopeType.Department,
+            TargetId = blockedDepartment.Id
+        });
 
         var filteredList = await _itemAppService.GetListAsync(new PagedAndSortedResultRequestDto
         {
@@ -323,7 +324,7 @@ public class Mvp0AppServiceIntegrationTests : KnowPulseEntityFrameworkCoreTestBa
 
     private Task<KnowledgeItemDto> CreateItemAsync(Guid categoryId, string title)
     {
-        return _itemAppService.CreateAsync(new CreateKnowledgeItemDto
+        return CreateLegacyKnowledgeAsync(new CreateKnowledgeItemDto
         {
             CategoryId = categoryId,
             Title = title,

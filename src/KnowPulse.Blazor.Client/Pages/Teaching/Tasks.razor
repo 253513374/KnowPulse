@@ -1,0 +1,50 @@
+@page "/teacher/tasks"
+@attribute [Authorize(KnowPulsePermissions.Exam.Manage)]
+@inherits KnowPulseComponentBase
+@inject IExamAppService Exams
+
+<PageTitle>答题任务 · 知脉空间</PageTitle>
+<main class="teacher-page" data-teacher-section="tasks">
+    <TeacherPageHeader Title="答题任务" Description="组织题目，指定学生，查看自己发布任务的结果。">
+        <Actions><MudButton Href="/teacher/tasks/new" Color="Color.Primary" Variant="Variant.Filled">新建任务</MudButton></Actions>
+    </TeacherPageHeader>
+    @if (_error is not null) { <MudAlert Severity="Severity.Error" role="alert">@_error</MudAlert> }
+    <MudPaper Class="teacher-panel" Elevation="0">
+        <h2>我的任务</h2><p class="teacher-muted">接收人数以各任务发布时保存的名单为准。</p>
+        <div class="teacher-toolbar">
+            <MudTextField T="string" Immediate="true" @bind-Value="_keyword" Label="搜索任务" Variant="Variant.Outlined" Disabled="_busy" />
+            <MudButton OnClick="SearchAsync" Variant="Variant.Outlined" Disabled="_busy">搜索</MudButton>
+            <MudButton OnClick="LoadAsync" Disabled="_busy">刷新</MudButton>
+        </div>
+        <MudTable T="ExamPlanDto" Items="_plans" Loading="_busy" Hover="true" Elevation="0">
+            <HeaderContent><MudTh>任务名称</MudTh><MudTh>题量与总分</MudTh><MudTh>接收人数</MudTh><MudTh>状态</MudTh><MudTh>操作</MudTh></HeaderContent>
+            <RowTemplate>
+                <MudTd DataLabel="任务名称">@context.Name</MudTd>
+                <MudTd DataLabel="题量与总分">@(context.Paper?.QuestionCount ?? 0) 题 / @(context.Paper?.TotalScore ?? 0) 分</MudTd>
+                <MudTd DataLabel="接收人数">@context.Assignments.Count 人</MudTd>
+                <MudTd DataLabel="状态">@(context.Status == ExamPlanStatus.Published ? "已发布" : context.Status == ExamPlanStatus.Draft ? "草稿" : "已停止")</MudTd>
+                <MudTd DataLabel="操作"><MudButton Color="Color.Primary" Href="@($"/teacher/tasks/{context.Id}/results")">查看结果</MudButton></MudTd>
+            </RowTemplate>
+            <NoRecordsContent><MudText>@(_error is null ? "还没有答题任务。从已确认题目开始组织练习。" : "列表未能加载，请重试。")</MudText></NoRecordsContent>
+        </MudTable>
+        <MvpPager SkipCount="_skip" TotalCount="_total" IsBusy="_busy" OnSkipCountChanged="PageAsync" />
+        <MudAlert Severity="Severity.Info">学生打开或刷新小程序即可查看获指派的任务，不额外发送微信消息提醒。新加入学生不会自动收到历史任务。</MudAlert>
+    </MudPaper>
+</main>
+@code {
+    private IReadOnlyList<ExamPlanDto> _plans = [];
+    private string? _keyword, _error;
+    private bool _busy;
+    private int _skip;
+    private long _total;
+    protected override Task OnInitializedAsync() => LoadAsync();
+    private Task SearchAsync() => PageAsync(0);
+    private async Task PageAsync(int skip) { _skip = skip; await LoadAsync(); }
+    private async Task LoadAsync()
+    {
+        _busy = true; _error = null;
+        try { var result = await Exams.GetPlanListAsync(new() { Keyword = _keyword, SkipCount = _skip, MaxResultCount = 20 }); _plans = result.Items; _total = result.TotalCount; }
+        catch (Exception ex) { _error = GetUserFriendlyErrorMessage(ex); }
+        finally { _busy = false; }
+    }
+}

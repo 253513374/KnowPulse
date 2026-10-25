@@ -44,6 +44,7 @@ public class KnowPulseEntityFrameworkCoreModule : AbpModule
                 /* Remove "includeAllEntities: true" to create
                  * default repositories only for aggregate roots */
             options.AddDefaultRepositories(includeAllEntities: true);
+            options.AddRepository<KnowPulse.Exam.ExamAttempt, KnowPulse.EntityFrameworkCore.Exam.EfCoreExamAttemptRepository>();
         });
 
         Configure<AbpDbContextOptions>(options =>

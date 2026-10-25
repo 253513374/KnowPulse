@@ -16,6 +16,7 @@ namespace KnowPulse.RagAI;
 /// 权限化知识检索。Qdrant 只做候选召回和 payload 粗过滤，
 /// 返回给调用方前必须回 PostgreSQL 校验知识状态、版本和权限范围。
 /// </summary>
+[Volo.Abp.RemoteService(false)]
 public class KnowledgeRetriever : KnowPulseAppService, IKnowledgeRetriever
 {
     // 向量库只能做候选召回，TopK 过小会导致权限二次校验后没有足够结果；
@@ -164,6 +165,7 @@ public class KnowledgeRetriever : KnowPulseAppService, IKnowledgeRetriever
                 TopK = CalculateCandidateLimit(topK),
                 PermissionFilter = new KnowledgeVectorPermissionFilter
                 {
+                    KnowledgeItemIds = request.KnowledgeItemIds,
                     TenantId = tenantId,
                     UserId = accessContext.UserId,
                     DepartmentIds = accessContext.DepartmentIds.ToArray(),
@@ -198,7 +200,9 @@ public class KnowledgeRetriever : KnowPulseAppService, IKnowledgeRetriever
         {
             // 这是 MVP-1 RAG 安全边界的核心：任何 Qdrant 命中都必须重新读取业务主库。
             // 如果主库中版本已下架、权限已收窄或知识已停用，命中会在这里被丢弃。
-            results = await ApplyBusinessAuthorizationAsync(vectorHits, accessContext, tenantId, topK, cancellationToken);
+            var scopedHits = request.KnowledgeItemIds.Count == 0 ? vectorHits :
+                vectorHits.Where(x => request.KnowledgeItemIds.Contains(x.KnowledgeItemId)).ToList();
+            results = await ApplyBusinessAuthorizationAsync(scopedHits, accessContext, tenantId, topK, request.KnowledgeItemIds, cancellationToken);
         }
         catch (Exception ex)
         {
@@ -311,6 +315,7 @@ public class KnowledgeRetriever : KnowPulseAppService, IKnowledgeRetriever
         KnowledgeAccessContext accessContext,
         Guid? tenantId,
         int topK,
+        IReadOnlyList<Guid> selectedKnowledgeIds,
         CancellationToken cancellationToken)
     {
         if (vectorHits.Count == 0)
@@ -341,7 +346,8 @@ public class KnowledgeRetriever : KnowPulseAppService, IKnowledgeRetriever
                 continue;
             }
 
-            if (!CanReturnChunk(chunk, version, item, scopesByItemId.GetValueOrDefault(item.Id) ?? new List<KnowledgePermissionScope>(), accessContext, tenantId))
+            if ((selectedKnowledgeIds.Count > 0 && !selectedKnowledgeIds.Contains(item.Id)) ||
+                !CanReturnChunk(chunk, version, item, scopesByItemId.GetValueOrDefault(item.Id) ?? new List<KnowledgePermissionScope>(), accessContext, tenantId))
             {
                 continue;
             }
@@ -455,7 +461,7 @@ public class KnowledgeRetriever : KnowPulseAppService, IKnowledgeRetriever
     /// <summary>
     /// 判断某个 chunk 在当前主库状态和访问上下文下是否可返回。
     /// </summary>
-    private static bool CanReturnChunk(
+    private bool CanReturnChunk(
         KnowledgeChunk chunk,
         KnowledgeVersion version,
         KnowledgeItem item,
@@ -475,7 +481,7 @@ public class KnowledgeRetriever : KnowPulseAppService, IKnowledgeRetriever
                TenantMatches(chunk.TenantId, tenantId) &&
                TenantMatches(version.TenantId, tenantId) &&
                TenantMatches(item.TenantId, tenantId) &&
-               KnowledgeAccessEvaluator.CanAccess(scopes, accessContext);
+               KnowledgeAccessEvaluator.CanAccess(item, scopes, accessContext, IsLegacyAdministrator);
     }
 
     /// <summary>

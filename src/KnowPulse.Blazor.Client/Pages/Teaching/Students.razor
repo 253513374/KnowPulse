@@ -1,0 +1,115 @@
+@page "/teacher/students"
+@attribute [Authorize(KnowPulsePermissions.Exam.Manage)]
+@inherits KnowPulseComponentBase
+@inject ITeachingAppService Teaching
+@inject IDialogService Dialogs
+
+<PageTitle>我的学生 · 知脉空间</PageTitle>
+<main class="teacher-page" data-teacher-section="students">
+    <TeacherPageHeader Title="我的学生" Description="维护自己的学生名单，发布任务时再选择接收人。">
+        <Actions><MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="ShowInvitationAsync" Disabled="_busy">邀请学生</MudButton></Actions>
+    </TeacherPageHeader>
+    @if (_error is not null) { <MudAlert Severity="Severity.Error" role="alert">@_error</MudAlert> }
+    @if (_success is not null) { <MudAlert Severity="Severity.Success" role="status">@_success</MudAlert> }
+    @if (_invitation is not null)
+    {
+        <MudPaper Class="teacher-panel" Elevation="0">
+            <h2>@_invitation.TeacherName 的邀请码</h2>
+            <p class="teacher-invitation">@_invitation.InvitationCode</p>
+            <p>请学生在小程序中输入邀请码，核对教师后申请加入。</p>
+            <MudAlert Severity="Severity.Info">加入名单不会收到历史任务。后续发布时，仍需明确选择接收学生。</MudAlert>
+            <MudButton OnClick="() => _invitation = null">收起邀请码</MudButton>
+        </MudPaper>
+    }
+    <MudPaper Class="teacher-panel" Elevation="0">
+        <h2>@(_status == TeachingRelationshipStatus.Pending ? "待确认申请" : "有效学生名单")</h2>
+        <div class="teacher-actions">
+            <MudButton Variant="@(_status == TeachingRelationshipStatus.Active ? Variant.Filled : Variant.Text)" Color="Color.Primary" OnClick="() => ChangeStatusAsync(TeachingRelationshipStatus.Active)" Disabled="_busy">有效学生</MudButton>
+            <MudButton Variant="@(_status == TeachingRelationshipStatus.Pending ? Variant.Filled : Variant.Text)" Color="Color.Primary" OnClick="() => ChangeStatusAsync(TeachingRelationshipStatus.Pending)" Disabled="_busy">加入申请</MudButton>
+        </div>
+        <div class="teacher-toolbar">
+            <MudTextField T="string" Immediate="true" Label="搜索学生" Placeholder="输入显示名称" @bind-Value="_keyword" Variant="Variant.Outlined" Disabled="_busy" />
+            <MudButton Variant="Variant.Outlined" OnClick="SearchAsync" Disabled="_busy">搜索</MudButton>
+            <MudButton OnClick="LoadAsync" Disabled="_busy">刷新</MudButton>
+        </div>
+        <MudTable T="TeachingStudentDto" Items="_students" Loading="_busy" Hover="true" Elevation="0">
+            <HeaderContent><MudTh>显示名称</MudTh><MudTh>申请时间</MudTh><MudTh>关系状态</MudTh><MudTh>操作</MudTh></HeaderContent>
+            <RowTemplate>
+                <MudTd DataLabel="显示名称">@context.DisplayName</MudTd>
+                <MudTd DataLabel="申请时间">@TeacherTime.Format(context.CreationTime)</MudTd>
+                <MudTd DataLabel="关系状态"><MudChip T="string" Color="@(_status == TeachingRelationshipStatus.Active ? Color.Success : Color.Warning)" Size="Size.Small">@(_status == TeachingRelationshipStatus.Active ? "有效" : "等待确认")</MudChip></MudTd>
+                <MudTd DataLabel="操作">
+                    @if (_status == TeachingRelationshipStatus.Pending)
+                    { <MudButton Color="Color.Primary" OnClick="() => ConfirmAsync(context)" Disabled="_busy">确认加入</MudButton> }
+                    else
+                    { <MudButton Color="Color.Error" OnClick="() => RemoveAsync(context)" Disabled="_busy">移出名单</MudButton> }
+                </MudTd>
+            </RowTemplate>
+            <NoRecordsContent><MudText>@(_error is null ? "暂无符合条件的学生。" : "列表未能加载，请重试。")</MudText></NoRecordsContent>
+        </MudTable>
+        <MvpPager SkipCount="_skip" PageSize="20" TotalCount="_total" IsBusy="_busy" OnSkipCountChanged="PageAsync" />
+        <MudAlert Severity="Severity.Info">同一学生可以关联多位教师。你只能查看自己发布任务的结果，不能看到其他教师的教学活动。</MudAlert>
+    </MudPaper>
+</main>
+
+@code {
+    private IReadOnlyList<TeachingStudentDto> _students = [];
+    private TeacherInvitationDto? _invitation;
+    private TeachingRelationshipStatus _status = TeachingRelationshipStatus.Active;
+    private string? _keyword, _error, _success;
+    private bool _busy;
+    private int _skip;
+    private long _total;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+    private Task SearchAsync() => PageAsync(0);
+    private async Task PageAsync(int skip) { _skip = skip; await LoadAsync(); }
+    private async Task ChangeStatusAsync(TeachingRelationshipStatus status) { _status = status; await PageAsync(0); }
+
+    private async Task LoadAsync()
+    {
+        _busy = true;
+        _error = null;
+        try
+        {
+            var result = await Teaching.GetStudentsAsync(new() { Status = _status, Keyword = _keyword, SkipCount = _skip, MaxResultCount = 20 });
+            _students = result.Items;
+            _total = result.TotalCount;
+        }
+        catch (Exception ex) { _error = GetUserFriendlyErrorMessage(ex); }
+        finally { _busy = false; }
+    }
+
+    private async Task ShowInvitationAsync()
+    {
+        _busy = true;
+        _error = null;
+        try { _invitation = await Teaching.GetInvitationAsync(); }
+        catch (Exception ex) { _error = GetUserFriendlyErrorMessage(ex); }
+        finally { _busy = false; }
+    }
+
+    private async Task ConfirmAsync(TeachingStudentDto student)
+    {
+        _busy = true;
+        _error = _success = null;
+        try
+        {
+            await Teaching.ConfirmAsync(student.Id);
+            _success = $"已确认 {student.DisplayName} 加入。发布新任务时可以选择该学生。";
+            await LoadAsync();
+        }
+        catch (Exception ex) { _error = GetUserFriendlyErrorMessage(ex); }
+        finally { _busy = false; }
+    }
+
+    private async Task RemoveAsync(TeachingStudentDto student)
+    {
+        if (await Dialogs.ShowMessageBoxAsync("移出学生名单", $"将 {student.DisplayName} 移出名单？移出后不能再选择该学生发布新任务，历史作答与成绩保留。", yesText: "确认移出", cancelText: "保留学生") != true) return;
+        _busy = true;
+        _error = _success = null;
+        try { await Teaching.RemoveAsync(student.Id); _success = "已移出名单，历史作答与成绩保留。"; await LoadAsync(); }
+        catch (Exception ex) { _error = GetUserFriendlyErrorMessage(ex); }
+        finally { _busy = false; }
+    }
+}

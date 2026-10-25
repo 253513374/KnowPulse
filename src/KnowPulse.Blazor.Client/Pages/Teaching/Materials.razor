@@ -1,0 +1,254 @@
+@page "/teacher/materials"
+@page "/teacher/shared"
+@attribute [Authorize(KnowPulsePermissions.KnowledgeBase.Items)]
+@inherits KnowPulseComponentBase
+@inject IKnowledgeManagementAppService Management
+@inject IKnowledgeItemAppService Knowledge
+@inject NavigationManager Navigation
+@inject IJSRuntime JS
+@inject IDialogService Dialogs
+
+<PageTitle>@(_shared ? "共享资料" : "我的资料") · 知脉空间</PageTitle>
+<NavigationLock OnBeforeInternalNavigation="ConfirmNavigationAsync" ConfirmExternalNavigation="HasUnsavedContent" />
+<main class="teacher-page" data-teacher-section="@(_shared ? "shared" : "materials")">
+    <TeacherPageHeader Title="@(_shared ? "共享资料" : "我的资料")" Description="@(_shared ? "这里展示你已获准读取并用于出题的资料。" : "你的个人出题资料，默认仅自己可见。")">
+        <Actions>@if (!_shared) { <MudButton OnClick="NewMaterial" Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_busy || _editing)">添加资料</MudButton> }<MudButton OnClick="LoadAsync" Disabled="_busy">刷新</MudButton></Actions>
+    </TeacherPageHeader>
+    @if (_error is not null) { <MudAlert Severity="Severity.Error" role="alert">@_error</MudAlert> }
+    @if (_success is not null) { <MudAlert Severity="Severity.Success" role="status">@_success</MudAlert> }
+    @if (_editing)
+    {
+        <MudPaper Class="teacher-panel" Elevation="0">
+            <h2>@(_savedItemId.HasValue ? "继续整理出题资料" : "添加出题资料")</h2><p class="teacher-muted">上传文件或录入正文。保存后会处理内容，处理完成才可用于出题。</p>
+            <MudTextField T="string" Immediate="true" Label="资料标题" @bind-Value="_title" MaxLength="256" Required="true" Variant="Variant.Outlined" Disabled="_busy" />
+            <MudTextField T="string" Immediate="true" Label="简要说明（选填）" @bind-Value="_summary" MaxLength="1024" Variant="Variant.Outlined" Disabled="_busy" />
+            <MudTextField T="string" Immediate="true" Label="资料正文" @bind-Value="_content" MaxLength="8192" Lines="8" Variant="Variant.Outlined" Disabled="_busy" HelperText="可输入正文或 Markdown，也可上传文件。" />
+            <label for="teacher-material-file">附件（文本、Markdown、可提取文字的 PDF／Word，最大 20 MB）</label>
+            <InputFile id="teacher-material-file" OnChange="SelectFile" accept=".txt,.md,.markdown,.pdf,.doc,.docx" disabled="@_busy" />
+            @if (_file is not null) { <p>@_file.Name（@((_file.Size / 1024d).ToString("0.#")) KB）</p> }
+            @if (_retainedAttachments.Count > 0) { <p>保留现有附件：@string.Join("、", _retainedAttachments.Select(x => x.FileName))。新选择的文件将作为补充资料保存。</p> }
+            <MudAlert Severity="Severity.Info">默认仅你自己可见。用于个人出题不需要先共享资料。</MudAlert>
+            <div class="teacher-actions"><MudButton OnClick="SaveAsync" Color="Color.Primary" Variant="Variant.Filled" Disabled="_busy">@(_busy ? "正在保存…" : "保存并处理")</MudButton><MudButton OnClick="CancelEditAsync" Disabled="_busy">取消</MudButton></div>
+        </MudPaper>
+    }
+    <div class="teacher-metrics">
+        <div class="teacher-metric"><span>全部资料</span><strong>@_overview.TotalCount</strong></div>
+        <div class="teacher-metric"><span>可用于出题</span><strong>@_overview.ReadyCount</strong></div>
+        <div class="teacher-metric"><span>处理中</span><strong>@_overview.PublishingCount</strong></div>
+        <div class="teacher-metric"><span>需要关注</span><strong>@_overview.NeedsAttentionCount</strong></div>
+    </div>
+    <MudPaper Class="teacher-panel" Elevation="0">
+        <h2>资料列表</h2><p class="teacher-muted">资料处理状态与共享状态分别显示。</p>
+        <div class="teacher-toolbar">
+            <MudTextField T="string" Immediate="true" Label="搜索资料" Placeholder="输入标题或关键词" @bind-Value="_keyword" Variant="Variant.Outlined" Disabled="_busy" />
+            <MudSelect T="KnowledgeManagementStatus?" Label="处理状态" @bind-Value="_status" Variant="Variant.Outlined" Disabled="_busy"><MudSelectItem T="KnowledgeManagementStatus?" Value="@((KnowledgeManagementStatus?)null)">全部资料</MudSelectItem><MudSelectItem T="KnowledgeManagementStatus?" Value="@((KnowledgeManagementStatus?)KnowledgeManagementStatus.Ready)">可用</MudSelectItem><MudSelectItem T="KnowledgeManagementStatus?" Value="@((KnowledgeManagementStatus?)KnowledgeManagementStatus.Publishing)">处理中</MudSelectItem><MudSelectItem T="KnowledgeManagementStatus?" Value="@((KnowledgeManagementStatus?)KnowledgeManagementStatus.NeedsAttention)">需重试</MudSelectItem></MudSelect>
+            <MudButton OnClick="SearchAsync" Variant="Variant.Outlined" Disabled="_busy">搜索</MudButton>
+            <MudButton Href="/teacher/generate" Color="Color.Primary" Variant="Variant.Filled">选择资料出题</MudButton>
+        </div>
+        <MudTable T="KnowledgeManagementListItemDto" Items="_items" Loading="_busy" Hover="true" Elevation="0">
+            <HeaderContent><MudTh>资料名称</MudTh><MudTh>处理状态</MudTh><MudTh>可见范围</MudTh><MudTh>更新时间</MudTh><MudTh>操作</MudTh></HeaderContent>
+            <RowTemplate>
+                <MudTd>@context.Title</MudTd><MudTd>@StatusText(context.Status)</MudTd><MudTd>@(_shared ? "已获授权" : context.EnabledPermissionScopeCount > 1 ? "已向指定教师共享" : "仅自己")</MudTd><MudTd>@TeacherTime.Format(context.UpdatedTime)</MudTd>
+                <MudTd><MudButton Color="Color.Primary" OnClick="() => OpenAsync(context.Id)" Disabled="_busy">查看详情</MudButton></MudTd>
+            </RowTemplate>
+            <NoRecordsContent><MudText>@(_error is null ? "暂无符合条件的资料。" : "列表未能加载，请重试。")</MudText></NoRecordsContent>
+        </MudTable>
+        <MvpPager SkipCount="_skip" TotalCount="_total" IsBusy="_busy" OnSkipCountChanged="PageAsync" />
+    </MudPaper>
+    @if (_detail is not null)
+    {
+        var current = _detail.Versions.FirstOrDefault(x => x.Id == _detail.CurrentVersionId) ?? _detail.Versions.OrderByDescending(x => x.VersionNumber).FirstOrDefault();
+        <MudPaper Class="teacher-panel" Elevation="0">
+            <div class="teacher-actions"><h2>@_detail.Title</h2><MudChip T="string" Size="Size.Small">@StatusText(_detail.Status)</MudChip><MudButton OnClick="() => _detail = null">收起详情</MudButton></div>
+            @if (_detail.Status == KnowledgeManagementStatus.Ready) { <MudButton Href="@($"/teacher/generate?itemId={_detail.Id}")" Color="Color.Primary" Variant="Variant.Filled">用这份资料出题</MudButton> }
+            else { <MudAlert Severity="@(_detail.Status == KnowledgeManagementStatus.NeedsAttention ? Severity.Warning : Severity.Info)">@(_detail.StatusReason.Length > 0 ? _detail.StatusReason : "资料暂不可用于出题，请稍后刷新查看处理结果。")</MudAlert> }
+            <p>@_detail.Summary</p>
+            @if (!string.IsNullOrWhiteSpace(current?.ContentText)) { <div class="teacher-pre">@current.ContentText</div> }
+            @foreach (var attachment in _attachments) { <MudButton Variant="Variant.Outlined" OnClick="() => DownloadAsync(attachment)" Disabled="_busy">下载 @attachment.FileName</MudButton> }
+            @if (!_shared)
+            {
+                <MudButton Variant="Variant.Outlined" OnClick="EditContentAsync" Disabled="@(_busy || _editing)">@(_detail.Versions.Any(x => x.Status == KnowledgeVersionStatus.Draft) ? "继续处理草稿" : "修订资料正文")</MudButton>
+                <MudExpansionPanels Elevation="0"><MudExpansionPanel Text="修改资料信息"><MudTextField T="string" Immediate="true" Label="资料标题" @bind-Value="_detail.Title" MaxLength="256" Variant="Variant.Outlined" /><MudTextField T="string" Immediate="true" Label="简要说明" @bind-Value="_detail.Summary" MaxLength="1024" Variant="Variant.Outlined" /><MudButton OnClick="SaveMetadataAsync" Disabled="_busy" Color="Color.Primary">保存资料信息</MudButton></MudExpansionPanel></MudExpansionPanels>
+                <MudButton Variant="Variant.Outlined" OnClick="OpenSharingAsync" Disabled="_busy">共享设置</MudButton>
+                @if (_detail.Status == KnowledgeManagementStatus.NeedsAttention) { <MudButton Variant="Variant.Outlined" OnClick="RetryProcessingAsync" Disabled="_busy">重新处理</MudButton> }
+                @if (_sharing)
+                {
+                    <h3>哪些教师可以使用这份资料</h3><p class="teacher-muted">授予读取和出题使用权，不允许修改或删除你的原件。</p>
+                    <div class="teacher-toolbar"><MudTextField T="string" Immediate="true" Label="查找教师" @bind-Value="_teacherKeyword" Variant="Variant.Outlined" Placeholder="输入教师账号或名称" Disabled="_busy" /><MudButton OnClick="SearchTeachersAsync" Disabled="_busy">查找</MudButton></div>
+                    @foreach (var teacher in _teachers) { <MudCheckBox T="bool" Value="@_shareIds.Contains(teacher.Id)" ValueChanged="value => SelectTeacher(teacher.Id, value)" Label="@($"{teacher.DisplayName}（{teacher.UserName}）")" Disabled="_busy" /> }
+                    <p>已选择 @_shareIds.Count 位教师。</p>
+                    <div class="teacher-actions"><MudButton OnClick="SaveSharingAsync" Color="Color.Primary" Variant="Variant.Filled" Disabled="_busy">保存共享设置</MudButton><MudButton OnClick="() => _shareIds.Clear()" Disabled="_busy">改为仅自己可见</MudButton><MudButton OnClick="() => _sharing = false" Disabled="_busy">取消</MudButton></div>
+                }
+            }
+        </MudPaper>
+    }
+</main>
+
+@code {
+    private IReadOnlyList<KnowledgeManagementListItemDto> _items = [];
+    private IReadOnlyList<KnowledgeAttachmentDto> _attachments = [];
+    private IReadOnlyList<KnowledgeShareTeacherDto> _teachers = [];
+    private readonly HashSet<Guid> _shareIds = [];
+    private readonly List<KnowledgeAttachmentDto> _retainedAttachments = [];
+    private readonly HashSet<Guid> _copiedAttachments = [];
+    private KnowledgeManagementOverviewDto _overview = new();
+    private KnowledgeManagementDetailDto? _detail;
+    private KnowledgeManagementStatus? _status;
+    private Guid? _savedItemId, _savedVersionId;
+    private IBrowserFile? _file;
+    private bool _shared, _busy, _editing, _fileUploaded, _sharing;
+    private string? _keyword, _error, _success, _title, _summary, _content, _teacherKeyword;
+    private int _skip;
+    private long _total;
+    private bool HasUnsavedContent => _editing && (!string.IsNullOrWhiteSpace(_title) || !string.IsNullOrWhiteSpace(_content) || _file is not null);
+    private async Task ConfirmNavigationAsync(LocationChangingContext context)
+    {
+        if (!HasUnsavedContent) return;
+        if (await Dialogs.ShowMessageBoxAsync("离开资料编辑", "未保存的内容将丢失；已保存的服务端草稿会保留。是否继续？", yesText: "离开", cancelText: "继续编辑") != true) context.PreventNavigation();
+        else _editing = false;
+    }
+    protected override async Task OnParametersSetAsync() { _shared = Navigation.ToBaseRelativePath(Navigation.Uri).StartsWith("teacher/shared", StringComparison.OrdinalIgnoreCase); _detail = null; await PageAsync(0); }
+    private Task SearchAsync() => PageAsync(0);
+    private async Task PageAsync(int skip) { _skip = skip; await LoadAsync(); }
+    private async Task LoadAsync()
+    {
+        _busy = true; _error = null;
+        try { var result = await Management.GetListAsync(new() { SharedOnly = _shared, OwnOnly = !_shared, Keyword = _keyword, Status = _status, SkipCount = _skip, MaxResultCount = 20 }); _items = result.Items; _overview = result.Overview; _total = result.TotalCount; }
+        catch (Exception ex) { _error = GetUserFriendlyErrorMessage(ex); }
+        finally { _busy = false; }
+    }
+    private void NewMaterial() { _editing = true; _detail = null; _sharing = false; _savedItemId = _savedVersionId = null; _title = _summary = _content = null; _file = null; _fileUploaded = false; _retainedAttachments.Clear(); _copiedAttachments.Clear(); _error = _success = null; }
+    private async Task EditContentAsync()
+    {
+        if (_detail is null) return;
+        _busy = true; _error = null;
+        try
+        {
+            var version = _detail.Versions.Where(x => x.Status == KnowledgeVersionStatus.Draft).OrderByDescending(x => x.VersionNumber).FirstOrDefault()
+                ?? _detail.Versions.FirstOrDefault(x => x.Id == _detail.CurrentVersionId);
+            var attachments = version is null ? [] : (await Knowledge.GetAttachmentsAsync(_detail.Id, version.Id)).Items;
+            _savedItemId = _detail.Id;
+            _savedVersionId = version?.Status == KnowledgeVersionStatus.Draft ? version.Id : null;
+            _title = _detail.Title; _summary = _detail.Summary; _content = version?.ContentText;
+            _file = null; _fileUploaded = false; _editing = true; _success = null;
+            _retainedAttachments.Clear(); _retainedAttachments.AddRange(attachments);
+            _copiedAttachments.Clear();
+            if (_savedVersionId.HasValue) foreach (var attachment in attachments) _copiedAttachments.Add(attachment.Id);
+        }
+        catch (Exception ex) { _error = GetUserFriendlyErrorMessage(ex); }
+        finally { _busy = false; }
+    }
+    private void SelectFile(InputFileChangeEventArgs args)
+    {
+        _file = null;
+        var file = args.File;
+        if (file.Size > 20 * 1024 * 1024) { _error = "文件超过 20 MB，请选择较小的文件。"; return; }
+        var extension = System.IO.Path.GetExtension(file.Name).ToLowerInvariant();
+        if (extension is not (".txt" or ".md" or ".markdown" or ".pdf" or ".doc" or ".docx")) { _error = "请选择文本、Markdown 或可提取文字的 PDF／Word 文件。"; return; }
+        _file = file; _fileUploaded = false; _error = null;
+        if (string.IsNullOrWhiteSpace(_title)) _title = System.IO.Path.GetFileNameWithoutExtension(file.Name);
+    }
+    private async Task SaveAsync()
+    {
+        if (_busy) return;
+        if (string.IsNullOrWhiteSpace(_title) || (string.IsNullOrWhiteSpace(_content) && _file is null && _retainedAttachments.Count == 0)) { _error = "请填写标题，并录入正文或选择附件。"; return; }
+        _busy = true; _error = _success = null;
+        try
+        {
+            if (!_savedItemId.HasValue) _savedItemId = (await Knowledge.CreateAsync(new() { Title = _title.Trim(), Summary = _summary })).Id;
+            else await Knowledge.UpdateAsync(_savedItemId.Value, new() { Title = _title.Trim(), Summary = _summary, CategoryId = _detail?.CategoryId, IsActive = _detail?.IsActive ?? true });
+            var versionInput = new CreateKnowledgeVersionDto { Title = _title.Trim(), ContentText = _content };
+            if (!_savedVersionId.HasValue) _savedVersionId = (await Knowledge.CreateVersionAsync(_savedItemId.Value, versionInput)).Id;
+            else await Knowledge.UpdateDraftVersionAsync(_savedItemId.Value, _savedVersionId.Value, versionInput);
+            foreach (var attachment in _retainedAttachments.Where(x => !_copiedAttachments.Contains(x.Id)))
+            {
+                using var original = await Knowledge.DownloadAttachmentAsync(_savedItemId.Value, attachment.KnowledgeVersionId, attachment.Id);
+                await Knowledge.UploadAttachmentAsync(_savedItemId.Value, _savedVersionId.Value, original);
+                _copiedAttachments.Add(attachment.Id);
+            }
+            if (_file is not null && !_fileUploaded)
+            {
+                await using var stream = _file.OpenReadStream(20 * 1024 * 1024);
+                using var remote = new RemoteStreamContent(stream, _file.Name, _file.ContentType);
+                await Knowledge.UploadAttachmentAsync(_savedItemId.Value, _savedVersionId.Value, remote);
+                _fileUploaded = true;
+            }
+            await Knowledge.PublishVersionAsync(_savedItemId.Value, _savedVersionId.Value);
+            _success = "资料已保存并进入处理流程。处理完成后才可用于出题。";
+            _editing = false;
+            await LoadAsync();
+        }
+        catch (Exception ex) { _error = GetUserFriendlyErrorMessage(ex) + (_savedItemId.HasValue ? " 已保存的资料和草稿仍然保留，可继续重试。" : ""); }
+        finally { _busy = false; }
+    }
+    private async Task CancelEditAsync()
+    {
+        if (await Dialogs.ShowMessageBoxAsync("取消资料编辑", "未保存的内容将丢失；已保存到服务端的草稿会保留。", yesText: "取消编辑", cancelText: "继续编辑") == true) _editing = false;
+    }
+    private async Task OpenAsync(Guid id)
+    {
+        _busy = true; _error = null; _sharing = false; _detail = null; _attachments = [];
+        try
+        {
+            _detail = await Management.GetAsync(id);
+            var version = _detail.CurrentVersionId ?? _detail.Versions.OrderByDescending(x => x.VersionNumber).FirstOrDefault()?.Id;
+            if (version.HasValue) _attachments = (await Knowledge.GetAttachmentsAsync(id, version.Value)).Items;
+        }
+        catch (Exception ex) { _error = GetUserFriendlyErrorMessage(ex); }
+        finally { _busy = false; }
+    }
+    private async Task DownloadAsync(KnowledgeAttachmentDto attachment)
+    {
+        if (_detail is null) return;
+        _busy = true; _error = null;
+        try
+        {
+            using var content = await Knowledge.DownloadAttachmentAsync(_detail.Id, attachment.KnowledgeVersionId, attachment.Id);
+            using var reference = new DotNetStreamReference(content.GetStream());
+            await JS.InvokeVoidAsync("knowPulse.downloadFileFromStream", attachment.FileName, attachment.ContentType, reference);
+        }
+        catch (Exception ex) { _error = GetUserFriendlyErrorMessage(ex); }
+        finally { _busy = false; }
+    }
+    private async Task SaveMetadataAsync()
+    {
+        if (_detail is null || string.IsNullOrWhiteSpace(_detail.Title)) { _error = "资料标题不能为空。"; return; }
+        _busy = true; _error = null;
+        try { await Knowledge.UpdateAsync(_detail.Id, new() { Title = _detail.Title.Trim(), Summary = _detail.Summary, CategoryId = _detail.CategoryId, IsActive = _detail.IsActive }); _success = "资料信息已保存。"; await LoadAsync(); }
+        catch (Exception ex) { _error = GetUserFriendlyErrorMessage(ex); }
+        finally { _busy = false; }
+    }
+    private async Task OpenSharingAsync()
+    {
+        if (_detail is null) return;
+        _shareIds.Clear();
+        foreach (var scope in _detail.PermissionScopes.Where(x => x.IsEnabled && x.ScopeType == KnowledgePermissionScopeType.User && x.TargetId.HasValue && x.TargetId != _detail.OwnerTeacherId)) _shareIds.Add(scope.TargetId!.Value);
+        _sharing = true;
+        await SearchTeachersAsync();
+    }
+    private void SelectTeacher(Guid id, bool selected) { if (selected) _shareIds.Add(id); else _shareIds.Remove(id); }
+    private async Task SearchTeachersAsync()
+    {
+        _busy = true; _error = null;
+        try { _teachers = (await Knowledge.SearchShareTeachersAsync(_teacherKeyword)).Items; }
+        catch (Exception ex) { _error = GetUserFriendlyErrorMessage(ex); }
+        finally { _busy = false; }
+    }
+    private async Task SaveSharingAsync()
+    {
+        if (_detail is null) return;
+        _busy = true; _error = null;
+        try { var id = _detail.Id; await Knowledge.SetSharedTeachersAsync(id, new() { TeacherIds = _shareIds.ToList() }); _success = "共享设置已保存。原件仍只允许你修改。"; await OpenAsync(id); await LoadAsync(); }
+        catch (Exception ex) { _error = GetUserFriendlyErrorMessage(ex); }
+        finally { _busy = false; }
+    }
+    private async Task RetryProcessingAsync()
+    {
+        if (_detail is null) return;
+        _busy = true; _error = null;
+        try { var id = _detail.Id; await Knowledge.RetryProcessingAsync(id); _success = "已提交重新处理请求，请稍后刷新查看结果。"; await OpenAsync(id); }
+        catch (Exception ex) { _error = GetUserFriendlyErrorMessage(ex); }
+        finally { _busy = false; }
+    }
+    private static string StatusText(KnowledgeManagementStatus status) => status switch { KnowledgeManagementStatus.Ready => "可用", KnowledgeManagementStatus.Publishing => "处理中", KnowledgeManagementStatus.NeedsAttention => "需要重试", KnowledgeManagementStatus.Draft => "草稿", KnowledgeManagementStatus.Withdrawn => "已下架", KnowledgeManagementStatus.Archived => "已归档", _ => "已停用" };
+}
