@@ -1,0 +1,22 @@
+{
+  "fileKey": "t3Oui0FU4YphtlOuPpo567",
+  "pageId": "0:1",
+  "screenId": "10:115",
+  "fullPageId": "10:116",
+  "componentAreaId": "3:3",
+  "scope": "WeChat mini-program homepage, first screen and full scroll content",
+  "viewportId": "11:202",
+  "bodyId": "11:203",
+  "headerComponentId": "11:119",
+  "tabBarComponentId": "11:142",
+  "progressComponentSetId": "13:409",
+  "completedSteps": ["discovery", "wrappers", "composition", "editable-layers", "font-family", "overflow", "progress-variants", "screenshot"],
+  "pendingValidations": [],
+  "screenSize": {"width": 390, "height": 844},
+  "fullPageSize": {"width": 390, "height": 1378},
+  "scrollContentHeight": 1206,
+  "previews": ["mini-home-new-logo.png", "mini-home-full-new-logo.png"],
+  "logoNodeId": "44:399",
+  "logoVectorNodeId": "44:401",
+  "validation": {"textNodesPerFrame": 44, "instancesPerFrame": 33, "fontFamily": "Noto Sans SC", "unintendedOverflow": 0, "wholeUiRasterImages": 0}
+}

@@ -1,0 +1,10 @@
+{
+  "blue": {
+    "silhouette_iou": 0.99651,
+    "mean_rgb_error": 1.387
+  },
+  "gold": {
+    "silhouette_iou": 0.99101,
+    "mean_rgb_error": 1.387
+  }
+}

@@ -1,0 +1,100 @@
+{
+  "size": [
+    1254,
+    1254
+  ],
+  "shapes": [
+    {
+      "name": "book-left",
+      "cubicSegments": 22,
+      "colors": [
+        "#0673F5",
+        "#0574F6"
+      ]
+    },
+    {
+      "name": "book-right",
+      "cubicSegments": 22,
+      "colors": [
+        "#014BA7",
+        "#014BA8"
+      ]
+    },
+    {
+      "name": "connection-upper-left",
+      "cubicSegments": 33,
+      "colors": [
+        "#006CEE",
+        "#0270F9"
+      ]
+    },
+    {
+      "name": "connection-upper-right",
+      "cubicSegments": 31,
+      "colors": [
+        "#004EB2",
+        "#0174F9"
+      ]
+    },
+    {
+      "name": "connection-lower-left",
+      "cubicSegments": 24,
+      "colors": [
+        "#0371F5",
+        "#016EF5"
+      ]
+    },
+    {
+      "name": "connection-lower-right",
+      "cubicSegments": 23,
+      "colors": [
+        "#014CA8",
+        "#0152B5"
+      ]
+    },
+    {
+      "name": "node-top",
+      "center": [
+        627.065109806838,
+        310.36477094413317
+      ],
+      "radius": 76.04762255232001,
+      "colors": [
+        "#006CEF",
+        "#006CF0"
+      ]
+    },
+    {
+      "name": "node-left",
+      "center": [
+        352.6960523390867,
+        480.9580332864343
+      ],
+      "radius": 59.856820891127555,
+      "colors": [
+        "#0171F8",
+        "#016FF8"
+      ]
+    },
+    {
+      "name": "node-right",
+      "center": [
+        901.198402707069,
+        480.927572328022
+      ],
+      "radius": 59.801293243179266,
+      "colors": [
+        "#014CA7",
+        "#014DA9"
+      ]
+    },
+    {
+      "name": "ai-spark",
+      "cubicSegments": 21,
+      "colors": [
+        "#FBAD10",
+        "#FAAC0F"
+      ]
+    }
+  ]
+}

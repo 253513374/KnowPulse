@@ -1,0 +1,53 @@
+{
+  "fileKey": "t3Oui0FU4YphtlOuPpo567",
+  "pageId": "0:1",
+  "brandMasterId": "39:399",
+  "desktopLogoFrameId": "44:396",
+  "desktopVectorId": "44:398",
+  "miniLogoFrameId": "44:399",
+  "miniVectorId": "44:401",
+  "headerComponentId": "11:119",
+  "screens": [
+    {
+      "id": "3:2",
+      "logoId": "44:396",
+      "visibleLogoSize": 32,
+      "preview": "learning-home-new-logo.png"
+    },
+    {
+      "id": "10:115",
+      "logoId": "I11:179;44:399",
+      "visibleLogoSize": 24,
+      "preview": "mini-home-new-logo.png"
+    },
+    {
+      "id": "10:116",
+      "logoId": "I11:400;44:399",
+      "visibleLogoSize": 24,
+      "preview": "mini-home-full-new-logo.png"
+    }
+  ],
+  "validation": {
+    "oldLogoImageCount": 0,
+    "nativeVectorPerLogo": 1,
+    "componentInstancesSynchronized": 2,
+    "visualCheck": "passed"
+  },
+  "createdNodeIds": [
+    "44:396",
+    "44:397",
+    "44:398",
+    "44:399",
+    "44:400",
+    "44:401"
+  ],
+  "mutatedNodeIds": [
+    "4:246",
+    "11:131",
+    "11:119"
+  ],
+  "deletedNodeIds": [
+    "4:247",
+    "11:132"
+  ]
+}

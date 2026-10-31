@@ -1,0 +1,13 @@
+{
+  "fileKey": "t3Oui0FU4YphtlOuPpo567",
+  "pageId": "20:396",
+  "originalRasterFrameId": "20:397",
+  "vectorFrameId": "30:396",
+  "vectorLayerCount": 10,
+  "imageNodeCount": 0,
+  "size": {"width": 1254, "height": 1254},
+  "exports": ["SVG", "PNG"],
+  "sourceFile": "zhimai-learning-logo-vector.svg",
+  "preview": "logo-vector-preview.png",
+  "completedSteps": ["source-inspection", "smooth-contour-fit", "gradient-fit", "native-vector-import", "layer-validation", "visual-review"]
+}

@@ -1,0 +1,16 @@
+{
+  "fileKey": "t3Oui0FU4YphtlOuPpo567",
+  "pageId": "20:396",
+  "comparisonFrameId": "30:408",
+  "size": {"width": 1440, "height": 1128},
+  "imageNodeCount": 0,
+  "unintendedOverflow": 0,
+  "logos": [
+    {"id": "01", "name": "书页星芒", "nodeId": "30:419", "vectorLayerCount": 3},
+    {"id": "02", "name": "知识立方", "nodeId": "30:431", "vectorLayerCount": 6},
+    {"id": "03", "name": "成长之树", "nodeId": "30:447", "vectorLayerCount": 6},
+    {"id": "04", "name": "知脉字母标", "nodeId": "30:462", "vectorLayerCount": 3}
+  ],
+  "preview": "logo-directions-preview.png",
+  "completedSteps": ["vector-design", "native-import", "editable-layer-validation", "layout-validation", "visual-review"]
+}

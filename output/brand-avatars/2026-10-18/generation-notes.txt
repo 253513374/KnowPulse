@@ -1,0 +1,28 @@
+知脉学习空间｜小程序头像备选
+简称：知脉空间
+生成方式：内置 image_gen 工具，每个方案单独生成；方形不透明背景。
+
+01-blue-book.png：蓝色书页，偏正式企业产品。
+02-teal-growth.png：青绿生长，突出学习与成长。
+03-purple-space.png：紫色空间，突出知识空间。
+04-orange-zhi.png：橙色知字，突出中文品牌记忆。
+
+小程序介绍（开放 AI 问答时）：
+知脉学习空间是一款面向企业的知识学习与培训工具，提供知识查阅、AI问答、学习任务、在线考试及成绩查询，帮助员工随时学习岗位知识，提升企业培训与知识管理效率。
+
+小程序介绍（首版仅开放学习考试时）：
+知脉学习空间是一款面向企业的知识学习与培训工具，提供知识查阅、学习任务、在线考试及成绩查询，帮助员工随时学习岗位知识，提升企业培训与知识管理效率。
+
+生成提示词：
+
+01 蓝色书页
+Use case: logo-brand. Create one finished WeChat mini-program avatar for the Chinese enterprise learning and knowledge product 知脉学习空间 (short name 知脉空间, KnowPulse). One standalone square image, 1024 x 1024. Direction: BLUE KNOWLEDGE PAGES. A bold, original white geometric open-book emblem made from two broad folded page shapes, with a small cyan square knowledge node integrated naturally into the upper-right page. Simple asymmetric page fold creates forward progress and connection without any medical heartbeat zigzag. Full-bleed solid rich ultramarine blue background, nearly flat vector-like rendering, sharp polished geometry, balanced negative space, premium understated B2B product identity. The emblem is centered and occupies about 62 percent of the square; generous safe margin for circular cropping. Strong recognition at 48 pixels. No text, letters, slogan, border, mockup, shadows, glossy effects, tiny details, extra symbols, or watermark. This must be a ready-to-upload avatar, not a logo presentation sheet.
+
+02 青绿生长
+Use case: logo-brand. Create one finished WeChat mini-program avatar for 知脉学习空间, an enterprise knowledge, employee learning and assessment product. One standalone square image, 1024 x 1024. Direction: TEAL GROWING KNOWLEDGE. Design one original compact ivory-white geometric emblem in which an open book's two wide pages subtly become a pair of upward-growing leaves, joined at a strong central crease. It must read primarily as learning and a book, with a calm growth impression, not a botanical or environmental logo. Full-bleed solid deep teal background around #087F78. A single small mint accent on one page fold is permissible. Highly simplified strong flat silhouette, sophisticated modern human-centered brand design, smooth deliberate contours, no thin lines. Center the emblem with 20 percent outer safe margin so it remains excellent after circular cropping and at 48 pixels. No wording, no initials, no slogan, no book cover title, no border, no gradient, no 3D, no mockup, no watermark. Output only the ready-to-upload square icon.
+
+03 紫色空间
+Use case: logo-brand. Create one finished WeChat mini-program avatar for 知脉学习空间, short name 知脉空间, a professional enterprise learning and knowledge platform. One standalone 1024 x 1024 square image. Direction: PURPLE LEARNING SPACE. One original architectural geometric emblem: two substantial violet folded page-shaped forms surround a clean small central doorway of negative space, suggesting an open book and an inviting knowledge space in one unified mark. The forms have subtly softened corners and convincing optical balance. Full-bleed very pale lavender-ivory background, deep violet main mark, one restrained periwinkle fold accent. Mostly flat clean geometry, sophisticated contemporary digital brand identity, friendly but professional. Strong unmistakable silhouette with no small decoration. Center the mark, occupying around 62 percent of the square with a circular-crop safe margin. No text, typography, initials, constellation, orbit rings, graduation cap, generic AI sparkle, gradients, 3D, drop shadow, presentation board, or watermark. Output only the ready-to-upload avatar.
+
+04 橙色知字
+Use case: logo-brand. Create one finished WeChat mini-program avatar for the Chinese learning platform 知脉学习空间, short name 知脉空间. One standalone 1024 x 1024 square image. Direction: WARM ORANGE CHINESE WORDMARK ICON. A single large, perfectly correct simplified Chinese character 知, and absolutely no other text. Draw 知 as a bold bespoke geometric sans-serif glyph, thick clean ivory strokes, generous internal negative spaces, slightly softened stroke endings, precise Chinese character structure: 矢 on the left and 口 on the right. Give the lower-right 口 a subtle open-page-like cut while retaining immediate correct legibility of 知; prioritize accurate character over the page detail. Full-bleed solid warm vermilion-orange background around #EC653C. Calm, memorable, warm professional enterprise learning brand, flat vector-like execution. Center the ivory character optically, about 58 percent of square width, with generous safe margin for circular cropping. The character must remain readable at 48 pixels. No calligraphy, no other Chinese or English, no tiny text, no gradients, no 3D, no shadows, no frame, no mockup, no watermark. A ready-to-upload square avatar, not a brand board.
