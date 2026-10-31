@@ -1,0 +1,15 @@
+<view class="page">
+  <view class="hero"><text class="title">我的私有笔记</text><text class="muted">只属于当前账号。保存笔记不会上交给老师，也不改变考试成绩。学校身份结束后，本人笔记仍可保留。</text></view>
+  <view wx:if="{{error}}" class="error" aria-role="alert">{{error}}</view>
+  <view class="card">
+    <input class="field" aria-label="搜索笔记" placeholder="搜索标题、正文" maxlength="256" value="{{keyword}}" data-field="keyword" bindinput="filter" disabled="{{busy}}" />
+    <input class="field" aria-label="学科筛选" placeholder="学科" maxlength="128" value="{{subject}}" data-field="subject" bindinput="filter" disabled="{{busy}}" />
+    <input class="field" aria-label="年份筛选" placeholder="年份，可留空" type="number" maxlength="4" value="{{year}}" data-field="year" bindinput="filter" disabled="{{busy}}" />
+    <input class="field" aria-label="标签筛选" placeholder="标签" maxlength="64" value="{{tag}}" data-field="tag" bindinput="filter" disabled="{{busy}}" />
+    <button bindtap="search" disabled="{{busy}}">查询</button><button type="primary" bindtap="open" disabled="{{busy}}">新建私有笔记</button>
+  </view>
+  <view class="card" wx:for="{{rows}}" wx:key="id"><text class="heading">{{item.title}}</text><text class="muted">{{item.subjectName}} {{item.materialYear || ''}}</text><button bindtap="open" data-id="{{item.id}}" disabled="{{busy}}">打开笔记</button></view>
+  <view class="card"><text>共 {{total}} 篇；每页最多 20 篇</text><view class="pager"><button bindtap="page" data-direction="-1" disabled="{{busy || offset === 0}}">上一页</button><button bindtap="page" data-direction="1" disabled="{{busy || offset + 20 >= total}}">下一页</button></view></view>
+  <view class="card" wx:if="{{pendingTotal}}"><text class="heading">结果待确认的操作（{{pendingTotal}}）</text><text class="muted">先查询原回执；记录仍可能已经保存成功。</text><button wx:for="{{pending}}" wx:key="operationId" bindtap="recover" data-id="{{item.operationId}}" disabled="{{busy}}">核对 {{item.operationId}}</button><view class="pager"><button bindtap="page" data-kind="pending" data-direction="-1" disabled="{{busy || pendingOffset === 0}}">上一页</button><button bindtap="page" data-kind="pending" data-direction="1" disabled="{{busy || pendingOffset + 20 >= pendingTotal}}">下一页</button></view></view>
+  <button bindtap="load" disabled="{{busy}}">刷新云端记录</button><button bindtap="login">返回登录</button>
+</view>

@@ -1,0 +1,30 @@
+@page "/education/teaching-plans/my"
+@attribute [Authorize(EducationPermissions.TeachingPlanView)]
+@inherits KnowPulseComponentBase
+@using KnowPulse.Education
+@inject IEducationTeachingPlanAppService Plans
+<PageTitle>@L["EducationPlan:MyTitle"]</PageTitle>
+<h1 class="h4">@L["EducationPlan:MyTitle"]</h1><p class="text-muted">@L["EducationPlan:MyDescription"]</p>
+@if (Error != null) { <div class="alert alert-danger" role="alert">@Error</div> }
+<button class="btn btn-outline-secondary mb-3" disabled="@Busy" @onclick="RefreshAsync">@L["EducationReport:Reload"]</button>
+<div class="row g-3"><aside class="col-lg-4"><div class="list-group">@foreach (var item in Items) { <button class="list-group-item list-group-item-action" disabled="@Busy" @onclick="(() => OpenAsync(item))">@item.TeacherName · @item.SubjectName<br /><small>@L[$"EducationPlan:Availability:{(int)item.Availability}"] · @L["EducationPlan:Version", item.VersionNumber]</small></button> }</div><div class="d-flex gap-2 mt-2"><button class="btn btn-sm btn-outline-secondary" disabled="@(Busy || Offset == 0)" @onclick="(() => PageAsync(-1))">@L["EducationPaper:Previous"]</button><button class="btn btn-sm btn-outline-secondary" disabled="@(Busy || Offset + PageSize >= Total)" @onclick="(() => PageAsync(1))">@L["EducationPaper:Next"]</button></div></aside>
+<main class="col-lg-8">@if (Selected is { } plan) {
+    <p>@plan.TeacherName · @plan.ClassName · @plan.SubjectName · @L["EducationPlan:Version", plan.VersionNumber]</p><p role="status">@L[$"EducationPlan:Availability:{(int)plan.Availability}"]</p>
+    <a href="@($"/education/teaching-plans/{plan.Id}/activities?versionId={plan.VersionId}")">@L["EducationActivity:MyTitle"]</a>
+    @if (plan.Content is { } body) { <h2 class="h5">@body.Title</h2><p>@body.StudentGoal</p><p>@body.StartsAtUtc.ToLocalTime().ToString("g") → @body.EndsAtUtc.ToLocalTime().ToString("g")</p>
+        <ul>@foreach (var point in body.Targets) { <li>@point.Code · @point.Name · @L["EducationCurriculum:RevisionNumber", point.RevisionNumber]</li> }</ul>
+        <h3 class="h6">@L["EducationPlan:Actions"]</h3><p class="text-break" style="white-space:pre-wrap">@body.TeacherActions</p>
+        <ol>@foreach (var step in body.Steps) { <li class="mb-3"><strong>@step.Title</strong> · @L[$"EducationPlan:Step:{(int)step.Kind}"]<p class="text-break my-1" style="white-space:pre-wrap">@step.Instructions</p><small>@L["EducationPlan:TotalMinutes", step.EstimatedMinutes] · @step.DueAtUtc.ToLocalTime().ToString("g")</small></li> }</ol>
+        <p>@L["EducationPlan:TotalMinutes", body.Steps.Sum(x => x.EstimatedMinutes)]</p><h3 class="h6">@L["EducationPlan:Reassessment"]</h3><p>@body.ReassessmentAtUtc.ToLocalTime().ToString("g") · @body.SuccessCriteria</p><p class="small text-muted">@L["EducationPlan:StepHint"]</p>
+    }
+} else if (Items.Count == 0) { <p class="text-muted">@L["EducationPlan:Empty"]</p> }</main></div>
+@code {
+    private const int PageSize = 20; private bool Busy; private string? Error; private int Offset; private long Total;
+    private List<EducationStudentTeachingPlanDto> Items = []; private EducationStudentTeachingPlanDto? Selected;
+    protected override Task OnInitializedAsync() => RefreshAsync();
+    private async Task LoadAsync() { Selected = null; var page = await Plans.GetMyListAsync(new() { SkipCount = Offset, MaxResultCount = PageSize }); Items = page.Items.ToList(); Total = page.TotalCount; }
+    private Task RefreshAsync() => RunAsync(LoadAsync);
+    private Task PageAsync(int step) => RunAsync(async () => { Offset += step * PageSize; await LoadAsync(); });
+    private Task OpenAsync(EducationStudentTeachingPlanDto item) => RunAsync(async () => { Selected = null; Selected = await Plans.OpenMyAsync(item.Id, item.VersionId); });
+    private async Task RunAsync(Func<Task> action) { if (Busy) return; Busy = true; Error = null; try { await action(); } catch (Exception ex) { Selected = null; Error = GetUserFriendlyErrorMessage(ex); } finally { Busy = false; } }
+}

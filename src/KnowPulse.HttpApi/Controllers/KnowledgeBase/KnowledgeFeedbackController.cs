@@ -27,7 +27,7 @@ public class KnowledgeFeedbackController : KnowPulseController
     /// </summary>
     /// <param name="input">反馈提交输入。</param>
     /// <returns>提交后的反馈记录。</returns>
-    [Authorize(KnowPulsePermissions.KnowledgeBase.Items)]
+    [Authorize]
     [HttpPost]
     public Task<KnowledgeFeedbackDto> SubmitAsync([FromBody] SubmitKnowledgeFeedbackDto input)
     {
@@ -39,7 +39,7 @@ public class KnowledgeFeedbackController : KnowPulseController
     /// </summary>
     /// <param name="input">反馈筛选和分页条件。</param>
     /// <returns>反馈分页结果。</returns>
-    [Authorize(KnowPulsePermissions.KnowledgeBase.Feedback)]
+    [Authorize]
     [HttpGet]
     public Task<PagedResultDto<KnowledgeFeedbackDto>> GetListAsync([FromQuery] GetKnowledgeFeedbackListInput input)
     {
@@ -51,7 +51,7 @@ public class KnowledgeFeedbackController : KnowPulseController
     /// </summary>
     /// <param name="id">反馈 ID。</param>
     /// <returns>反馈详情。</returns>
-    [Authorize(KnowPulsePermissions.KnowledgeBase.Feedback)]
+    [Authorize]
     [HttpGet("{id:guid}")]
     public Task<KnowledgeFeedbackDto> GetAsync(Guid id)
     {
@@ -64,7 +64,7 @@ public class KnowledgeFeedbackController : KnowPulseController
     /// <param name="id">反馈 ID。</param>
     /// <param name="input">接手处理输入。</param>
     /// <returns>处理后的反馈详情。</returns>
-    [Authorize(KnowPulsePermissions.KnowledgeBase.Feedback)]
+    [Authorize]
     [HttpPost("{id:guid}/process")]
     public Task<KnowledgeFeedbackDto> ProcessAsync(Guid id, [FromBody] ProcessKnowledgeFeedbackDto input)
     {
@@ -74,7 +74,7 @@ public class KnowledgeFeedbackController : KnowPulseController
     /// <summary>
     /// 从已接手反馈创建并自动关联修订草稿。
     /// </summary>
-    [Authorize(KnowPulsePermissions.KnowledgeBase.Feedback)]
+    [Authorize]
     [HttpPost("{id:guid}/create-revision")]
     public Task<KnowledgeFeedbackDto> CreateRevisionAsync(Guid id)
     {
@@ -87,7 +87,7 @@ public class KnowledgeFeedbackController : KnowPulseController
     /// <param name="id">反馈 ID。</param>
     /// <param name="input">完成处理输入。</param>
     /// <returns>已处理的反馈详情。</returns>
-    [Authorize(KnowPulsePermissions.KnowledgeBase.Feedback)]
+    [Authorize]
     [HttpPost("{id:guid}/resolve")]
     public Task<KnowledgeFeedbackDto> ResolveAsync(Guid id, [FromBody] ResolveKnowledgeFeedbackDto input)
     {
@@ -100,7 +100,7 @@ public class KnowledgeFeedbackController : KnowPulseController
     /// <param name="id">反馈 ID。</param>
     /// <param name="input">关闭输入。</param>
     /// <returns>关闭后的反馈详情。</returns>
-    [Authorize(KnowPulsePermissions.KnowledgeBase.Feedback)]
+    [Authorize]
     [HttpPost("{id:guid}/close")]
     public Task<KnowledgeFeedbackDto> CloseAsync(Guid id, [FromBody] CloseKnowledgeFeedbackDto input)
     {
@@ -113,7 +113,7 @@ public class KnowledgeFeedbackController : KnowPulseController
     /// <param name="id">反馈 ID。</param>
     /// <param name="input">关联版本输入。</param>
     /// <returns>关联后的反馈详情。</returns>
-    [Authorize(KnowPulsePermissions.KnowledgeBase.Feedback)]
+    [Authorize]
     [HttpPost("{id:guid}/link-version")]
     public Task<KnowledgeFeedbackDto> LinkVersionAsync(Guid id, [FromBody] LinkKnowledgeFeedbackVersionDto input)
     {

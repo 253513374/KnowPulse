@@ -40,6 +40,18 @@ public class RagEvaluationCase : FullAuditedAggregateRoot<Guid>, IMultiTenant
     /// </summary>
     public Guid? TenantId { get; protected set; }
 
+    public Guid? PersonalOwnerUserId { get; private set; }
+
+    public void RestrictToPersonalOwner(Guid ownerUserId)
+    {
+        if (ownerUserId == Guid.Empty || (PersonalOwnerUserId.HasValue && PersonalOwnerUserId != ownerUserId))
+        {
+            throw new ArgumentException("A personal evaluation case cannot change its owner.", nameof(ownerUserId));
+        }
+
+        PersonalOwnerUserId = ownerUserId;
+    }
+
     /// <summary>
     /// 评测用例名称。
     /// </summary>

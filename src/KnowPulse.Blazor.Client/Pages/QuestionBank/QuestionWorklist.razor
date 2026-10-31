@@ -1,6 +1,7 @@
 @inherits KnowPulseComponentBase
 @inject IQuestionAppService QuestionAppService
 @inject IPositionAppService PositionAppService
+@inject IPermissionChecker PermissionChecker
 @inject IJSRuntime JSRuntime
 
 <QuestionBankFlowNav ActiveStage="@FlowStage" />
@@ -18,6 +19,7 @@
         }
         else if (Worklist == QuestionWorklistKind.Formal)
         {
+            <a class="btn btn-outline-primary btn-sm" href="/education/papers">@L["EducationPaper:Title"]</a>
             <a class="btn btn-primary btn-sm" href="/exam/management"><i class="fa-solid fa-file-circle-plus me-1"></i>前往考试组卷</a>
         }
         <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="LoadAsync" disabled="@IsBusy">刷新</button>
@@ -54,6 +56,7 @@
                     <option value="@QuestionType.MultipleChoice">多选</option>
                     <option value="@QuestionType.TrueFalse">判断</option>
                     <option value="@QuestionType.FillBlank">填空</option>
+                    <option value="@QuestionType.Subjective">@L["QuestionType:Subjective"]</option>
                 </select>
             </div>
             <div class="col-lg-2 col-md-6">
@@ -149,7 +152,8 @@
                                 {
                                     <div class="d-flex justify-content-end flex-wrap gap-2">
                                         <a class="btn btn-outline-secondary btn-sm" href="@($"/question-bank/questions/{question.Id}/edit")">编辑</a>
-                                        <button class="btn btn-primary btn-sm" type="button" @onclick="() => SubmitAsync(question)" disabled="@IsBusy">@(question.Status == QuestionStatus.Draft ? "提交审核" : "修改后重提")</button>
+                                        <button class="btn btn-primary btn-sm" type="button" @onclick="() => SubmitAsync(question)" disabled="@(IsBusy || question.Curriculum != null && !question.CurriculumConfirmed)">@(question.Status == QuestionStatus.Draft ? "提交审核" : "修改后重提")</button>
+                                        @if (question.Curriculum != null && !question.CurriculumConfirmed) { <span class="small text-warning">@L["EducationQuestion:ConfirmBeforeReview"]</span> }
                                     </div>
                                 }
                                 else if (Worklist == QuestionWorklistKind.ReviewQueue)
@@ -159,7 +163,7 @@
                                 else
                                 {
                                     <div class="d-flex justify-content-end flex-wrap gap-2">
-                                        <a class="btn btn-outline-primary btn-sm" href="/exam/management">用于组卷</a>
+                                        <a class="btn btn-outline-primary btn-sm" href="@(question.Curriculum != null ? "/education/papers" : "/exam/management")">用于组卷</a>
                                         <button class="btn btn-outline-danger btn-sm" type="button" @onclick="() => DisableAsync(question)" disabled="@IsBusy">停用</button>
                                     </div>
                                 }
@@ -243,8 +247,11 @@
 
     protected override async Task OnInitializedAsync()
     {
-        var positions = await PositionAppService.GetListAsync(new PagedAndSortedResultRequestDto { MaxResultCount = 200 });
-        Positions.AddRange(positions.Items.OrderBy(x => x.Name));
+        if (await PermissionChecker.IsGrantedAsync(KnowPulsePermissions.Organization.Positions))
+        {
+            var positions = await PositionAppService.GetListAsync(new PagedAndSortedResultRequestDto { MaxResultCount = 200 });
+            Positions.AddRange(positions.Items.OrderBy(x => x.Name));
+        }
         await LoadAsync();
     }
 
@@ -354,6 +361,7 @@
         QuestionType.MultipleChoice => "多选",
         QuestionType.TrueFalse => "判断",
         QuestionType.FillBlank => "填空",
+        QuestionType.Subjective => "简答 / 解答",
         _ => type.ToString()
     };
 

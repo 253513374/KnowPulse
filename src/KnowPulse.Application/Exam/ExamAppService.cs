@@ -1,16 +1,22 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
+using KnowPulse.Education;
 using KnowPulse.Organization;
 using KnowPulse.Permissions;
 using KnowPulse.QuestionBank;
+using KnowPulse.RagAI;
 using Microsoft.AspNetCore.Authorization;
 using Volo.Abp;
 using Volo.Abp.Application.Dtos;
 using Volo.Abp.Authorization;
 using Volo.Abp.Domain.Repositories;
+using Volo.Abp.Uow;
 
 namespace KnowPulse.Exam;
 
@@ -35,6 +41,9 @@ public class ExamAppService : KnowPulseAppService, IExamAppService
     private readonly IRepository<QuestionKnowledgePoint, Guid> _questionKnowledgePointRepository;
     private readonly IRepository<QuestionSource, Guid> _questionSourceRepository;
     private readonly IRepository<UserOrganizationAssignment, Guid> _userOrganizationAssignmentRepository;
+    private readonly KnowledgeSourceAccessGuard _sourceAccessGuard;
+    private QuestionCurriculumAccessGuard QuestionCurriculum => LazyServiceProvider.LazyGetRequiredService<QuestionCurriculumAccessGuard>();
+    private IUnitOfWorkManager Uow => LazyServiceProvider.LazyGetRequiredService<IUnitOfWorkManager>();
 
     public ExamAppService(
         IRepository<ExamPlan, Guid> planRepository,
@@ -51,7 +60,8 @@ public class ExamAppService : KnowPulseAppService, IExamAppService
         IRepository<QuestionAnalysis, Guid> questionAnalysisRepository,
         IRepository<QuestionKnowledgePoint, Guid> questionKnowledgePointRepository,
         IRepository<QuestionSource, Guid> questionSourceRepository,
-        IRepository<UserOrganizationAssignment, Guid> userOrganizationAssignmentRepository)
+        IRepository<UserOrganizationAssignment, Guid> userOrganizationAssignmentRepository,
+        KnowledgeSourceAccessGuard sourceAccessGuard)
     {
         _planRepository = planRepository;
         _paperRepository = paperRepository;
@@ -68,6 +78,7 @@ public class ExamAppService : KnowPulseAppService, IExamAppService
         _questionKnowledgePointRepository = questionKnowledgePointRepository;
         _questionSourceRepository = questionSourceRepository;
         _userOrganizationAssignmentRepository = userOrganizationAssignmentRepository;
+        _sourceAccessGuard = sourceAccessGuard;
     }
 
     public virtual async Task<PagedResultDto<ExamPlanDto>> GetPlanListAsync(GetExamPlanListInput input)
@@ -77,13 +88,19 @@ public class ExamAppService : KnowPulseAppService, IExamAppService
         var queryable = await _planRepository.GetQueryableAsync();
         queryable = ApplyPlanFilters(queryable, input);
 
-        var totalCount = await AsyncExecuter.CountAsync(queryable);
-        var plans = await AsyncExecuter.ToListAsync(queryable
-            .OrderByDescending(x => x.CreationTime)
-            .Skip(input.SkipCount)
-            .Take(input.MaxResultCount));
+        var candidates = await AsyncExecuter.ToListAsync(queryable.OrderByDescending(x => x.CreationTime));
+        var visiblePlans = new List<ExamPlan>();
+        foreach (var plan in candidates)
+        {
+            if (await CanManagePaperAsync(plan.PaperId))
+            {
+                visiblePlans.Add(plan);
+            }
+        }
 
-        return new PagedResultDto<ExamPlanDto>(totalCount, await MapPlansAsync(plans));
+        var plans = visiblePlans.Skip(input.SkipCount).Take(input.MaxResultCount).ToList();
+
+        return new PagedResultDto<ExamPlanDto>(visiblePlans.Count, await MapPlansAsync(plans));
     }
 
     public virtual async Task<ExamPlanDto> GetPlanAsync(Guid id)
@@ -102,8 +119,11 @@ public class ExamAppService : KnowPulseAppService, IExamAppService
     public virtual async Task<ExamPlanDto> CreatePlanAsync(CreateExamPlanDto input)
     {
         await CheckMvpPermissionAsync(KnowPulsePermissions.Exam.Manage);
+        using var uow = Uow.Begin(requiresNew: true, isTransactional: true);
 
-        var build = await BuildPaperAsync(input.Paper);
+        var build = await BuildPaperAsync(input.Paper, forUpdate: true);
+        if (build.Paper.CurriculumSnapshotJson != null || build.Questions.Any(x => x.ScoringDefinitionJson != null || x.Type == QuestionType.Subjective))
+            throw new BusinessException("KnowPulse:Education:EducationTaskNotImplemented");
         var paper = await _paperRepository.InsertAsync(build.Paper, autoSave: true);
         foreach (var question in build.Questions)
         {
@@ -141,7 +161,82 @@ public class ExamAppService : KnowPulseAppService, IExamAppService
                 autoSave: true);
         }
 
-        return await MapPlanAsync(plan);
+        await uow.SaveChangesAsync();
+        var result = await MapPlanAsync(plan);
+        await uow.CompleteAsync();
+        return result;
+    }
+
+    public virtual async Task<ExamPaperDto> SavePaperAsync(GenerateExamPaperDto input)
+    {
+        await CheckMvpPermissionAsync(KnowPulsePermissions.Exam.Manage);
+        if (!input.OperationId.HasValue || input.OperationId == Guid.Empty)
+            throw new BusinessException(EducationErrorCodes.InvalidIdentifier);
+        var operationId = input.OperationId.Value;
+        var requestHash = GetSaveRequestHash(input);
+        try
+        {
+            using var uow = Uow.Begin(requiresNew: true, isTransactional: true);
+            var previous = await _paperRepository.FindAsync(operationId);
+            if (previous != null)
+            {
+                EnsureSameSaveOperation(previous, requestHash);
+                var saved = await MapPaperAsync(previous);
+                await uow.CompleteAsync();
+                return saved;
+            }
+            var build = await BuildPaperAsync(input, forUpdate: true, operationId: operationId);
+            build.Paper.RecordSaveOperation(requestHash);
+            await _paperRepository.InsertAsync(build.Paper, autoSave: true);
+            await _paperQuestionRepository.InsertManyAsync(build.Questions, autoSave: true);
+            await uow.SaveChangesAsync();
+            var result = await MapPaperAsync(build.Paper, build.Questions);
+            await uow.CompleteAsync();
+            return result;
+        }
+        catch (Exception error) when (error is not AbpAuthorizationException && error is not BusinessException && error is not OperationCanceledException)
+        {
+            // A failed/unknown commit can be another request's completed operation. Recover only
+            // the same owner's exact input and complete frozen rows; all other storage errors remain errors.
+            using var recovery = Uow.Begin(requiresNew: true, isTransactional: false);
+            var winner = await _paperRepository.FindAsync(operationId);
+            if (winner == null) throw;
+            EnsureSameSaveOperation(winner, requestHash);
+            var result = await MapPaperAsync(winner);
+            await recovery.CompleteAsync();
+            return result;
+        }
+    }
+
+    private static string GetSaveRequestHash(GenerateExamPaperDto input)
+    {
+        var normalized = new
+        {
+            Title = input.Title.Trim(), input.BuildMode, input.ApplicablePositionId, input.Randomize,
+            FixedQuestionIds = input.FixedQuestionIds.Distinct().ToArray(),
+            Rules = input.Rules.Select(x => new { x.Type, x.Difficulty, KnowledgePoint = TrimToNull(x.KnowledgePoint), x.Count,
+                ScorePerQuestion = x.ScorePerQuestion.ToString("G29", CultureInfo.InvariantCulture), x.MultipleChoiceScoringMode }).ToArray(),
+            Curriculum = input.CurriculumScope == null ? null : new
+            {
+                input.CurriculumScope.TeacherTextbookSelectionId,
+                MappingIds = input.CurriculumScope.TextbookKnowledgePointMappingIds.OrderBy(x => x).ToArray()
+            }
+        };
+        return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(normalized, JsonOptions))));
+    }
+
+    private void EnsureSameSaveOperation(ExamPaper paper, string requestHash)
+    {
+        if (paper.TenantId != CurrentTenant.Id || paper.PersonalOwnerUserId != CurrentUser.Id || !CurrentUser.IsAuthenticated)
+            throw new AbpAuthorizationException();
+        if (paper.SaveOperationRequestHash != requestHash)
+            throw new BusinessException("KnowPulse:Education:PaperSaveOperationConflict");
+    }
+
+    public virtual async Task<ExamPaperDto> GetSavedPaperAsync(Guid id)
+    {
+        await CheckMvpPermissionAsync(KnowPulsePermissions.Exam.Manage);
+        return await MapPaperAsync(await _paperRepository.GetAsync(id));
     }
 
     public virtual async Task<PagedResultDto<ExamPlanDto>> GetMyPlanListAsync(GetExamPlanListInput input)
@@ -163,7 +258,7 @@ public class ExamAppService : KnowPulseAppService, IExamAppService
         }
 
         var paged = assignedPlans.Skip(input.SkipCount).Take(input.MaxResultCount).ToList();
-        return new PagedResultDto<ExamPlanDto>(assignedPlans.Count, await MapPlansAsync(paged));
+        return new PagedResultDto<ExamPlanDto>(assignedPlans.Count, await MapPlansAsync(paged, forParticipant: true));
     }
 
     public virtual async Task<ExamAttemptDto> StartAttemptAsync(Guid planId)
@@ -235,6 +330,7 @@ public class ExamAppService : KnowPulseAppService, IExamAppService
         attempt.EnsureCanSave(now);
 
         var paperQuestions = await GetPaperQuestionsAsync(attempt.PaperId);
+        EnsureLegacyScoring(paperQuestions);
         var validQuestionIds = paperQuestions.Select(x => x.Id).ToHashSet();
         var existingAnswers = await GetAnswersAsync(attempt.Id);
 
@@ -279,6 +375,7 @@ public class ExamAppService : KnowPulseAppService, IExamAppService
         var attempt = await _attemptRepository.GetAsync(attemptId);
         EnsureAttemptOwner(attempt);
 
+        EnsureLegacyScoring(await GetPaperQuestionsAsync(attempt.PaperId));
         attempt.Submit(DateTime.UtcNow, input.IdempotencyKey);
         await _attemptRepository.UpdateAsync(attempt, autoSave: true);
 
@@ -293,7 +390,13 @@ public class ExamAppService : KnowPulseAppService, IExamAppService
     public virtual async Task<ExamScoreDto> GradeAttemptAsync(Guid attemptId)
     {
         await CheckMvpPermissionAsync(KnowPulsePermissions.Exam.Manage);
-        return await GradeAttemptCoreAsync(await _attemptRepository.GetAsync(attemptId));
+        var attempt = await _attemptRepository.GetAsync(attemptId);
+        if (!await CanManagePaperAsync(attempt.PaperId))
+        {
+            throw new AbpAuthorizationException("The current user cannot manage this exam paper.");
+        }
+
+        return await GradeAttemptCoreAsync(attempt);
     }
 
     public virtual async Task<PagedResultDto<ExamScoreDto>> GetScoreListAsync(GetExamScoreListInput input)
@@ -316,13 +419,26 @@ public class ExamAppService : KnowPulseAppService, IExamAppService
             queryable = queryable.Where(x => x.IsPassed == input.IsPassed.Value);
         }
 
-        var totalCount = await AsyncExecuter.CountAsync(queryable);
-        var scores = await AsyncExecuter.ToListAsync(queryable
-            .OrderByDescending(x => x.ScoredTime)
-            .Skip(input.SkipCount)
-            .Take(input.MaxResultCount));
+        var candidates = await AsyncExecuter.ToListAsync(queryable.OrderByDescending(x => x.ScoredTime));
+        var paperAccess = new Dictionary<Guid, bool>();
+        var visibleScores = new List<ExamScore>();
+        foreach (var score in candidates)
+        {
+            if (!paperAccess.TryGetValue(score.PaperId, out var canManage))
+            {
+                canManage = await CanManagePaperAsync(score.PaperId);
+                paperAccess[score.PaperId] = canManage;
+            }
 
-        return new PagedResultDto<ExamScoreDto>(totalCount, await MapScoresAsync(scores));
+            if (canManage)
+            {
+                visibleScores.Add(score);
+            }
+        }
+
+        var scores = visibleScores.Skip(input.SkipCount).Take(input.MaxResultCount).ToList();
+
+        return new PagedResultDto<ExamScoreDto>(visibleScores.Count, await MapScoresAsync(scores));
     }
 
     private async Task<ExamScoreDto> GradeAttemptCoreAsync(ExamAttempt attempt)
@@ -330,6 +446,7 @@ public class ExamAppService : KnowPulseAppService, IExamAppService
         var plan = await _planRepository.GetAsync(attempt.PlanId);
         var paper = await _paperRepository.GetAsync(attempt.PaperId);
         var paperQuestions = await GetPaperQuestionsAsync(attempt.PaperId);
+        EnsureLegacyScoring(paperQuestions);
         var answers = await GetAnswersAsync(attempt.Id);
         var now = DateTime.UtcNow;
 
@@ -399,19 +516,34 @@ public class ExamAppService : KnowPulseAppService, IExamAppService
         return await MapScoreAsync(score);
     }
 
-    private async Task<PaperBuildResult> BuildPaperAsync(GenerateExamPaperDto input)
+    private async Task<PaperBuildResult> BuildPaperAsync(GenerateExamPaperDto input, bool forUpdate = false, Guid? operationId = null)
     {
+        var curriculum = input.CurriculumScope == null ? null : await LazyServiceProvider.LazyGetRequiredService<EducationCurriculumAccessGuard>().ResolveAsync(input.CurriculumScope);
         var selected = input.BuildMode == ExamPaperBuildMode.Fixed
             ? await SelectFixedQuestionsAsync(input)
-            : await SelectByRulesAsync(input);
+            : await SelectByRulesAsync(input, curriculum);
 
         if (selected.Count == 0)
         {
             throw new BusinessException(KnowPulseDomainErrorCodes.ExamPaperQuestionInsufficient);
         }
 
-        var paperId = GuidGenerator.Create();
+        var paperId = operationId ?? GuidGenerator.Create();
         var totalScore = selected.Sum(x => x.Score);
+        var questions = new List<ExamPaperQuestion>();
+        var hasPersonalContent = false;
+        for (var i = 0; i < selected.Count; i++)
+        {
+            var selectedQuestion = selected[i];
+            if (!MatchesCurriculum(selectedQuestion.Question, curriculum))
+                throw new BusinessException(EducationCurriculumErrorCodes.ReferenceMismatch);
+            var (snapshot, isPersonal) = await CreatePaperQuestionSnapshotAsync(
+                paperId, selectedQuestion.Question, selectedQuestion.Score, selectedQuestion.MultipleChoiceScoringMode, i + 1, forUpdate);
+            questions.Add(snapshot);
+            hasPersonalContent |= isPersonal;
+        }
+
+        // Only a fully authorized new snapshot receives a durable owner. Historical reads do not reuse source access.
         var paper = new ExamPaper(
             paperId,
             CurrentTenant.Id,
@@ -419,13 +551,24 @@ public class ExamAppService : KnowPulseAppService, IExamAppService
             input.BuildMode,
             input.ApplicablePositionId,
             selected.Count,
-            totalScore);
+            totalScore,
+            hasPersonalContent || operationId.HasValue ? GetCurrentUserId() : null);
 
-        var questions = new List<ExamPaperQuestion>();
-        for (var i = 0; i < selected.Count; i++)
+        if (selected.Any(x => x.Question.CurriculumSnapshotJson != null) && curriculum == null)
+            throw new BusinessException("KnowPulse:Education:CurriculumConfirmationRequired");
+        if (curriculum != null)
         {
-            var selectedQuestion = selected[i];
-            questions.Add(await CreatePaperQuestionSnapshotAsync(paperId, selectedQuestion.Question, selectedQuestion.Score, selectedQuestion.MultipleChoiceScoringMode, i + 1));
+            var requestedMappings = curriculum.Mappings.Select(x => x.MappingId).ToHashSet();
+            foreach (var row in selected)
+            {
+                if (row.Question.CurriculumSnapshotJson == null) throw new BusinessException("KnowPulse:Education:CurriculumConfirmationRequired");
+                var questionScope = JsonSerializer.Deserialize<EducationCurriculumSnapshot>(row.Question.CurriculumSnapshotJson, JsonOptions)!;
+                var weights = JsonSerializer.Deserialize<List<QuestionCurriculumPointWeight>>(row.Question.CurriculumPointWeightsJson, JsonOptions) ?? [];
+                if (questionScope.TextbookVersionId != curriculum.TextbookVersionId || questionScope.SchoolId != curriculum.SchoolId ||
+                    questionScope.TeacherTextbookSelectionId != curriculum.TeacherTextbookSelectionId || weights.Any(x => !requestedMappings.Contains(x.TextbookKnowledgePointMappingId)))
+                    throw new BusinessException(EducationCurriculumErrorCodes.ReferenceMismatch);
+            }
+            paper.FreezeCurriculum(JsonSerializer.Serialize(curriculum, JsonOptions));
         }
 
         return new PaperBuildResult(paper, questions);
@@ -448,16 +591,22 @@ public class ExamAppService : KnowPulseAppService, IExamAppService
             throw new BusinessException(KnowPulseDomainErrorCodes.ExamPaperQuestionInsufficient);
         }
 
+        foreach (var question in questions)
+        {
+            await _sourceAccessGuard.EnsureQuestionAsync(question, requireUsableSources: true);
+        }
+
         var defaultScore = input.Rules.FirstOrDefault()?.ScorePerQuestion ?? 5m;
         var scoringMode = input.Rules.FirstOrDefault()?.MultipleChoiceScoringMode ?? MultipleChoiceScoringMode.AllOrNothing;
         return ids.Select(id => new SelectedQuestion(
                 questions.Single(x => x.Id == id),
-                defaultScore,
+                input.CurriculumScope != null
+                    ? questions.Single(x => x.Id == id).CurriculumScore ?? throw new BusinessException("KnowPulse:Education:CurriculumConfirmationRequired") : defaultScore,
                 scoringMode))
             .ToList();
     }
 
-    private async Task<List<SelectedQuestion>> SelectByRulesAsync(GenerateExamPaperDto input)
+    private async Task<List<SelectedQuestion>> SelectByRulesAsync(GenerateExamPaperDto input, EducationCurriculumSnapshot? curriculum)
     {
         if (input.Rules.Count == 0)
         {
@@ -468,7 +617,7 @@ public class ExamAppService : KnowPulseAppService, IExamAppService
         var usedIds = new HashSet<Guid>();
         foreach (var rule in input.Rules)
         {
-            var candidates = await GetCandidatesForRuleAsync(input, rule, usedIds);
+            var candidates = await GetCandidatesForRuleAsync(input, rule, usedIds, curriculum);
             if (candidates.Count < rule.Count)
             {
                 throw new BusinessException(KnowPulseDomainErrorCodes.ExamPaperQuestionInsufficient);
@@ -492,10 +641,11 @@ public class ExamAppService : KnowPulseAppService, IExamAppService
     private async Task<List<Question>> GetCandidatesForRuleAsync(
         GenerateExamPaperDto input,
         ExamPaperRuleDto rule,
-        HashSet<Guid> usedIds)
+        HashSet<Guid> usedIds, EducationCurriculumSnapshot? curriculum)
     {
         var queryable = await _questionRepository.GetQueryableAsync();
-        queryable = queryable.Where(x => x.Status == QuestionStatus.Approved && !usedIds.Contains(x.Id));
+        queryable = queryable.Where(x => x.Status == QuestionStatus.Approved && !usedIds.Contains(x.Id) &&
+                                         (!x.PersonalOwnerUserId.HasValue || x.PersonalOwnerUserId == CurrentUser.Id));
 
         if (rule.Type.HasValue)
         {
@@ -525,23 +675,63 @@ public class ExamAppService : KnowPulseAppService, IExamAppService
             candidates = candidates.Where(x => idSet.Contains(x.Id)).ToList();
         }
 
-        return candidates;
+        var usableCandidates = new List<Question>();
+        foreach (var candidate in candidates)
+        {
+            if (!MatchesCurriculum(candidate, curriculum) || (candidate.CurriculumSnapshotJson != null && candidate.CurriculumScore != rule.ScorePerQuestion)) continue;
+            try
+            {
+                await _sourceAccessGuard.EnsureQuestionAsync(candidate, requireUsableSources: true);
+                await QuestionCurriculum.EnsureAsync(candidate);
+                usableCandidates.Add(candidate);
+            }
+            catch (Exception error) when (error is AbpAuthorizationException || error is BusinessException && candidate.CurriculumSnapshotJson != null)
+            {
+                // A rule can select other available questions without exposing inaccessible candidates.
+            }
+        }
+
+        return usableCandidates;
     }
 
-    private async Task<ExamPaperQuestion> CreatePaperQuestionSnapshotAsync(
+    private static bool MatchesCurriculum(Question question, EducationCurriculumSnapshot? scope)
+        => QuestionCurriculumAccessGuard.MatchesScope(question, scope);
+
+    private async Task<(ExamPaperQuestion Snapshot, bool IsPersonal)> CreatePaperQuestionSnapshotAsync(
         Guid paperId,
         Question question,
         decimal score,
         MultipleChoiceScoringMode scoringMode,
-        int displayOrder)
+        int displayOrder, bool forUpdate = false)
     {
+        // The preliminary rule selection stays read-only. Only selected questions contend with
+        // content/source edits, in the same transaction that freezes the paper.
+        if (question.CurriculumSnapshotJson != null) await QuestionCurriculum.EnsureAsync(question, forUpdate: forUpdate);
+        await _sourceAccessGuard.EnsureQuestionAsync(question, requireUsableSources: true, forUpdate: forUpdate);
         var options = await GetQuestionOptionsAsync(question.Id);
         var answers = await GetQuestionAnswersAsync(question.Id);
         var analyses = await GetQuestionAnalysesAsync(question.Id);
         var points = await GetQuestionKnowledgePointsAsync(question.Id);
         var sources = await GetQuestionSourcesAsync(question.Id);
+        var isPersonal = question.PersonalOwnerUserId.HasValue;
+        var sourceLabels = new List<string>();
+        foreach (var source in sources)
+        {
+            // Older questions may not carry an owner yet; use the same validated sources included in this snapshot.
+            var metadata = await _sourceAccessGuard.EnsureSourceMetadataAsync(
+                source.KnowledgeItemId, source.KnowledgeVersionId, source.ChunkId, requireUsable: true, schoolKnowledgeShareId: source.SchoolKnowledgeShareId);
+            var item = metadata.Item;
+            isPersonal |= item?.OwnerUserId.HasValue == true;
+            var title = metadata.IsShared && !(question.CurriculumSnapshotJson != null && source.SchoolKnowledgeShareId.HasValue)
+                ? metadata.Title
+                : source.SourceTitle;
+            var label = TrimToNull(title) ?? TrimToNull(source.ManualSourceDescription) ??
+                TrimToNull(source.SourceHash) ?? source.KnowledgeItemId?.ToString() ??
+                source.KnowledgeVersionId?.ToString() ?? source.ChunkId?.ToString();
+            if (label != null) sourceLabels.Add(label);
+        }
 
-        return new ExamPaperQuestion(
+        var snapshot = new ExamPaperQuestion(
             GuidGenerator.Create(),
             CurrentTenant.Id,
             paperId,
@@ -560,10 +750,17 @@ public class ExamAppService : KnowPulseAppService, IExamAppService
             SerializeValues(answers.OrderBy(x => x.DisplayOrder).Select(x => x.Value)),
             analyses.FirstOrDefault()?.Content,
             points.Count == 0 ? null : string.Join(", ", points.Select(x => x.Name)),
-            BuildSourceSnapshot(sources),
+            sourceLabels.Count == 0 ? null : string.Join("; ", sourceLabels),
             score,
             scoringMode,
             displayOrder);
+        if (question.CurriculumSnapshotJson != null) snapshot.FreezeCurriculum(question);
+        if (question.CurriculumSnapshotJson != null || question.ScoringDefinitionJson != null || question.ApprovedDefinitionRevisionId.HasValue)
+        {
+            await LazyServiceProvider.LazyGetRequiredService<QuestionAppService>().EnsureApprovedDefinitionAsync(question);
+            snapshot.FreezeDefinition(question);
+        }
+        return (snapshot, isPersonal);
     }
 
     private async Task<bool> IsAssignedAsync(Guid planId, Guid userId)
@@ -682,20 +879,20 @@ public class ExamAppService : KnowPulseAppService, IExamAppService
         return queryable;
     }
 
-    private async Task<List<ExamPlanDto>> MapPlansAsync(IReadOnlyCollection<ExamPlan> plans)
+    private async Task<List<ExamPlanDto>> MapPlansAsync(IReadOnlyCollection<ExamPlan> plans, bool forParticipant = false)
     {
         var result = new List<ExamPlanDto>();
         foreach (var plan in plans)
         {
-            result.Add(await MapPlanAsync(plan));
+            result.Add(await MapPlanAsync(plan, forParticipant));
         }
 
         return result;
     }
 
-    private async Task<ExamPlanDto> MapPlanAsync(ExamPlan plan)
+    private async Task<ExamPlanDto> MapPlanAsync(ExamPlan plan, bool forParticipant = false)
     {
-        var assignments = await GetAssignmentsAsync(plan.Id);
+        var assignments = forParticipant ? new List<ExamAssignment>() : await GetAssignmentsAsync(plan.Id);
         var paper = await _paperRepository.GetAsync(plan.PaperId);
         return new ExamPlanDto
         {
@@ -717,21 +914,34 @@ public class ExamAppService : KnowPulseAppService, IExamAppService
             MaxAttempts = plan.MaxAttempts,
             ResultVisibility = plan.ResultVisibility,
             Status = plan.Status,
-            Paper = await MapPaperAsync(paper),
+            Paper = forParticipant
+                ? await MapPaperAsync(paper, Array.Empty<ExamPaperQuestion>(), ExamPaperView.Participant)
+                : await MapPaperAsync(paper),
             Assignments = assignments.Select(MapAssignment).ToList()
         };
     }
 
-    private async Task<ExamPaperDto> MapPaperAsync(ExamPaper paper)
+    private async Task<ExamPaperDto> MapPaperAsync(ExamPaper paper, ExamPaperView view = ExamPaperView.Management)
     {
-        return await MapPaperAsync(paper, await GetPaperQuestionsAsync(paper.Id));
+        return await MapPaperAsync(paper, await GetPaperQuestionsAsync(paper.Id), view);
     }
 
-    private Task<ExamPaperDto> MapPaperAsync(ExamPaper paper, IReadOnlyCollection<ExamPaperQuestion> questions)
+    private async Task<ExamPaperDto> MapPaperAsync(
+        ExamPaper paper,
+        IReadOnlyCollection<ExamPaperQuestion> questions,
+        ExamPaperView view = ExamPaperView.Management)
     {
-        return Task.FromResult(new ExamPaperDto
+        if (view == ExamPaperView.Management && !await CanManagePaperAsync(paper, questions))
+        {
+            throw new AbpAuthorizationException("The current user cannot read this exam paper or its knowledge sources.");
+        }
+
+        return new ExamPaperDto
         {
             Id = paper.Id,
+            OperationId = view == ExamPaperView.Management && paper.SaveOperationRequestHash != null ? paper.Id : null,
+            Curriculum = view == ExamPaperView.Management && paper.CurriculumSnapshotJson != null
+                ? JsonSerializer.Deserialize<EducationCurriculumSnapshot>(paper.CurriculumSnapshotJson, JsonOptions) : null,
             CreationTime = paper.CreationTime,
             CreatorId = paper.CreatorId,
             LastModificationTime = paper.LastModificationTime,
@@ -745,27 +955,83 @@ public class ExamAppService : KnowPulseAppService, IExamAppService
             QuestionCount = paper.QuestionCount,
             TotalScore = paper.TotalScore,
             SnapshotVersion = paper.SnapshotVersion,
-            Questions = questions.OrderBy(x => x.DisplayOrder).Select(MapPaperQuestion).ToList()
-        });
+            Questions = questions.OrderBy(x => x.DisplayOrder).Select(question => MapPaperQuestion(question, view)).ToList()
+        };
     }
 
-    private static ExamPaperQuestionDto MapPaperQuestion(ExamPaperQuestion question)
+    private async Task<bool> CanManagePaperAsync(Guid paperId)
     {
+        var paper = await _paperRepository.FindAsync(paperId);
+        if (paper == null || paper.TenantId != CurrentTenant.Id)
+        {
+            return false;
+        }
+
+        var questions = await GetPaperQuestionsAsync(paper.Id);
+        return await CanManagePaperAsync(paper, questions);
+    }
+
+    private async Task<bool> CanManagePaperAsync(ExamPaper paper, IReadOnlyCollection<ExamPaperQuestion> questions)
+    {
+        if (!CurrentUser.IsAuthenticated || paper.TenantId != CurrentTenant.Id || questions.Count != paper.QuestionCount)
+        {
+            return false;
+        }
+
+        if (paper.PersonalOwnerUserId.HasValue)
+        {
+            return paper.PersonalOwnerUserId != Guid.Empty && paper.PersonalOwnerUserId == CurrentUser.Id;
+        }
+
+        // Legacy papers have no durable ownership fact; missing or inaccessible sources must still fail closed.
+        return await CanManageQuestionsAsync(questions);
+    }
+
+    private async Task<bool> CanManageQuestionsAsync(IReadOnlyCollection<ExamPaperQuestion> questions)
+    {
+        foreach (var questionId in questions.Select(x => x.OriginalQuestionId).Distinct())
+        {
+            if (!await _sourceAccessGuard.CanReadQuestionAsync(questionId))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static ExamPaperQuestionDto MapPaperQuestion(ExamPaperQuestion question, ExamPaperView view)
+    {
+        var definition = question.ScoringDefinitionJson == null ? null : QuestionScoringDefinition.Parse(question.ScoringDefinitionJson);
         return new ExamPaperQuestionDto
         {
             Id = question.Id,
+            ScoringDefinition = view == ExamPaperView.Management ? definition : null,
+            QuestionDefinitionRevisionId = view == ExamPaperView.Management ? question.QuestionDefinitionRevisionId : null,
+            ResponseFields = definition?.Blanks.OrderBy(x => x.DisplayOrder).Select(x => new ExamResponseFieldDto
+                { Id = x.Id, DisplayOrder = x.DisplayOrder, StemMarker = x.StemMarker }).ToList() ?? [],
+            Curriculum = view == ExamPaperView.Management && question.CurriculumSnapshotJson != null
+                ? JsonSerializer.Deserialize<EducationCurriculumSnapshot>(question.CurriculumSnapshotJson, JsonOptions) : null,
+            CurriculumPointWeights = view == ExamPaperView.Management && question.CurriculumPointWeightsJson != null
+                ? JsonSerializer.Deserialize<List<QuestionCurriculumPointWeight>>(question.CurriculumPointWeightsJson, JsonOptions) ?? [] : [],
+            CurriculumScoringPoints = view == ExamPaperView.Management
+                ? QuestionCurriculumAccessGuard.GetScoringPoints(question.CurriculumSnapshotJson, question.CurriculumPointWeightsJson) : [],
+            CurriculumSources = view == ExamPaperView.Management && question.CurriculumSourceReferencesJson != null
+                ? JsonSerializer.Deserialize<List<EducationCurriculumSourceReference>>(question.CurriculumSourceReferencesJson, JsonOptions) ?? [] : [],
+            CurriculumConfirmedByUserId = view == ExamPaperView.Management ? question.CurriculumConfirmedByUserId : null,
+            CurriculumConfirmedAtUtc = view == ExamPaperView.Management ? question.CurriculumConfirmedAtUtc : null,
             PaperId = question.PaperId,
-            OriginalQuestionId = question.OriginalQuestionId,
+            OriginalQuestionId = view != ExamPaperView.Management && question.CurriculumSnapshotJson != null ? Guid.Empty : question.OriginalQuestionId,
             Type = question.Type,
             Difficulty = question.Difficulty,
             OriginalQuestionCreationSource = question.OriginalQuestionCreationSource,
             Title = question.Title,
             Stem = question.Stem,
             Options = DeserializeOptions(question.OptionsJson),
-            CorrectAnswers = DeserializeValues(question.CorrectAnswersJson),
-            Analysis = question.Analysis,
+            CorrectAnswers = view == ExamPaperView.Participant ? new List<string>() : DeserializeValues(question.CorrectAnswersJson),
+            Analysis = view == ExamPaperView.Participant ? null : question.Analysis,
             KnowledgePointsSnapshot = question.KnowledgePointsSnapshot,
-            SourceSnapshot = question.SourceSnapshot,
+            SourceSnapshot = view == ExamPaperView.Management ? question.SourceSnapshot : null,
             Score = question.Score,
             MultipleChoiceScoringMode = question.MultipleChoiceScoringMode,
             DisplayOrder = question.DisplayOrder
@@ -790,6 +1056,14 @@ public class ExamAppService : KnowPulseAppService, IExamAppService
         var paper = await _paperRepository.GetAsync(attempt.PaperId);
         var answers = await GetAnswersAsync(attempt.Id);
         var score = await GetScoreByAttemptAsync(attempt.Id);
+        var canViewScore = score != null &&
+                           attempt.Status == ExamAttemptStatus.Scored &&
+                           plan.Status == ExamPlanStatus.Published &&
+                           DateTime.UtcNow > plan.EndTime &&
+                           plan.ResultVisibility is ExamResultVisibility.ScoreOnly or ExamResultVisibility.FullReview;
+        // Completing one attempt does not open results while other participants or retries can still start.
+        var canReview = canViewScore &&
+                        plan.ResultVisibility == ExamResultVisibility.FullReview;
 
         return new ExamAttemptDto
         {
@@ -811,10 +1085,10 @@ public class ExamAppService : KnowPulseAppService, IExamAppService
             LastSavedTime = attempt.LastSavedTime,
             SubmittedTime = attempt.SubmittedTime,
             ScoredTime = attempt.ScoredTime,
-            Plan = await MapPlanAsync(plan),
-            Paper = await MapPaperAsync(paper),
+            Plan = await MapPlanAsync(plan, forParticipant: true),
+            Paper = await MapPaperAsync(paper, canReview ? ExamPaperView.ParticipantReview : ExamPaperView.Participant),
             Answers = answers.Select(MapAnswer).ToList(),
-            Score = score == null ? null : await MapScoreAsync(score)
+            Score = score == null || !canViewScore ? null : await MapScoreAsync(score, includeWrongQuestions: canReview)
         };
     }
 
@@ -842,9 +1116,9 @@ public class ExamAppService : KnowPulseAppService, IExamAppService
         return result;
     }
 
-    private async Task<ExamScoreDto> MapScoreAsync(ExamScore score)
+    private async Task<ExamScoreDto> MapScoreAsync(ExamScore score, bool includeWrongQuestions = true)
     {
-        var wrongs = await GetWrongQuestionsAsync(score.Id);
+        var wrongs = includeWrongQuestions ? await GetWrongQuestionsAsync(score.Id) : new List<WrongQuestionRecord>();
         return new ExamScoreDto
         {
             Id = score.Id,
@@ -901,6 +1175,12 @@ public class ExamAppService : KnowPulseAppService, IExamAppService
     private Guid GetCurrentUserId()
     {
         return CurrentUser.Id ?? throw new AbpAuthorizationException("Authentication is required for this operation.");
+    }
+
+    private static void EnsureLegacyScoring(IReadOnlyCollection<ExamPaperQuestion> questions)
+    {
+        if (questions.Any(x => x.ScoringDefinitionJson != null || x.Type == QuestionType.Subjective))
+            throw new BusinessException("KnowPulse:Education:EducationTaskNotImplemented");
     }
 
     private static decimal ScoreQuestion(ExamPaperQuestion question, List<string> userValues, List<string> correctValues)
@@ -969,25 +1249,16 @@ public class ExamAppService : KnowPulseAppService, IExamAppService
         return JsonSerializer.Deserialize<List<ExamPaperQuestionOptionDto>>(json, JsonOptions) ?? new List<ExamPaperQuestionOptionDto>();
     }
 
-    private static string? BuildSourceSnapshot(IReadOnlyCollection<QuestionSource> sources)
-    {
-        if (sources.Count == 0)
-        {
-            return null;
-        }
-
-        return string.Join("; ", sources.Select(x =>
-            TrimToNull(x.SourceTitle) ??
-            TrimToNull(x.ManualSourceDescription) ??
-            TrimToNull(x.SourceHash) ??
-            x.KnowledgeItemId?.ToString() ??
-            x.KnowledgeVersionId?.ToString() ??
-            x.ChunkId?.ToString()).Where(x => x != null));
-    }
-
     private static string? TrimToNull(string? value)
     {
         return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    }
+
+    private enum ExamPaperView
+    {
+        Management,
+        Participant,
+        ParticipantReview
     }
 
     private sealed record PaperBuildResult(ExamPaper Paper, List<ExamPaperQuestion> Questions);

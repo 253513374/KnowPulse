@@ -9,7 +9,7 @@ public enum AiQuestionGenerationTaskStatus
 {
     /// <summary>
     /// 任务已创建但尚未进入执行管道。
-    /// 当前 MVP-2 实现会同步执行，保留该状态用于后续切换后台任务。
+    /// 请求完成后由后台处理器认领执行。
     /// </summary>
     Pending = 0,
 

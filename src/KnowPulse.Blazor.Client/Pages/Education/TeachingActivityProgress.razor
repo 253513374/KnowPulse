@@ -1,0 +1,87 @@
+@page "/education/teaching-plans/{PlanId:guid}/progress"
+@attribute [Authorize(EducationPermissions.TeachingPlanManage)]
+@attribute [Authorize(EducationPermissions.AnalysisManage)]
+@inherits KnowPulseComponentBase
+@using KnowPulse.Education
+@using System.Text.Json
+@inject IEducationTeachingPlanActivityAppService Activities
+@inject IJSRuntime JS
+@inject Volo.Abp.Users.ICurrentUser Account
+@inject Volo.Abp.MultiTenancy.ICurrentTenant Tenant
+
+<PageTitle>@L["EducationActivity:TeacherTitle"]</PageTitle>
+<NavigationLock ConfirmExternalNavigation="@(Busy || Dirty || Pending != null)" OnBeforeInternalNavigation="LeaveAsync" />
+<h1 class="h4">@L["EducationActivity:TeacherTitle"]</h1><p>@L["EducationActivity:ActivityOnly"]</p>
+<p><a href="@($"/education/teaching-plans/{PlanId}/execution")">@L["EducationPlanExecution:Title"]</a></p>
+@if (Error != null) { <div class="alert alert-danger" role="alert">@Error</div> }
+@if (Receipt != null) { <p class="alert alert-success" role="status">@L["EducationGrading:Receipt", Receipt]</p> }
+@if (Pending != null) { <div class="alert alert-info" role="status">@L["EducationGrading:Unknown"] <button class="btn btn-sm btn-outline-primary" disabled="@Busy" @onclick="RecoverAsync">@L["EducationGrading:Recover"]</button><button class="btn btn-sm btn-outline-primary" disabled="@Busy" @onclick="(() => RunAsync(SendAsync))">@L["EducationReport:RetryCommand"]</button><button class="btn btn-sm btn-outline-secondary" disabled="@Busy" @onclick="DiscardAsync">@L["EducationReport:Abandon"]</button></div> }
+else if (StorageAttempted && !StorageReady) { <button class="btn btn-outline-secondary" disabled="@Busy" @onclick="DiscardAsync">@L["EducationReport:Abandon"]</button> }
+@if (View is { } view) {
+    <a href="@($"/education/teaching-plans?planId={PlanId}")">@L["EducationPlan:Title"]</a><p>@view.StudentName · @view.ClassName · @view.SubjectName</p>
+    <label for="activity-publication" class="form-label">@L["EducationActivity:Publication"]</label>
+    <select id="activity-publication" class="form-select mb-2" value="@view.PublishedRevisionId" disabled="@(Busy || Pending != null)" @onchange="VersionAsync">@foreach (var version in view.Versions) { <option value="@version.Id">@L["EducationPlan:Version", version.RevisionNumber] · @version.RecordedAtUtc.ToLocalTime().ToString("g")</option> }</select>
+    @if (!view.IsCurrentPublication) { <p class="alert alert-info">@L["EducationActivity:Historical"]</p> }
+    <button class="btn btn-outline-secondary mb-3" disabled="@(Busy || Pending != null)" @onclick="RefreshAsync">@L["EducationReport:Reload"]</button>
+    <p>@L["EducationActivity:Summary", view.Activities.Count, view.Activities.Count(x => x.State == EducationTeachingActivityState.ReportedComplete), view.Activities.Count(x => x.State == EducationTeachingActivityState.Blocked)] @L["EducationFormal:SealedCount", view.Activities.Count(x => x.FormalAssessment?.SealedAtUtc != null)]</p>
+    <div class="row g-3"><aside class="col-lg-4"><div class="list-group">@foreach (var row in view.Activities.OrderBy(x => x.StepOrder)) {
+        var step = view.Content.Steps.First(x => x.Id == row.StepId);
+        <button class="list-group-item list-group-item-action" disabled="@(Busy || Pending != null)" @onclick="(() => SelectAsync(row.Id))">@L["EducationActivity:Step", row.StepOrder] @step.Title<br /><small>@L[$"EducationActivity:State:{row.State}"]</small></button>
+    }</div></aside><main class="col-lg-8">
+    @if (Selected is { } selected) {
+        var step = view.Content.Steps.First(x => x.Id == selected.StepId);
+        <h2 class="h5">@step.Title</h2><p style="white-space:pre-wrap">@step.Instructions</p><p>@L["EducationPlan:TotalMinutes", step.EstimatedMinutes] · @step.DueAtUtc.ToLocalTime().ToString("g")</p>
+        <TeachingMaterialReader @key="selected.Id" PlanId="PlanId" RevisionId="view.PublishedRevisionId" Materials="@(view.Content.Materials.Where(x => x.StepId == selected.StepId).ToList())" Disabled="@(Busy || Pending != null)" />
+        @if (step.Kind is EducationTeachingPlanStepKind.Diagnostic or EducationTeachingPlanStepKind.Reassessment) { <AuthorizeView Policy="@EducationPermissions.AssessmentManage"><Authorized><a href="@($"/education/teaching-plans/activities/{selected.Id}/assessment")">@L["EducationFormal:Title"]</a></Authorized></AuthorizeView> }
+        @if (selected.FirstProvidedAtUtc is DateTime provided) { <p>@L["EducationActivity:ProvidedAt", provided.ToLocalTime().ToString("g")]</p> }
+        @if (selected.CurrentStudent is { } student) { <p>@student.RecordedAtUtc.ToLocalTime().ToString("g") · @L[$"EducationActivity:Action:{student.Action}"]</p><p style="white-space:pre-wrap">@student.SharedText</p> }
+        @if (selected.CurrentFollowUp is { } follow && follow.ReplyToStudentRevisionId == selected.CurrentStudentRevisionId) { <p>@L["EducationActivity:PrivateNote"]</p><p style="white-space:pre-wrap">@follow.InternalTeacherNote</p> }
+        <fieldset disabled="@(Busy || Pending != null || !StorageReady || !view.IsCurrentPublication || selected.CurrentStudent?.Action != EducationTeachingActivityAction.Difficulty)" @oninput="Changed" @onchange="Changed">
+            <label for="activity-follow-up" class="form-label">@L["EducationActivity:PrivateNote"]</label><textarea id="activity-follow-up" class="form-control mb-2" maxlength="2000" @bind="Note" @bind:event="oninput"></textarea>
+            <label class="d-block mb-2"><input type="checkbox" @bind="ConfirmHandling" /> @L["EducationActivity:HandlingConfirmation"]</label>
+            <button class="btn btn-primary" disabled="@(!ConfirmHandling || string.IsNullOrWhiteSpace(Note))" @onclick="SaveAsync">@L["EducationActivity:SaveHandling"]</button>
+        </fieldset>
+        <h3 class="h6 mt-4">@L["EducationActivity:History"]</h3><ul>@foreach (var item in History) { <li>@item.RecordedAtUtc.ToLocalTime().ToString("g") · @L[$"EducationActivity:Action:{item.Action}"]<p style="white-space:pre-wrap">@item.SharedText</p><p style="white-space:pre-wrap">@item.InternalTeacherNote</p></li> }</ul>
+        <div class="d-flex gap-2"><button class="btn btn-sm btn-outline-secondary" disabled="@(Busy || HistoryOffset == 0)" @onclick="(() => HistoryPageAsync(-1))">@L["EducationPaper:Previous"]</button><button class="btn btn-sm btn-outline-secondary" disabled="@(Busy || HistoryOffset + PageSize >= HistoryTotal)" @onclick="(() => HistoryPageAsync(1))">@L["EducationPaper:Next"]</button></div>
+    }
+    </main></div>
+}
+@code {
+    [Parameter] public Guid PlanId { get; set; }
+    private const int PageSize = 20; private bool Busy, Dirty, StorageReady, StorageAttempted, ConfirmHandling;
+    private Guid? LoadedId, Receipt, SelectedId, SelectedVersion; private string? Error; private string Note = "";
+    private EducationTeacherActivityProgressDto? View; private List<EducationTeacherActivityEventDto> History = []; private int HistoryOffset; private long HistoryTotal; private Command? Pending;
+    private EducationTeacherActivityDto? Selected => View?.Activities.FirstOrDefault(x => x.Id == SelectedId);
+    private string StorageKey => $"education-teacher-activities-v1:{Tenant.Id}:{Account.Id}:{PlanId}";
+    protected override Task OnParametersSetAsync() => RunAsync(async () => { if (LoadedId == PlanId) return; LoadedId = PlanId; SelectedVersion = null; StorageReady = StorageAttempted = false; Pending = null; await LoadAsync(); });
+    protected override async Task OnAfterRenderAsync(bool firstRender) {
+        if (StorageAttempted || Busy) return; StorageAttempted = true;
+        await RunAsync(async () => { var raw = await JS.InvokeAsync<string?>("sessionStorage.getItem", StorageKey);
+            if (raw != null) { var command = JsonSerializer.Deserialize<Command>(raw); if (command == null || !Matches(command)) throw new InvalidOperationException(L["EducationGrading:NoReceipt"]); Pending = command; } StorageReady = true; }); StateHasChanged();
+    }
+    private bool Matches(Command command) => command.PlanId == PlanId && command.AccountId == Account.Id && command.TenantId == Tenant.Id && command.ActivityId != Guid.Empty && command.Input != null &&
+        command.Input.OperationId != Guid.Empty && command.Input.ExpectedStudentRevisionId != Guid.Empty && !string.IsNullOrWhiteSpace(command.Input.InternalTeacherNote);
+    private async Task LoadAsync() { View = null; History.Clear(); Dirty = ConfirmHandling = false; Note = ""; View = await Activities.GetActivityProgressAsync(PlanId, SelectedVersion); SelectedVersion = View.PublishedRevisionId;
+        if (!View.Activities.Any(x => x.Id == SelectedId)) SelectedId = View.Activities.OrderBy(x => x.StepOrder).FirstOrDefault()?.Id; HistoryOffset = 0; await LoadHistoryAsync(); }
+    private async Task LoadHistoryAsync() { History.Clear(); if (Selected == null) return; var page = await Activities.GetActivityHistoryAsync(Selected.Id, Selected.CurrentRevisionId, new() { SkipCount = HistoryOffset, MaxResultCount = PageSize }); History = page.Items.ToList(); HistoryTotal = page.TotalCount; }
+    private void Changed() => Dirty = true;
+    private async Task<bool> DiscardEditsAsync() => !Dirty || await JS.InvokeAsync<bool>("confirm", L["EducationGrading:Discard"].Value);
+    private Task RefreshAsync() => RunAsync(async () => { if (await DiscardEditsAsync()) await LoadAsync(); });
+    private Task VersionAsync(ChangeEventArgs args) => RunAsync(async () => { if (!await DiscardEditsAsync() || !Guid.TryParse(args.Value?.ToString(), out var id)) return; SelectedVersion = id; SelectedId = null; await LoadAsync(); });
+    private Task SelectAsync(Guid id) => RunAsync(async () => { if (!await DiscardEditsAsync()) return; SelectedId = id; Dirty = ConfirmHandling = false; Note = ""; HistoryOffset = 0; await LoadHistoryAsync(); });
+    private Task HistoryPageAsync(int direction) => RunAsync(async () => { HistoryOffset += direction * PageSize; await LoadHistoryAsync(); });
+    private Task SaveAsync() => RunAsync(async () => {
+        if (Selected == null || Pending != null || !StorageReady || Selected.CurrentStudentRevisionId == null) return;
+        var command = new Command { PlanId = PlanId, AccountId = Account.Id, TenantId = Tenant.Id, ActivityId = Selected.Id, Input = new() { OperationId = Guid.NewGuid(),
+            ExpectedRevisionId = Selected.CurrentRevisionId, ConcurrencyStamp = Selected.ConcurrencyStamp, ExpectedStudentRevisionId = Selected.CurrentStudentRevisionId.Value,
+            InternalTeacherNote = Note, ConfirmHandlingReceipt = ConfirmHandling } };
+        await JS.InvokeVoidAsync("sessionStorage.setItem", StorageKey, JsonSerializer.Serialize(command)); Pending = command; await SendAsync();
+    });
+    private async Task SendAsync() { if (Pending == null || !Matches(Pending)) throw new InvalidOperationException(L["EducationGrading:NoReceipt"]); await FinishAsync(await Activities.SaveActivityFollowUpAsync(Pending.ActivityId, Pending.Input)); }
+    private Task RecoverAsync() => RunAsync(async () => { if (Pending == null || !Matches(Pending)) throw new InvalidOperationException(L["EducationGrading:NoReceipt"]); var row = await Activities.GetActivityFollowUpOperationAsync(PlanId, Pending.Input.OperationId); if (row == null) throw new InvalidOperationException(L["EducationGrading:NoReceipt"]); await FinishAsync(row); });
+    private async Task FinishAsync(EducationTeacherActivityEventDto row) { Receipt = row.Id; await JS.InvokeVoidAsync("sessionStorage.removeItem", StorageKey); Pending = null; await LoadAsync(); }
+    private Task DiscardAsync() => RunAsync(async () => { if (!await JS.InvokeAsync<bool>("confirm", L["EducationReport:AbandonHint"].Value)) return; await JS.InvokeVoidAsync("sessionStorage.removeItem", StorageKey); Pending = null; StorageReady = true; await LoadAsync(); });
+    private async Task LeaveAsync(Microsoft.AspNetCore.Components.Routing.LocationChangingContext context) { if (Busy || (Dirty || Pending != null) && !await JS.InvokeAsync<bool>("confirm", L["EducationGrading:Discard"].Value)) context.PreventNavigation(); }
+    private async Task RunAsync(Func<Task> action) { if (Busy) return; Busy = true; Error = null; try { await action(); } catch (Exception ex) { Error = GetUserFriendlyErrorMessage(ex); } finally { Busy = false; } }
+    private sealed class Command { public Guid PlanId { get; set; } public Guid ActivityId { get; set; } public Guid? AccountId { get; set; } public Guid? TenantId { get; set; } public SaveEducationActivityFollowUpDto Input { get; set; } = new(); }
+}

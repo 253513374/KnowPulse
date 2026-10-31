@@ -1,0 +1,41 @@
+@page "/education/workload"
+@attribute [Authorize(EducationPermissions.LearningParticipate)]
+@inherits KnowPulseComponentBase
+@using KnowPulse.Education
+@inject IEducationLearningWorkloadAppService Workload
+<PageTitle>@L["EducationWorkload:Title"]</PageTitle>
+<h1 class="h4">@L["EducationWorkload:Title"]</h1>
+<p>@L["EducationWorkload:Scope"]</p><p class="small text-muted">@L["EducationWorkload:Estimate"]</p>
+@if (Error != null) { <p class="alert alert-danger" role="alert">@Error</p> }
+<div class="d-flex flex-wrap align-items-end gap-2 mb-3"><label class="form-label">@L["EducationActivity:FromUtc"]<input class="form-control" type="date" @bind="From" @bind:after="WindowChanged" disabled="@Busy" /></label><label class="form-label">@L["EducationActivity:ToUtc"]<input class="form-control" type="date" @bind="To" @bind:after="WindowChanged" disabled="@Busy" /></label><button class="btn btn-primary mb-2" @onclick="LoadAsync" disabled="@Busy">@L["EducationWorkload:Refresh"]</button></div>
+@if (Result is { } result) {
+    <p class="h5">@L["EducationActivity:TotalMinutes", result.Days.Sum(x => x.KnownMinutes)]</p>
+    <p>@L["EducationWorkload:Unestimated", result.UnestimatedPlanCount]</p>
+    @if (result.OmittedKinds.Count > 0) { <p class="alert alert-warning" role="status">@L["EducationWorkload:Omitted"] @string.Join("、", result.OmittedKinds.Select(x => L[$"EducationWorkload:Kind:{x}"].Value))</p> }
+    @if (result.Items.Any(x => x.State is EducationLearningWorkloadState.Blocked or EducationLearningWorkloadState.Overdue) || result.UnestimatedPlanCount > 0) { <p class="alert alert-warning" role="status">@L["EducationWorkload:Partial"]</p> }
+    <div class="table-responsive"><table class="table"><caption>@L["EducationWorkload:Daily"]</caption><thead><tr><th scope="col">@L["EducationActivity:DueDateUtc"]</th><th scope="col">@L["EducationActivity:Subject"]</th><th scope="col">@L["EducationWorkload:Pending"]</th><th scope="col">@L["EducationWorkload:KnownMinutes"]</th><th scope="col">@L["EducationWorkload:Blocked"]</th><th scope="col">@L["EducationWorkload:Overdue"]</th></tr></thead><tbody>
+    @foreach (var day in result.Days) { <tr><td><button class="btn btn-link p-0" @onclick="(() => Focus(day.DueDateUtc))">@day.DueDateUtc.ToString("yyyy-MM-dd")</button></td><td>@day.SubjectName</td><td>@day.PendingCount</td><td>@day.KnownMinutes</td><td>@day.BlockedCount</td><td>@day.OverdueCount</td></tr> }
+    </tbody></table></div>
+    <h2 class="h5">@L["EducationWorkload:Tasks"]</h2>
+    @if (FocusedDay != null) { <p>@FocusedDay.Value.ToString("yyyy-MM-dd") <button class="btn btn-sm btn-outline-secondary" @onclick="(() => Focus(null))">@L["EducationWorkload:ShowAll"]</button></p> }
+    @foreach (var item in Filtered.Skip(Offset).Take(20)) { <article class="card mb-2"><div class="card-body"><h3 class="h6">@L[$"EducationWorkload:Kind:{item.Kind}"] · @item.SubjectName · @item.ClassName</h3><p>@L[$"EducationWorkload:State:{item.State}"] · @item.DueAtUtc.ToString("yyyy-MM-dd HH:mm") UTC · @L["EducationWorkload:Minutes", item.EstimatedMinutes]</p><a class="btn btn-sm btn-outline-primary" href="@Target(item)">@L["EducationWorkload:Open"]</a></div></article> }
+    @if (Filtered.Count == 0) { <p role="status">@L["EducationWorkload:Empty"]</p> }
+    <button class="btn btn-sm btn-outline-secondary" disabled="@(Offset == 0)" @onclick="(() => Offset -= 20)">@L["EducationPaper:Previous"]</button><button class="btn btn-sm btn-outline-secondary" disabled="@(Offset + 20 >= Filtered.Count)" @onclick="(() => Offset += 20)">@L["EducationPaper:Next"]</button>
+    <p class="small text-muted mt-3">@L["EducationWorkload:Calculated", result.CalculatedAtUtc.ToString("u")]</p>
+}
+@code {
+    private bool Busy; private string? Error; private DateTime From = DateTime.UtcNow.Date, To = DateTime.UtcNow.Date.AddDays(14); private DateTime? FocusedDay; private int Offset;
+    private EducationLearningWorkloadDto? Result;
+    private List<EducationLearningWorkloadItemDto> Filtered => Result?.Items.Where(x => FocusedDay == null || x.DueAtUtc.Date == FocusedDay).ToList() ?? [];
+    protected override Task OnInitializedAsync() => LoadAsync();
+    private async Task LoadAsync() { if (Busy) return; Busy = true; Error = null; Result = null; FocusedDay = null; Offset = 0;
+        try { Result = await Workload.GetMyLearningWorkloadAsync(new() { StartsAtUtc = DateTime.SpecifyKind(From.Date, DateTimeKind.Utc), EndsAtUtc = DateTime.SpecifyKind(To.Date, DateTimeKind.Utc) }); }
+        catch (Exception ex) { Error = GetUserFriendlyErrorMessage(ex); } finally { Busy = false; } }
+    private void Focus(DateTime? day) { FocusedDay = day; Offset = 0; }
+    private void WindowChanged() { Result = null; FocusedDay = null; Offset = 0; }
+    private static string Target(EducationLearningWorkloadItemDto item) => item.Kind switch {
+        EducationLearningWorkloadKind.PlanActivity => $"/education/teaching-plans/{item.SourceId}/activities?versionId={item.PublicationId}",
+        EducationLearningWorkloadKind.StudyTask => $"/education/study-tasks/my?recipientId={item.Id}",
+        EducationLearningWorkloadKind.Correction => $"/education/corrections/my?deliveryId={item.Id}",
+        _ => $"/education/assessments/{item.Id}" };
+}

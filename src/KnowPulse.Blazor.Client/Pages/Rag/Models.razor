@@ -636,8 +636,8 @@
                     Usage = usage,
                     OriginalDeploymentId = deploymentId,
                     DeploymentId = deploymentId,
-                    BusinessModelVersion = existing?.BusinessModelVersion ?? string.Empty,
-                    MaxOutputTokens = existing?.MaxOutputTokens ?? (usage == AiModelUsage.KnowledgeEmbedding ? 0 : 800),
+                    BusinessModelVersion = existing?.BusinessModelVersion ?? (usage == AiModelUsage.TeachingPlanGeneration ? "2026-10-teaching-plan" : string.Empty),
+                    MaxOutputTokens = existing?.MaxOutputTokens ?? (usage == AiModelUsage.KnowledgeEmbedding ? 0 : usage == AiModelUsage.TeachingPlanGeneration ? 4096 : 800),
                     Temperature = existing?.Temperature ?? 0.2,
                     FallbackAliasesText = existing == null ? string.Empty : string.Join(", ", existing.FallbackAliases)
                 };
@@ -651,6 +651,7 @@
         AiModelUsage.AiQuestionGeneration => "AI 出题",
         AiModelUsage.KnowledgeEmbedding => "知识 Embedding",
         AiModelUsage.SubjectiveScoring => "主观题评分",
+        AiModelUsage.TeachingPlanGeneration => "教学方案起草",
         _ => usage.ToString()
     };
 
@@ -659,6 +660,7 @@
         AiModelUsage.RagAnswerChat => "生成有引用依据的知识回答",
         AiModelUsage.AiQuestionGeneration => "根据知识内容生成待审核题目",
         AiModelUsage.KnowledgeEmbedding => "将知识转换为向量并写入索引",
+        AiModelUsage.TeachingPlanGeneration => "根据本人学生的知识点汇总起草可编辑方案，教师另行确认下发",
         _ => "业务模型用途"
     };
 

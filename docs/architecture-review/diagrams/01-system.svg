@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1029 837" role="img" aria-labelledby="title desc"><title id="title">系统运行架构</title><desc id="desc">箭头表示运行调用或数据访问；外部服务不保存最终业务权限。</desc>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10Z" fill="#63768c"/></marker></defs>
+<rect width="1029" height="837" rx="18" fill="#f6f8fb"/>
+<text x="40" y="35" font-size="22" font-weight="700" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">系统运行架构</text>
+<path d="M304,136.0 L330,140 L350,140 L370,136.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M172.0,192 L170,210 L170,250 L172.0,270" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M634,136.0 L660,140 L660,330 L680,330 L700,326.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M304,326.0 L330,330 L680,330 L700,326.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M832.0,382 L830,400 L830,440 L832.0,465" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M700,326.0 L680,330 L680,520 L660,520 L634,521.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M700,326.0 L680,330 L680,340 L330,340 L330,720 L304,716.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M832.0,382 L830,400 L650,400 L650,640 L500,640 L502.0,660" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M634,716.0 L660,720 L680,720 L700,716.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<rect x="40" y="80" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="40" y="80" width="5" height="112" rx="2" fill="#126b82"/>
+<text x="172.0" y="136.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">教师 / 学生 / 学校管理员</text>
+<rect x="370" y="80" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="370" y="80" width="5" height="112" rx="2" fill="#3654a5"/>
+<text x="502.0" y="124.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">Blazor WebAssembly</text>
+<text x="502.0" y="148.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">网页工作区</text>
+<rect x="700" y="270" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="700" y="270" width="5" height="112" rx="2" fill="#80539b"/>
+<text x="832.0" y="314.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">HttpApi.Host</text>
+<text x="832.0" y="338.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">API / Account / workers</text>
+<rect x="700" y="465" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="700" y="465" width="5" height="112" rx="2" fill="#126b82"/>
+<text x="832.0" y="509.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">PostgreSQL</text>
+<text x="832.0" y="533.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">业务事实与任务</text>
+<rect x="370" y="465" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="370" y="465" width="5" height="112" rx="2" fill="#3654a5"/>
+<text x="502.0" y="509.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">MinIO / Blob</text>
+<text x="502.0" y="533.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">原件、图片、导出</text>
+<rect x="40" y="270" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="40" y="270" width="5" height="112" rx="2" fill="#80539b"/>
+<text x="172.0" y="314.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">原生微信小程序</text>
+<text x="172.0" y="338.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">一个 AppID · 两个工作区</text>
+<rect x="40" y="660" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="40" y="660" width="5" height="112" rx="2" fill="#126b82"/>
+<text x="172.0" y="704.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">Qdrant</text>
+<text x="172.0" y="728.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">候选向量索引</text>
+<rect x="370" y="660" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="370" y="660" width="5" height="112" rx="2" fill="#3654a5"/>
+<text x="502.0" y="704.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">LiteLLM</text>
+<text x="502.0" y="728.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">Chat 与 Embedding 网关</text>
+<rect x="700" y="660" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="700" y="660" width="5" height="112" rx="2" fill="#80539b"/>
+<text x="832.0" y="704.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">模型供应商</text>
+<text x="832.0" y="728.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">具体模型与费用</text>
+<rect x="316.0" y="130.0" width="38" height="20" rx="4" fill="#f6f8fb"/><text x="335.0" y="140.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#43526b">网页</text>
+<rect x="151.0" y="210.0" width="38" height="20" rx="4" fill="#f6f8fb"/><text x="170.0" y="220.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#43526b">微信</text>
+<rect x="595.5" y="225.0" width="129" height="20" rx="4" fill="#f6f8fb"/><text x="660.0" y="235.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#43526b">契约 / HTTP</text>
+<rect x="379.0" y="320.0" width="77" height="20" rx="4" fill="#f6f8fb"/><text x="417.5" y="330.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#43526b">HTTPS</text>
+<rect x="811.0" y="400.0" width="38" height="20" rx="4" fill="#f6f8fb"/><text x="830.0" y="410.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#43526b">事务</text>
+<rect x="661.0" y="415.0" width="38" height="20" rx="4" fill="#f6f8fb"/><text x="680.0" y="425.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#43526b">文件</text>
+<rect x="298.0" y="425.0" width="64" height="20" rx="4" fill="#f6f8fb"/><text x="330.0" y="435.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#43526b">REST</text>
+<rect x="637.0" y="390.0" width="116" height="20" rx="4" fill="#f6f8fb"/><text x="695.0" y="400.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#43526b">模型 alias</text>
+<rect x="646.0" y="710.0" width="38" height="20" rx="4" fill="#f6f8fb"/><text x="665.0" y="720.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#43526b">调用</text>
+</svg>

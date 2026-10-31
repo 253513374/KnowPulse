@@ -8,6 +8,8 @@ using KnowPulse.Permissions;
 using Microsoft.AspNetCore.Authorization;
 using Volo.Abp;
 using Volo.Abp.Application.Dtos;
+using Volo.Abp.Authorization;
+using Volo.Abp.DependencyInjection;
 using Volo.Abp.Domain.Repositories;
 
 namespace KnowPulse.RagAI;
@@ -18,6 +20,7 @@ namespace KnowPulse.RagAI;
 [Authorize(KnowPulsePermissions.Rag.Evaluations)]
 public class RagEvaluationAppService : KnowPulseAppService, IRagEvaluationAppService
 {
+    private KnowledgeSourceAccessGuard SourceAccess => LazyServiceProvider.LazyGetRequiredService<KnowledgeSourceAccessGuard>();
     private const int DefaultTopK = 5;
     private const int MaxTopK = 20;
 
@@ -54,6 +57,7 @@ public class RagEvaluationAppService : KnowPulseAppService, IRagEvaluationAppSer
     public virtual async Task<RagEvaluationCaseDto> CreateCaseAsync(CreateRagEvaluationCaseDto input)
     {
         await CheckMvpPermissionAsync(KnowPulsePermissions.Rag.Evaluations);
+        await EnsureCitationReferencesAsync(input.ExpectedCitations.Concat(input.ForbiddenCitations));
 
         var entity = new RagEvaluationCase(
             GuidGenerator.Create(),
@@ -66,6 +70,7 @@ public class RagEvaluationAppService : KnowPulseAppService, IRagEvaluationAppSer
             Serialize(input.ForbiddenCitations),
             input.Notes);
 
+        entity.RestrictToPersonalOwner(CurrentUser.Id ?? throw new AbpAuthorizationException("An identified user is required."));
         await _caseRepository.InsertAsync(entity, autoSave: true);
         return MapCaseToDto(entity);
     }
@@ -81,6 +86,9 @@ public class RagEvaluationAppService : KnowPulseAppService, IRagEvaluationAppSer
         await CheckMvpPermissionAsync(KnowPulsePermissions.Rag.Evaluations);
 
         var entity = await _caseRepository.GetAsync(id);
+        await EnsureCaseAccessAsync(entity);
+        await EnsureCitationReferencesAsync(input.ExpectedCitations.Concat(input.ForbiddenCitations));
+        entity.RestrictToPersonalOwner(CurrentUser.Id ?? throw new AbpAuthorizationException("An identified user is required."));
         entity.Update(
             input.Name,
             input.Question,
@@ -104,7 +112,9 @@ public class RagEvaluationAppService : KnowPulseAppService, IRagEvaluationAppSer
     {
         await CheckMvpPermissionAsync(KnowPulsePermissions.Rag.Evaluations);
 
-        return MapCaseToDto(await _caseRepository.GetAsync(id));
+        var entity = await _caseRepository.GetAsync(id);
+        await EnsureCaseAccessAsync(entity);
+        return MapCaseToDto(entity);
     }
 
     /// <summary>
@@ -128,14 +138,19 @@ public class RagEvaluationAppService : KnowPulseAppService, IRagEvaluationAppSer
             query = query.Where(x => x.IsActive == input.IsActive.Value);
         }
 
-        var totalCount = await AsyncExecuter.CountAsync(query);
-        var cases = await AsyncExecuter.ToListAsync(
-            query
-                .OrderByDescending(x => x.CreationTime)
-                .Skip(input.SkipCount)
-                .Take(input.MaxResultCount));
+        query = query.Where(x => x.PersonalOwnerUserId == null || x.PersonalOwnerUserId == CurrentUser.Id);
+        var cases = await AsyncExecuter.ToListAsync(query.OrderByDescending(x => x.CreationTime));
+        var visible = new List<RagEvaluationCase>();
+        foreach (var evaluationCase in cases)
+        {
+            if (await CanReadCaseAsync(evaluationCase))
+            {
+                visible.Add(evaluationCase);
+            }
+        }
 
-        return new PagedResultDto<RagEvaluationCaseDto>(totalCount, cases.Select(MapCaseToDto).ToList());
+        return new PagedResultDto<RagEvaluationCaseDto>(visible.Count,
+            visible.Skip(input.SkipCount).Take(input.MaxResultCount).Select(MapCaseToDto).ToList());
     }
 
     /// <summary>
@@ -161,6 +176,7 @@ public class RagEvaluationAppService : KnowPulseAppService, IRagEvaluationAppSer
             CurrentUser.Id,
             Clock.Now);
 
+        run.RestrictToPersonalOwner(CurrentUser.Id ?? throw new AbpAuthorizationException("An identified user is required."));
         await _runRepository.InsertAsync(run, autoSave: true);
 
         var topK = input.TopK <= 0 ? DefaultTopK : Math.Min(input.TopK, MaxTopK);
@@ -209,6 +225,7 @@ public class RagEvaluationAppService : KnowPulseAppService, IRagEvaluationAppSer
 
         var run = await _runRepository.GetAsync(id);
         var results = await GetResultsByRunIdAsync(run.Id);
+        await EnsureRunAccessAsync(run, results);
         return MapRunToDto(run, results);
     }
 
@@ -232,16 +249,25 @@ public class RagEvaluationAppService : KnowPulseAppService, IRagEvaluationAppSer
             query = query.Where(x => x.HardFailed == input.HardFailed.Value);
         }
 
-        var totalCount = await AsyncExecuter.CountAsync(query);
-        var runs = await AsyncExecuter.ToListAsync(
-            query
-                .OrderByDescending(x => x.CreationTime)
-                .Skip(input.SkipCount)
-                .Take(input.MaxResultCount));
+        query = query.Where(x => x.PersonalOwnerUserId == null || x.PersonalOwnerUserId == CurrentUser.Id);
+        var runs = await AsyncExecuter.ToListAsync(query.OrderByDescending(x => x.CreationTime));
+        var visible = new List<RagEvaluationRun>();
+        foreach (var run in runs)
+        {
+            try
+            {
+                await EnsureRunAccessAsync(run, await GetResultsByRunIdAsync(run.Id));
+                visible.Add(run);
+            }
+            catch (AbpAuthorizationException)
+            {
+                // 整条记录在分页和统计前排除，避免运行名称与聚合摘要泄漏。
+            }
+        }
 
-        return new PagedResultDto<RagEvaluationRunDto>(
-            totalCount,
-            runs.Select(x => MapRunToDto(x, Array.Empty<RagEvaluationRunCaseResult>())).ToList());
+        return new PagedResultDto<RagEvaluationRunDto>(visible.Count,
+            visible.Skip(input.SkipCount).Take(input.MaxResultCount)
+                .Select(x => MapRunToDto(x, Array.Empty<RagEvaluationRunCaseResult>())).ToList());
     }
 
     /// <summary>
@@ -261,7 +287,21 @@ public class RagEvaluationAppService : KnowPulseAppService, IRagEvaluationAppSer
             query = query.Where(x => x.IsActive);
         }
 
-        return await AsyncExecuter.ToListAsync(query.OrderBy(x => x.CreationTime));
+        var candidates = await AsyncExecuter.ToListAsync(query.OrderBy(x => x.CreationTime));
+        var allowed = new List<RagEvaluationCase>();
+        foreach (var candidate in candidates)
+        {
+            if (await CanReadCaseAsync(candidate))
+            {
+                allowed.Add(candidate);
+            }
+            else if (input.CaseIds.Contains(candidate.Id))
+            {
+                throw new AbpAuthorizationException("The evaluation case is not available to the current user.");
+            }
+        }
+
+        return allowed;
     }
 
     /// <summary>
@@ -592,6 +632,51 @@ public class RagEvaluationAppService : KnowPulseAppService, IRagEvaluationAppSer
         }
 
         return failedCaseCount == 0 ? null : $"{failedCaseCount} evaluation case(s) failed.";
+    }
+
+    private async Task EnsureCitationReferencesAsync(IEnumerable<RagEvaluationCitationExpectationDto> citations)
+    {
+        foreach (var citation in citations)
+        {
+            await SourceAccess.EnsureSourceAsync(citation.KnowledgeItemId, citation.KnowledgeVersionId, citation.ChunkId);
+        }
+    }
+
+    private async Task EnsureCaseAccessAsync(RagEvaluationCase evaluationCase)
+    {
+        SourceAccess.EnsurePersonalOwner(evaluationCase.PersonalOwnerUserId, evaluationCase.TenantId);
+        await EnsureCitationReferencesAsync(
+            (Deserialize<List<RagEvaluationCitationExpectationDto>>(evaluationCase.ExpectedCitationsJson) ?? [])
+                .Concat(Deserialize<List<RagEvaluationCitationExpectationDto>>(evaluationCase.ForbiddenCitationsJson) ?? []));
+    }
+
+    private async Task<bool> CanReadCaseAsync(RagEvaluationCase evaluationCase)
+    {
+        try
+        {
+            await EnsureCaseAccessAsync(evaluationCase);
+            return true;
+        }
+        catch (AbpAuthorizationException)
+        {
+            return false;
+        }
+    }
+
+    private async Task EnsureRunAccessAsync(RagEvaluationRun run, IReadOnlyList<RagEvaluationRunCaseResult> results)
+    {
+        SourceAccess.EnsurePersonalOwner(run.PersonalOwnerUserId, run.TenantId);
+        foreach (var result in results)
+        {
+            var evaluationCase = await _caseRepository.FindAsync(result.EvaluationCaseId);
+            if (evaluationCase == null || result.TenantId != run.TenantId)
+            {
+                throw new AbpAuthorizationException("The evaluation source is unavailable.");
+            }
+
+            await EnsureCaseAccessAsync(evaluationCase);
+            await EnsureCitationReferencesAsync(Deserialize<List<RagEvaluationCitationExpectationDto>>(result.ActualCitationsJson) ?? []);
+        }
     }
 
     private static RagEvaluationCaseDto MapCaseToDto(RagEvaluationCase entity)

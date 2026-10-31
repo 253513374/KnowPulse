@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
 using JetBrains.Annotations;
+using KnowPulse.WeChat;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Localization;
 using OpenIddict.Abstractions;
@@ -120,6 +121,16 @@ public class OpenIddictDataSeedContributor : IDataSeedContributor, ITransientDep
                 redirectUri: $"{swaggerRootUrl}/swagger/oauth2-redirect.html",
                 clientUri: swaggerRootUrl
             );
+        }
+
+        var weChat = _configuration.GetSection(WeChatLoginOptions.SectionName).Get<WeChatLoginOptions>() ?? new();
+        foreach (var pair in weChat.Applications.Where(x => weChat.IsEnabledApplication(x.Key, x.Value)))
+        {
+            if (configurationSection.GetChildren().Any(x => x["ClientId"] == pair.Value.ClientId))
+                throw new BusinessException(WeChatLoginErrorCodes.NotConfigured);
+            await CreateApplicationAsync(pair.Value.ClientId, OpenIddictConstants.ClientTypes.Public,
+                OpenIddictConstants.ConsentTypes.Implicit, pair.Value.DisplayName, null,
+                [WeChatLoginValues.GrantType], ["KnowPulse"]);
         }
     }
 
@@ -249,6 +260,11 @@ public class OpenIddictDataSeedContributor : IDataSeedContributor, ITransientDep
             if (!buildInGrantTypes.Contains(grantType))
             {
                 application.Permissions.Add(OpenIddictConstants.Permissions.Prefixes.GrantType + grantType);
+                if (grantType == WeChatLoginValues.GrantType)
+                {
+                    application.Permissions.Add(OpenIddictConstants.Permissions.Endpoints.Token);
+                    application.Permissions.Add(OpenIddictConstants.Permissions.Endpoints.Revocation);
+                }
             }
         }
 

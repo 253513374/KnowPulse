@@ -1,4 +1,4 @@
-﻿using Microsoft.Data.Sqlite;
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Storage;
@@ -18,6 +18,8 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using KnowPulse.KnowledgeBase;
+using KnowPulse.Education;
+using KnowPulse.WeChat;
 using KnowPulse.RagAI;
 using Volo.Abp.BlobStoring;
 using Volo.Abp.BlobStoring.FileSystem;
@@ -64,6 +66,8 @@ public class KnowPulseEntityFrameworkCoreTestModule : AbpModule
         ConfigureBlobStoring();
         ConfigureInMemorySqlite(context.Services);
         ConfigureRagAiTestDoubles(context.Services);
+        context.Services.AddSingleton<TestWeChatLoginVerifier>();
+        context.Services.Replace(ServiceDescriptor.Singleton<IWeChatLoginVerifier>(sp => sp.GetRequiredService<TestWeChatLoginVerifier>()));
     }
 
     /// <summary>
@@ -95,6 +99,30 @@ public class KnowPulseEntityFrameworkCoreTestModule : AbpModule
         Configure<AbpBlobStoringOptions>(options =>
         {
             options.Containers.Configure<KnowledgeAttachmentBlobContainer>(container =>
+            {
+                container.UseFileSystem(fileSystem =>
+                {
+                    fileSystem.BasePath = _blobBasePath;
+                    fileSystem.AppendContainerNameToBasePath = true;
+                });
+            });
+            options.Containers.Configure<EducationAssessmentImageBlobContainer>(container =>
+            {
+                container.UseFileSystem(fileSystem =>
+                {
+                    fileSystem.BasePath = _blobBasePath;
+                    fileSystem.AppendContainerNameToBasePath = true;
+                });
+            });
+            options.Containers.Configure<EducationCorrectionImageBlobContainer>(container =>
+            {
+                container.UseFileSystem(fileSystem =>
+                {
+                    fileSystem.BasePath = _blobBasePath;
+                    fileSystem.AppendContainerNameToBasePath = true;
+                });
+            });
+            options.Containers.Configure<EducationPracticeImageBlobContainer>(container =>
             {
                 container.UseFileSystem(fileSystem =>
                 {
@@ -284,6 +312,7 @@ public class TestRagChatClient : IRagChatClient
     public int CallCount { get; private set; }
 
     public List<RagChatClientRequest> Requests { get; } = [];
+    public Func<RagChatClientRequest, Task<RagChatClientResult>>? Handler { get; set; }
 
     /// <summary>
     /// 重置 chat 测试替身状态。
@@ -295,6 +324,7 @@ public class TestRagChatClient : IRagChatClient
         ResponseContent = DefaultResponseContent;
         CallCount = 0;
         Requests.Clear();
+        Handler = null;
     }
 
     /// <summary>
@@ -306,6 +336,7 @@ public class TestRagChatClient : IRagChatClient
     {
         CallCount++;
         Requests.Add(request);
+        if (Handler != null) return Handler(request);
 
         if (ShouldFail)
         {

@@ -1,0 +1,20 @@
+<view class="page">
+  <view class="hero"><text class="title">成绩与知识点证据</text><text class="muted">正式成绩、证据比例和比较限制分开呈现。阅读、订正、同题复练不会自动增加独立测评证据。窗口按 UTC，测评和计算时间按本机时区显示。</text></view>
+  <view wx:if="{{error}}" class="error" aria-role="alert">{{error}}</view>
+  <view class="card"><text class="heading">选择计算窗口</text><text class="muted">日期按 UTC，起止当天均包含；今天截至本次查询时刻。分页和依据固定同一截止时间。</text>
+    <picker mode="date" value="{{from}}" data-field="from" bindchange="change" disabled="{{busy}}"><view class="field">开始日期：{{from}}</view></picker><picker mode="date" value="{{to}}" data-field="to" bindchange="change" disabled="{{busy}}"><view class="field">结束日期：{{to}}</view></picker><button bindtap="view" type="primary" disabled="{{busy}}">查看所选日期</button>
+  </view>
+  <block wx:if="{{head}}">
+    <view class="card"><text class="heading">{{head.context.subject}} · {{head.context.book}}</text><text>{{head.context.school}} · {{head.context.className}} · {{head.context.teacher}}</text><text class="muted">{{head.from}} → {{head.to}}；计算时间 {{head.calculated}}</text><text class="muted">快照 {{head.snapshotId}} · {{head.calculationVersion}}</text><text class="notice">{{head.warning}}</text>
+      <text wx:if="{{head.rule}}">规则 v{{head.rule.revision}}：最长 {{head.rule.days}} 天，至少 {{head.rule.questions}} 道独立题、{{head.rule.assessments}} 次测评，最近证据不超过 {{head.rule.age}} 天，目标 {{head.rule.target}}。</text>
+    </view>
+    <view class="card"><text class="heading">已开放成绩记录（{{assessmentTotal}}）</text><text class="muted">下方条形仅表示各次原始得分比例。满分、覆盖、名义难度或评分口径不同的记录不直接解释为进步；缺考不画成零分。</text>
+      <view wx:for="{{assessments}}" wx:key="id"><text class="strong">{{item.title}}</text><text class="muted">{{item.at}} · {{item.absent ? '缺考，未作为零分' : item.obtained + ' / ' + item.max}}</text><view wx:if="{{!item.absent}}" class="growth-bar" aria-hidden="true"><view class="growth-bar-value" style="width:{{item.percent}}%;"></view></view><text class="muted">{{item.comparison}}</text><button bindtap="result" data-id="{{item.id}}" disabled="{{busy}}">{{item.visibility === 2 ? '明确打开该次完整讲评' : '查看该次获准成绩'}}</button></view>
+      <text wx:if="{{assessmentTotal === 0}}">此窗口没有已开放的正式成绩记录。</text><view class="pager"><button bindtap="paginate" data-kind="assessment" data-direction="-1" disabled="{{busy || assessmentOffset === 0}}">上一页</button><button bindtap="paginate" data-kind="assessment" data-direction="1" disabled="{{busy || assessmentOffset + 20 >= assessmentTotal}}">下一页</button></view>
+    </view>
+    <view class="card"><text class="heading">知识点证据（{{pointTotal}}）</text><view wx:for="{{points}}" wx:key="id"><text class="strong">{{item.code}} · {{item.name}} · 修订 {{item.revision}}</text><text>{{item.label}} · {{item.ratio}}（{{item.obtained}} / {{item.max}}）</text><text class="muted">独立题 {{item.independentQuestionCount}}，测评 {{item.assessmentCount}}；待核验 {{item.unverifiedQuestionCount}}，练习 {{item.practiceQuestionCount}}，无效 {{item.invalidQuestionCount}}。</text><text wx:if="{{head.rule}}" class="muted">还缺独立题 {{item.missingIndependentQuestionCount}}、测评 {{item.missingAssessmentCount}} {{item.recentMissing ? '；近期证据不足' : ''}}</text><text class="muted">最近证据 {{item.latest}}</text><button bindtap="basis" data-id="{{item.id}}" disabled="{{busy}}">核对此知识点逐题依据</button></view>
+      <view class="pager"><button bindtap="paginate" data-kind="point" data-direction="-1" disabled="{{busy || pointOffset === 0}}">上一页</button><button bindtap="paginate" data-kind="point" data-direction="1" disabled="{{busy || pointOffset + 20 >= pointTotal}}">下一页</button></view>
+    </view>
+  </block>
+  <button bindtap="refresh" disabled="{{busy}}">重新读取同一窗口</button><button bindtap="web" disabled="{{busy}}">复制成长网页地址</button><text class="footnote">网页需独立登录并重新选择范围；本机不保存成长报告。快照编号不授予历史读取权。</text><button bindtap="login">返回登录</button>
+</view>

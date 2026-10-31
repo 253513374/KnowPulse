@@ -1,0 +1,47 @@
+<view class="page">
+  <view class="hero"><text class="title">正式测评作答</text><text class="muted">本机草稿、图片上传、本题保存、答卷封存分别核对。退出不会暂停服务器计时。</text></view>
+  <view wx:if="{{error}}" class="error" aria-role="alert">{{error}}</view><view wx:if="{{notice}}" class="notice">{{notice}}</view>
+  <text wx:if="{{busy}}">正在核对，请勿重复操作…</text>
+  <button wx:if="{{!ready}}" bindtap="reauthenticate" disabled="{{busy}}">微信重新验证并读取本人答卷</button>
+  <block wx:if="{{ready}}">
+    <view class="card"><text class="heading">{{task.title}}</text><text>{{task.className}} · {{task.subject}}</text><text class="prewrap">{{task.instructions}}</text><text>开始 {{task.startsAt}} · 截止 {{task.endsAt}} · {{task.duration}} 分钟</text><text class="strong">{{remaining}}</text>
+      <button wx:if="{{task.canStart}}" type="primary" bindtap="start" disabled="{{busy || pending}}">核对后开始测评</button>
+      <button bindtap="load" disabled="{{busy}}">刷新云端状态 / 核对截止封存</button>
+    </view>
+    <view wx:if="{{pending}}" class="notice"><text>待确认操作 {{pending.label}} · {{pending.operationId}}</text><text>查询不到不表示失败；不会自动改编号或重复发送。</text>
+      <button bindtap="recover" disabled="{{busy}}">查询原回执</button><button bindtap="retry" disabled="{{busy || !pending.canRetry || !consent}}">明确重试原请求</button>
+      <button wx:if="{{pending.kind === 'image'}}" bindtap="reselectImage" disabled="{{busy || !consent}}">先查询，再重新选择同一原图</button><button bindtap="abandon" disabled="{{busy}}">核对后关闭本机追踪</button>
+    </view>
+    <view wx:if="{{!consent}}" class="notice"><text>编辑和重试前须了解本机暂存及共享设备风险。只有服务器确认的答案可跨设备恢复。</text><button bindtap="allowStorage" disabled="{{busy}}">了解并允许本机暂存</button></view>
+    <view wx:if="{{unpersisted}}" class="error">有文字仅在运行内存，本机暂存未确认；不要直接关闭。可核对存储后再保存本题。</view>
+    <view wx:if="{{submission}}" class="card"><text class="heading">答卷已封存 · {{submission.cause}}</text><text>回执 {{submission.id}}</text><text>生效 {{submission.effectiveAt}} · 实际封存 {{submission.sealedAt}}</text><text>封存不代表已评分或已发布成绩。本机排除项未变为服务器答案。</text><button bindtap="results" disabled="{{busy}}">查看本人结果开放状态</button></view>
+    <block wx:if="{{question}}">
+      <view class="pager"><button bindtap="question" data-direction="-1" disabled="{{busy || index === 0}}">上一题</button><text>{{index + 1}} / {{count}} 题</text><button bindtap="question" data-direction="1" disabled="{{busy || index + 1 >= count}}">下一题</button></view>
+      <view class="card"><text class="heading">{{question.title}} · {{question.score}} 分</text><text class="prewrap">{{question.stem}}</text><text>{{question.dirty ? '有本机草稿，尚未确认进入云端答案' : '当前显示云端确认答案或空白'}} · 上次确认 {{question.savedAt}}</text>
+        <view wx:if="{{question.conflict}}" class="error"><text>云端本题已变化。保留本机草稿，未自动合并或覆盖。</text><button bindtap="toggleCloud" disabled="{{busy}}">{{showCloud ? '查看本机草稿' : '查看当前云端答案（只读）'}}</button><button bindtap="chooseLocal" disabled="{{busy || pending || !consent || submission}}">比较后明确保留本机答案</button></view>
+        <radio-group wx:if="{{question.type === 0 || question.type === 2}}" data-field="choice" bindchange="change"><label class="check-row" wx:for="{{question.options}}" wx:key="optionKey"><radio value="{{item.optionKey}}" checked="{{item.selected}}" disabled="{{!canEdit}}" />{{item.optionKey}} · {{item.content}}</label></radio-group>
+        <checkbox-group wx:if="{{question.type === 1}}" data-field="choice" bindchange="change"><label class="check-row" wx:for="{{question.options}}" wx:key="optionKey"><checkbox value="{{item.optionKey}}" checked="{{item.selected}}" disabled="{{!canEdit}}" />{{item.optionKey}} · {{item.content}}</label></checkbox-group>
+        <button wx:if="{{question.type < 3}}" bindtap="clearChoices" disabled="{{!canEdit}}">清空本机选择（仍须保存本题）</button>
+        <block wx:if="{{question.type === 3}}"><view wx:for="{{question.fields}}" wx:key="id"><text>{{item.stemMarker}}</text><textarea class="feedback-text short-text" aria-label="{{item.stemMarker}} 的作答" maxlength="20000" value="{{item.text}}" data-field="blank" data-id="{{item.id}}" bindinput="change" disabled="{{!canEdit}}" /></view></block>
+        <block wx:if="{{question.type === 4}}"><text>文字作答（最多 20000 字符）</text><textarea class="feedback-text" aria-label="本题文字作答" maxlength="20000" value="{{question.text}}" data-field="text" bindinput="change" disabled="{{!canEdit}}" />
+          <text wx:if="{{imagePolicy}}" class="muted">支持 {{imagePolicy.types}}，单张最多 {{imagePolicy.bytes}} 字节（约 {{imagePolicy.megabytes}} MiB），本题最多 {{imagePolicy.count}} 张。</text>
+          <view class="card" wx:for="{{question.images}}" wx:key="attachmentId"><text>图片 {{index + 1}} · {{item.rotationDegrees}}° · {{item.attachmentId}}</text><button bindtap="showImage" data-id="{{item.attachmentId}}" disabled="{{busy}}">打开已上传原图</button>
+            <button bindtap="addImage" data-id="{{item.attachmentId}}" disabled="{{!canEdit}}">上传确认后替换此位置</button><button bindtap="imageAction" data-action="rotate" data-id="{{item.attachmentId}}" disabled="{{!canEdit}}">旋转 90°</button>
+            <view class="pager"><button bindtap="imageAction" data-action="up" data-id="{{item.attachmentId}}" disabled="{{!canEdit || index === 0}}">前移</button><button bindtap="imageAction" data-action="down" data-id="{{item.attachmentId}}" disabled="{{!canEdit || index + 1 >= question.images.length}}">后移</button><button bindtap="imageAction" data-action="remove" data-id="{{item.attachmentId}}" disabled="{{!canEdit}}">从草稿移除</button></view>
+          </view><button bindtap="addImage" disabled="{{!canEdit}}">选择或拍摄一张原图并上传</button><text class="muted">上传确认后还须保存本题；旋转、排序、移除只修改本题草稿，不删除原图或历史答案。</text>
+        </block>
+        <button type="primary" bindtap="save" disabled="{{!canEdit || !question.dirty || question.conflict}}">保存本题并核对回执</button><button bindtap="discard" disabled="{{busy || pending || !question.dirty}}">明确丢弃本题本机草稿</button>
+      </view>
+      <view class="card"><text>共 {{draftCount}} 题本机草稿。到期封存只使用服务器已确认答案，不会接收迟到草稿。</text><button bindtap="saveAll" disabled="{{busy || pending || !consent || submission}}">依次同步全部草稿，再核对交卷</button><button bindtap="prepare" disabled="{{busy || pending || submission}}">先查看交卷内容与排除项</button></view>
+    </block>
+    <view wx:if="{{review}}" class="card"><text class="heading">交卷前核对 · {{review.total}} 题</text><text>服务器不完整 {{review.incomplete}} 题 · 排除本机草稿 {{review.exclusionTotal}} 题 · 未关联上传 {{review.unlinkedTotal}} 个</text>
+      <text wx:for="{{review.questions}}" wx:key="id">第 {{item.displayOrder}} 题 · {{item.title}} · {{item.isUnanswered ? '未作答' : '已有答案'}} · 空白 {{item.unansweredBlankCount}} · 已保存图片 {{item.savedImageCount}}</text>
+      <text wx:for="{{review.localExclusions}}" wx:key="id">排除本机：第 {{item.order}} 题 {{item.title}}，本机文字/选择/填空及 {{item.images}} 张图片改动不随交卷提交。</text>
+      <text wx:for="{{review.unlinked}}" wx:key="id">排除上传 {{item.name}} · {{item.id}} · {{item.uploaded ? '已上传但未关联当前答案（也可能是历史替换）' : '上传未完成'}}</text>
+      <view class="pager"><button bindtap="reviewPage" data-direction="-1" disabled="{{busy || reviewOffset === 0}}">核对上一页</button><text>每页 20 条</text><button bindtap="reviewPage" data-direction="1" disabled="{{busy || reviewOffset + 20 >= review.rowsTotal}}">核对下一页</button></view>
+      <checkbox-group bindchange="confirm"><label class="check-row"><checkbox value="confirmed" checked="{{confirmed}}" disabled="{{busy}}" />我已核对本次服务器保存内容和全部排除清单。</label><label wx:if="{{review.hasExclusions}}" class="check-row"><checkbox value="savedOnly" checked="{{savedOnly}}" disabled="{{busy}}" />我明确选择只交已保存部分，接受清单中的未作答、草稿和未关联图片排除。</label></checkbox-group>
+      <button type="primary" bindtap="submit" disabled="{{busy || pending || !consent || !review.canSubmit || !confirmed || (review.hasExclusions && !savedOnly)}}">再次确认后封存答卷</button>
+    </view>
+  </block>
+  <view wx:if="{{imagePath}}" class="image-panel"><text>本人原图预览 · {{imageRotation}}°，可缩放和拖动</text><movable-area class="image-area"><movable-view class="image-view" direction="all" scale="true" scale-min="1" scale-max="3"><image class="answer-image" mode="aspectFit" aria-label="本人上传的原始作答图片" src="{{imagePath}}" style="transform: rotate({{imageRotation}}deg);" /></movable-view></movable-area><button bindtap="closeImage">关闭原图</button></view>
+</view>

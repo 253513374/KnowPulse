@@ -10,9 +10,13 @@ using KnowPulse.KnowledgeBase;
 using KnowPulse.KnowledgeIndexing;
 using KnowPulse.QuestionBank;
 using KnowPulse.RagAI;
+using Microsoft.Extensions.Options;
 using Shouldly;
 using Volo.Abp;
 using Volo.Abp.Domain.Repositories;
+using Volo.Abp.Identity;
+using Volo.Abp.Data;
+using Volo.Abp.Users;
 using Xunit;
 
 namespace KnowPulse.EntityFrameworkCore.Applications;
@@ -71,6 +75,7 @@ public class Mvp2AiQuestionGenerationAppServiceTests : KnowPulseEntityFrameworkC
         _embeddingClient.Reset();
         _vectorStore.Reset();
         _chatClient.Reset();
+        GetRequiredService<IOptions<AiQuestionGenerationWorkerOptions>>().Value.MaxAttempts = 1;
     }
 
     /// <summary>
@@ -180,7 +185,7 @@ public class Mvp2AiQuestionGenerationAppServiceTests : KnowPulseEntityFrameworkC
             "员工请假流程考点",
             "员工请假流程第一步是什么？");
 
-        var task = await _generationAppService.CreateAsync(CreateInput("员工请假流程"));
+        var task = await CreateAndProcessAsync(CreateInput("员工请假流程"));
 
         task.Status.ShouldBe(AiQuestionGenerationTaskStatus.Generated);
         task.GeneratedCount.ShouldBe(1);
@@ -245,7 +250,7 @@ public class Mvp2AiQuestionGenerationAppServiceTests : KnowPulseEntityFrameworkC
             "员工请假 citation 追溯",
             "员工请假流程第一步是什么？");
 
-        var task = await _generationAppService.CreateAsync(CreateInput("员工请假 citation 追溯"));
+        var task = await CreateAndProcessAsync(CreateInput("员工请假 citation 追溯"));
         var candidate = task.Candidates.Single();
         var citation = candidate.Citations.Single();
 
@@ -280,7 +285,7 @@ public class Mvp2AiQuestionGenerationAppServiceTests : KnowPulseEntityFrameworkC
     [Fact]
     public async Task CreateAsync_Should_Fail_Safely_When_No_Context()
     {
-        var task = await _generationAppService.CreateAsync(CreateInput("不存在的制度"));
+        var task = await CreateAndProcessAsync(CreateInput("不存在的制度"));
 
         task.Status.ShouldBe(AiQuestionGenerationTaskStatus.Failed);
         task.FailureStage.ShouldBe("retrieval");
@@ -308,7 +313,7 @@ public class Mvp2AiQuestionGenerationAppServiceTests : KnowPulseEntityFrameworkC
             });
         _vectorStore.SearchResults.Add(ToHit(chunk, 0.99));
 
-        var task = await _generationAppService.CreateAsync(CreateInput("隐藏制度"));
+        var task = await CreateAndProcessAsync(CreateInput("隐藏制度"));
 
         task.Status.ShouldBe(AiQuestionGenerationTaskStatus.Failed);
         task.FailureStage.ShouldBe("retrieval");
@@ -330,7 +335,7 @@ public class Mvp2AiQuestionGenerationAppServiceTests : KnowPulseEntityFrameworkC
         _vectorStore.SearchResults.Add(ToHit(chunk, 0.88));
         _chatClient.ResponseContent = "not-json";
 
-        var task = await _generationAppService.CreateAsync(CreateInput("员工请假流程坏格式"));
+        var task = await CreateAndProcessAsync(CreateInput("员工请假流程坏格式"));
 
         task.Status.ShouldBe(AiQuestionGenerationTaskStatus.Failed);
         task.FailureStage.ShouldBe("parse");
@@ -354,12 +359,12 @@ public class Mvp2AiQuestionGenerationAppServiceTests : KnowPulseEntityFrameworkC
         _chatClient.ShouldFail = true;
         _chatClient.FailureReason = "Model gateway unavailable.";
 
-        var task = await _generationAppService.CreateAsync(CreateInput("员工请假流程模型失败"));
+        var task = await CreateAndProcessAsync(CreateInput("员工请假流程模型失败"));
 
         task.Status.ShouldBe(AiQuestionGenerationTaskStatus.Failed);
         task.FailureStage.ShouldBe("chat");
         task.FailureReason.ShouldNotBeNull();
-        task.FailureReason!.ShouldContain("Model gateway unavailable");
+        task.FailureReason!.ShouldBe("KnowPulse:AiGeneration:ModelFailed");
         task.Candidates.Count.ShouldBe(0);
 
         var logs = await GetCallLogsAsync(task.Id);
@@ -403,7 +408,7 @@ public class Mvp2AiQuestionGenerationAppServiceTests : KnowPulseEntityFrameworkC
             includeCitation,
             answer);
 
-        var task = await _generationAppService.CreateAsync(CreateInput($"员工请假流程坏输出 {scenario}"));
+        var task = await CreateAndProcessAsync(CreateInput($"员工请假流程坏输出 {scenario}"));
 
         task.Status.ShouldBe(AiQuestionGenerationTaskStatus.Generated);
         task.GeneratedCount.ShouldBe(0);
@@ -441,7 +446,7 @@ public class Mvp2AiQuestionGenerationAppServiceTests : KnowPulseEntityFrameworkC
             "员工请假流程重复题",
             "员工请假流程第一步是什么？");
 
-        var task = await _generationAppService.CreateAsync(CreateInput("员工请假流程相似题"));
+        var task = await CreateAndProcessAsync(CreateInput("员工请假流程相似题"));
         var candidate = task.Candidates.Single();
 
         candidate.HighestSimilarQuestionId.ShouldBe(existing.Id);
@@ -457,14 +462,163 @@ public class Mvp2AiQuestionGenerationAppServiceTests : KnowPulseEntityFrameworkC
         similarityCount.ShouldBe(1);
     }
 
+    [Fact]
+    public async Task Create_Should_Persist_Pending_And_Replay_Only_The_Same_Request_Key()
+    {
+        var input = CreateInput("持久化待执行");
+        input.IdempotencyKey = Guid.NewGuid();
+        var pending = await _generationAppService.CreateAsync(input);
+        pending.Status.ShouldBe(AiQuestionGenerationTaskStatus.Pending);
+        pending.Candidates.ShouldBeEmpty();
+        pending.CallLogs.ShouldBeEmpty();
+        _chatClient.CallCount.ShouldBe(0);
+        (await _generationAppService.CreateAsync(input)).Id.ShouldBe(pending.Id);
+        (await _generationAppService.GetAsync(pending.Id)).Status.ShouldBe(AiQuestionGenerationTaskStatus.Pending);
+        input.KnowledgeScope = "相同操作键却修改输入";
+        (await Should.ThrowAsync<BusinessException>(() => _generationAppService.CreateAsync(input))).Code
+            .ShouldBe("KnowPulse:AiGeneration:ConflictingOperation");
+    }
+
+    [Fact]
+    public async Task Regeneration_Should_Preserve_Editing_Adoption_And_Idempotent_Outputs()
+    {
+        var chunk = await CreateIndexedChunkAsync("Recovery", "员工请假流程先在系统提交申请。");
+        _vectorStore.SearchResults.Add(ToHit(chunk, 0.9));
+        _chatClient.ResponseContent = BuildQuestionResponse(chunk.Id, "模型原题", "员工请假流程第一步是什么？");
+        var task = await CreateAndProcessAsync(CreateInput("恢复保留人工成果"));
+        var original = task.Candidates.Single();
+        var edit = new UpdateAiQuestionCandidateDto
+        {
+            ContentRevision = original.ContentRevision, Title = "教师修订题目", Stem = original.Stem,
+            Analysis = original.Analysis, Options = original.Options, Answers = original.Answers
+        };
+        var edited = await _generationAppService.UpdateCandidateAsync(original.Id, edit);
+        edited.IsEdited.ShouldBeTrue();
+        edited.ContentRevision.ShouldBe(1);
+        await Should.ThrowAsync<AbpDbConcurrencyException>(() => _generationAppService.UpdateCandidateAsync(original.Id, edit));
+        (await _generationAppService.RetryAsync(task.Id)).Status.ShouldBe(AiQuestionGenerationTaskStatus.Generated);
+        await GetRequiredService<AiQuestionGenerationProcessor>().ProcessAsync(task.Id);
+        _chatClient.CallCount.ShouldBe(1);
+
+        var operation = new RegenerateAiQuestionGenerationTaskDto { IdempotencyKey = Guid.NewGuid() };
+        (await _generationAppService.RegenerateAsync(task.Id, operation)).Status.ShouldBe(AiQuestionGenerationTaskStatus.Pending);
+        await GetRequiredService<AiQuestionGenerationProcessor>().ProcessAsync(task.Id);
+        var refreshed = await _generationAppService.GetAsync(task.Id);
+        refreshed.RunNumber.ShouldBe(2);
+        refreshed.Candidates.Count.ShouldBe(2);
+        refreshed.GeneratedCount.ShouldBe(1);
+        refreshed.Candidates.Single(x => x.Id == original.Id).Title.ShouldBe("教师修订题目");
+        refreshed.Candidates.Select(x => (x.RunNumber, x.OutputOrdinal)).Distinct().Count().ShouldBe(2);
+        _chatClient.CallCount.ShouldBe(2);
+        (await _generationAppService.RegenerateAsync(task.Id, operation)).RunNumber.ShouldBe(2);
+        await GetRequiredService<AiQuestionGenerationProcessor>().ProcessAsync(task.Id);
+        _chatClient.CallCount.ShouldBe(2);
+
+        var adopted = await _generationAppService.AdoptCandidateAsDraftAsync(original.Id);
+        edit.ContentRevision = edited.ContentRevision;
+        (await Should.ThrowAsync<BusinessException>(() => _generationAppService.UpdateCandidateAsync(original.Id, edit))).Code
+            .ShouldBe("KnowPulse:AiGeneration:CandidateLocked");
+        await _generationAppService.RegenerateAsync(task.Id, new RegenerateAiQuestionGenerationTaskDto { IdempotencyKey = Guid.NewGuid() });
+        await GetRequiredService<AiQuestionGenerationProcessor>().ProcessAsync(task.Id);
+        var preserved = await _generationAppService.GetCandidateAsync(original.Id);
+        preserved.LinkedQuestionId.ShouldBe(adopted.Id);
+        preserved.Status.ShouldBe(AiQuestionCandidateStatus.AdoptedAsDraft);
+        preserved.Title.ShouldBe("教师修订题目");
+    }
+
+    [Fact]
+    public async Task Expired_Worker_Should_Recover_The_Same_Run_Without_Duplicating_Success()
+    {
+        GetRequiredService<IOptions<AiQuestionGenerationWorkerOptions>>().Value.MaxAttempts = 3;
+        await EnsureCurrentAccountAsync();
+        var chunk = await CreateIndexedChunkAsync("Lost worker", "员工请假流程先在系统提交申请。");
+        _vectorStore.SearchResults.Add(ToHit(chunk, 0.9));
+        _chatClient.ResponseContent = BuildQuestionResponse(chunk.Id, "恢复题", "员工请假流程第一步是什么？");
+        var pending = await _generationAppService.CreateAsync(CreateInput("中断后恢复"));
+        await WithUnitOfWorkAsync(async () =>
+        {
+            var task = await _taskRepository.GetAsync(pending.Id);
+            task.TryClaim(Guid.NewGuid(), DateTime.UtcNow.AddMinutes(-10), 300, 3).ShouldBeTrue();
+            await _taskRepository.UpdateAsync(task, autoSave: true);
+        });
+        var processor = GetRequiredService<AiQuestionGenerationProcessor>();
+        await processor.ProcessAsync(pending.Id);
+        await processor.ProcessAsync(pending.Id);
+        var generated = await _generationAppService.GetAsync(pending.Id);
+        generated.Status.ShouldBe(AiQuestionGenerationTaskStatus.Generated);
+        generated.RunNumber.ShouldBe(1);
+        generated.AttemptCount.ShouldBe(2);
+        generated.Candidates.Count.ShouldBe(1);
+        generated.CallLogs.Count.ShouldBe(1);
+        _chatClient.CallCount.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task Disabled_Owner_Should_Stop_Pending_Work_Without_Calling_The_Model()
+    {
+        await EnsureCurrentAccountAsync();
+        var pending = await _generationAppService.CreateAsync(CreateInput("停用账号"));
+        await WithUnitOfWorkAsync(async () =>
+        {
+            var users = GetRequiredService<IRepository<IdentityUser, Guid>>();
+            var user = await users.GetAsync(GetRequiredService<ICurrentUser>().GetId());
+            user.SetIsActive(false);
+            await users.UpdateAsync(user, autoSave: true);
+        });
+        await GetRequiredService<AiQuestionGenerationProcessor>().ProcessAsync(pending.Id);
+        var failed = await _generationAppService.GetAsync(pending.Id);
+        failed.Status.ShouldBe(AiQuestionGenerationTaskStatus.Failed);
+        failed.FailureStage.ShouldBe("authorization");
+        failed.FailureReason.ShouldBe("KnowPulse:AiGeneration:AuthorizationChanged");
+        _chatClient.CallCount.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Unknown_Citation_Should_Be_Preserved_And_Make_Candidate_Unadoptable()
+    {
+        var chunk = await CreateIndexedChunkAsync("Unknown citation", "员工请假流程先在系统提交申请。");
+        _vectorStore.SearchResults.Add(ToHit(chunk, 0.9));
+        var unknown = Guid.NewGuid();
+        _chatClient.ResponseContent = BuildQuestionResponse(chunk.Id, "伪造来源题", "员工请假流程第一步是什么？")
+            .Replace($"\"chunkId\":\"{chunk.Id}\"", $"\"chunkId\":\"{unknown}\"");
+        var generated = await CreateAndProcessAsync(CreateInput("不允许未知来源"));
+        var candidate = generated.Candidates.Single();
+        candidate.Status.ShouldBe(AiQuestionCandidateStatus.ValidationFailed);
+        candidate.SubmittedCitationChunkIds.ShouldBe(new[] { unknown });
+        candidate.Citations.ShouldBeEmpty();
+        await Should.ThrowAsync<BusinessException>(() => _generationAppService.AdoptCandidateAsDraftAsync(candidate.Id));
+    }
+
     /// <summary>
     /// 构造 AI 出题任务输入。
     /// 统一测试题型、难度和安全等级，便于各测试只关注不同失败/成功条件。
     /// </summary>
+    private async Task<AiQuestionGenerationTaskDto> CreateAndProcessAsync(CreateAiQuestionGenerationTaskDto input)
+    {
+        await EnsureCurrentAccountAsync();
+        var calls = _chatClient.CallCount;
+        var pending = await _generationAppService.CreateAsync(input);
+        pending.Status.ShouldBe(AiQuestionGenerationTaskStatus.Pending);
+        pending.Candidates.ShouldBeEmpty();
+        _chatClient.CallCount.ShouldBe(calls);
+        await GetRequiredService<AiQuestionGenerationProcessor>().ProcessAsync(pending.Id);
+        return await _generationAppService.GetAsync(pending.Id);
+    }
+
+    private Task EnsureCurrentAccountAsync() => WithUnitOfWorkAsync(async () =>
+    {
+        var id = GetRequiredService<ICurrentUser>().GetId();
+        var users = GetRequiredService<IRepository<IdentityUser, Guid>>();
+        if (await users.FindAsync(id) == null)
+            await users.InsertAsync(new IdentityUser(id, $"generation-{id:N}", $"{id:N}@example.invalid"), autoSave: true);
+    });
+
     private static CreateAiQuestionGenerationTaskDto CreateInput(string scope)
     {
         return new CreateAiQuestionGenerationTaskDto
         {
+            // 此组企业场景明确使用组织知识，教育新建任务默认仅使用本人资料。
+            Scope = KnowledgeSearchScope.AllAccessible,
             Type = QuestionType.SingleChoice,
             Difficulty = QuestionDifficulty.Normal,
             RequestedCount = 1,

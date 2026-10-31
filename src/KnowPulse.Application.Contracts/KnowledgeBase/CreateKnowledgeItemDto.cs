@@ -5,6 +5,9 @@ namespace KnowPulse.KnowledgeBase;
 
 public class CreateKnowledgeItemDto
 {
+    public PersonalKnowledgeOrganizationInput? Organization { get; set; }
+    public Guid? LibraryId { get; set; }
+
     public Guid? CategoryId { get; set; }
 
     [Required]

@@ -1,0 +1,11 @@
+<view class="page">
+  <view class="hero"><text class="title">我的教师评语</text><text class="muted">只打开所选确切版本。版本变化时请返回列表重新核对。</text></view>
+  <view wx:if="{{error}}" class="error" aria-role="alert">{{error}}<button bindtap="login">重新登录</button></view><text wx:if="{{busy}}">正在核对当前开放条件…</text>
+  <view wx:if="{{detail}}" class="card"><text class="heading">{{detail.teacherName}} · {{detail.subjectName}}</text><text>{{detail.schoolName}} · {{detail.className}} · v{{detail.version}}</text><text>{{detail.recorded}}</text>
+    <text wx:if="{{detail.withdrawn}}">这份评语已撤回，保留版本记录，不再提供原正文。</text>
+    <block wx:else><text class="strong">{{detail.context}}</text><text class="muted">{{detail.occurred}} {{detail.periodEnds === '—' ? '' : detail.periodEnds}}</text><text class="prewrap">{{detail.text}}</text>
+      <button wx:for="{{detail.assessments}}" wx:for-item="recipient" wx:key="*this" data-id="{{recipient}}" bindtap="assessment" disabled="{{busy}}">查看关联的本人成绩与回顾</button>
+    </block>
+  </view>
+  <button bindtap="load" disabled="{{busy}}">重新核对该版本</button>
+</view>

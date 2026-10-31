@@ -14,10 +14,11 @@ namespace KnowPulse.KnowledgeBase;
 /// 以知识条目为中心聚合分类、版本、权限、索引和反馈信息。
 /// 该服务是管理列表和详情页的唯一读入口，不改变任何领域状态。
 /// </summary>
-[Authorize(KnowPulsePermissions.KnowledgeBase.Items)]
+[Authorize]
 public class KnowledgeManagementAppService : KnowPulseAppService, IKnowledgeManagementAppService
 {
     private readonly IRepository<KnowledgeItem, Guid> _itemRepository;
+    private readonly IRepository<KnowledgeLibrary, Guid> _libraryRepository;
     private readonly IRepository<KnowledgeCategory, Guid> _categoryRepository;
     private readonly IRepository<KnowledgeVersion, Guid> _versionRepository;
     private readonly IRepository<KnowledgeAttachment, Guid> _attachmentRepository;
@@ -28,6 +29,7 @@ public class KnowledgeManagementAppService : KnowPulseAppService, IKnowledgeMana
 
     public KnowledgeManagementAppService(
         IRepository<KnowledgeItem, Guid> itemRepository,
+        IRepository<KnowledgeLibrary, Guid> libraryRepository,
         IRepository<KnowledgeCategory, Guid> categoryRepository,
         IRepository<KnowledgeVersion, Guid> versionRepository,
         IRepository<KnowledgeAttachment, Guid> attachmentRepository,
@@ -37,6 +39,7 @@ public class KnowledgeManagementAppService : KnowPulseAppService, IKnowledgeMana
         IKnowledgeAccessContextProvider accessContextProvider)
     {
         _itemRepository = itemRepository;
+        _libraryRepository = libraryRepository;
         _categoryRepository = categoryRepository;
         _versionRepository = versionRepository;
         _attachmentRepository = attachmentRepository;
@@ -49,8 +52,6 @@ public class KnowledgeManagementAppService : KnowPulseAppService, IKnowledgeMana
     /// <inheritdoc />
     public virtual async Task<KnowledgeManagementListResultDto> GetListAsync(GetKnowledgeManagementListInput input)
     {
-        await CheckMvpPermissionAsync(KnowPulsePermissions.KnowledgeBase.Items);
-
         var snapshot = await LoadSnapshotAsync();
         var visibleItems = await GetVisibleItemsAsync(snapshot.Items, snapshot.Scopes);
         var models = visibleItems
@@ -98,12 +99,11 @@ public class KnowledgeManagementAppService : KnowPulseAppService, IKnowledgeMana
     /// <inheritdoc />
     public virtual async Task<KnowledgeManagementDetailDto> GetAsync(Guid id)
     {
-        await CheckMvpPermissionAsync(KnowPulsePermissions.KnowledgeBase.Items);
-
         var item = await _itemRepository.GetAsync(id);
+        await CheckKnowledgeItemPermissionAsync(item, KnowPulsePermissions.KnowledgeBase.Items);
         var scopes = await LoadScopesAsync([id]);
         var accessContext = await _accessContextProvider.CreateAsync();
-        if (!KnowledgeAccessEvaluator.CanAccess(scopes, accessContext))
+        if (!KnowledgeAccessEvaluator.CanAccess(item, scopes, accessContext))
         {
             throw new AbpAuthorizationException("The current user is not allowed to access this knowledge item.");
         }
@@ -130,7 +130,7 @@ public class KnowledgeManagementAppService : KnowPulseAppService, IKnowledgeMana
 
     private async Task<ManagementSnapshot> LoadSnapshotAsync()
     {
-        var itemQueryable = await _itemRepository.GetQueryableAsync();
+        var itemQueryable = await GetPermittedItemQueryAsync();
         var items = await AsyncExecuter.ToListAsync(itemQueryable);
         var itemIds = items.Select(x => x.Id).ToList();
 
@@ -172,9 +172,30 @@ public class KnowledgeManagementAppService : KnowPulseAppService, IKnowledgeMana
 
         return items
             .Where(item => KnowledgeAccessEvaluator.CanAccess(
+                item,
                 scopesByItem.GetValueOrDefault(item.Id) ?? [],
                 accessContext))
             .ToList();
+    }
+
+    private async Task<IQueryable<KnowledgeItem>> GetPermittedItemQueryAsync()
+    {
+        var canManageOrganization = await IsMvpPermissionGrantedAsync(KnowPulsePermissions.KnowledgeBase.Items);
+        var canManagePersonal = await IsMvpPermissionGrantedAsync(KnowPulsePermissions.KnowledgeBase.PersonalLibrary);
+        if (!canManageOrganization && !canManagePersonal)
+        {
+            throw new AbpAuthorizationException("The current user is not allowed to manage knowledge items.");
+        }
+
+        var userId = CurrentUser.Id;
+        var tenantId = CurrentTenant.Id;
+        var libraries = await _libraryRepository.GetQueryableAsync();
+        var items = await _itemRepository.GetQueryableAsync();
+        return items.Where(item => item.TenantId == tenantId &&
+            ((canManageOrganization && !item.LibraryId.HasValue && !item.OwnerUserId.HasValue) ||
+             (canManagePersonal && userId.HasValue && item.LibraryId.HasValue && item.OwnerUserId == userId &&
+              libraries.Any(library => library.Id == item.LibraryId.Value &&
+                  library.OwnerUserId == userId.Value && library.TenantId == item.TenantId))));
     }
 
     private async Task<List<KnowledgeVersion>> LoadVersionsAsync(IReadOnlyCollection<Guid> itemIds)

@@ -1,0 +1,15 @@
+<view class="page">
+  <view class="hero"><text class="eyebrow">KnowPulse</text><text class="title">让教学与学习持续积累</text><text class="muted">使用学校已确认的账号与教学身份。</text></view>
+  <view wx:if="{{!configured}}" class="notice">当前小程序尚未开通，请联系学校或平台管理员。</view>
+  <view wx:if="{{error}}" class="error" aria-role="alert">{{error}}</view>
+  <view wx:if="{{storageWarning}}" class="notice">本机无法保留绑定标识，重启后可能需要在网页重新核验绑定。账号资料和学习记录不会因此删除。</view>
+  <view wx:if="{{cleanupWarning}}" class="error" aria-role="alert">私有草稿或图片的本机清理未确认。共享设备上请核对应用数据，不能视为已经物理擦除。</view>
+  <view class="card" wx:if="{{hasBinding}}"><text class="heading">继续使用已绑定账号</text><button type="primary" bindtap="login" disabled="{{busy || !configured}}" loading="{{busy}}">微信登录</button></view>
+  <view class="card"><text class="heading">首次绑定或更换绑定</text><text class="muted">先在已有账号的网页确认当前密码并生成绑定码，再在此处粘贴。此处不需要输入账号密码。</text>
+    <input class="field" password="true" maxlength="80" placeholder="粘贴一次性绑定码" value="{{bindingCode}}" bindinput="codeChanged" disabled="{{busy || !configured}}" aria-label="一次性绑定码" />
+    <button type="primary" bindtap="bind" disabled="{{busy || !configured || !bindingCode}}" loading="{{busy}}">确认绑定并登录</button>
+    <button class="secondary" bindtap="copyPortal" disabled="{{busy}}">复制账号绑定页网址</button>
+    <text class="footnote">已有绑定但换设备或遗失标识时，可在已核验账号的网页解除后重新绑定，原有资料与学习记录保留。</text>
+  </view>
+  <view class="card"><text class="heading">账号或绑定遇到问题</text><text class="muted">查看原账号密码找回、本人微信解绑和学校身份核对指引；无需先完成微信登录。</text><button bindtap="copyAccountHelp" disabled="{{busy}}">复制账号帮助页网址</button></view>
+</view>

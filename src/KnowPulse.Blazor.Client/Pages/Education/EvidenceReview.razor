@@ -1,0 +1,206 @@
+@page "/education/evidence/{QuestionGradeId:guid}"
+@attribute [Authorize(EducationPermissions.AssessmentManage)]
+@inherits KnowPulseComponentBase
+@using KnowPulse.Education
+@using System.Text.Json
+@inject IEducationAssessmentEvidenceAppService EvidenceService
+@inject IJSRuntime JS
+@inject Volo.Abp.Users.ICurrentUser Account
+@inject Volo.Abp.MultiTenancy.ICurrentTenant Tenant
+
+<PageTitle>@L["EducationEvidence:Title"]</PageTitle>
+<NavigationLock ConfirmExternalNavigation="@(Pending != null || Dirty)" OnBeforeInternalNavigation="LeaveAsync" />
+<h1 class="h4 mb-3">@L["EducationEvidence:Title"]</h1>
+@if (Error != null) { <div class="alert alert-danger" role="alert">@Error</div> }
+@if (Receipt != null) { <div class="alert alert-success" role="status">@L["EducationGrading:Receipt", Receipt]</div> }
+@if (Pending != null)
+{
+    <div class="alert alert-info" role="status"><p>@L["EducationGrading:Unknown"]</p>
+        <button class="btn btn-outline-primary me-2" disabled="@Busy" @onclick="RecoverAsync">@L["EducationGrading:Recover"]</button>
+        <button class="btn btn-outline-secondary" disabled="@Busy" @onclick="() => RunAsync(() => ExecuteAsync(true))">@L["EducationGrading:Retry"]</button>
+    </div>
+}
+@if (Evidence is { } evidence)
+{
+    <a href="@($"/education/assessment-grading/{evidence.TaskId}")">@L["EducationEvidence:Back"]</a>
+    <p class="mt-3">@evidence.TaskTitle · @evidence.StudentName</p>
+    <h2 class="h5">@evidence.QuestionTitle</h2><p style="white-space:pre-wrap">@evidence.QuestionStem</p>
+    <p class="text-muted">@L["EducationEvidence:Explanation"]</p>
+    <button class="btn btn-outline-secondary mb-3" disabled="@(Busy || Pending != null)" @onclick="RefreshAsync">@L["EducationGrading:Refresh"]</button>
+    <fieldset class="card mb-3" disabled="@(Busy || Pending != null)"><legend class="h5 px-3 pt-3">@L["EducationEvidence:Qualification"]</legend><div class="card-body pt-0">
+        @if (evidence.Current is { } current) { <p>@L["EducationEvidence:Version", current.RevisionNumber, current.RecordedAtUtc.ToLocalTime().ToString("g")]</p><p style="white-space:pre-wrap">@current.Reason</p> }
+        else { <p>@L["EducationEvidence:Unverified"]</p> }
+        <label for="evidence-use" class="form-label">@L["EducationEvidence:Use"]</label>
+        <select id="evidence-use" class="form-select mb-2" @bind="Use">@foreach (var use in Enum.GetValues<EducationLearningEvidenceUse>()) { <option value="@use">@L[$"EducationEvidence:Use:{use}"]</option> }</select>
+        <label class="d-block"><input type="checkbox" @bind="NoHints" /> @L["EducationEvidence:NoHints"]</label>
+        <label class="d-block"><input type="checkbox" @bind="NewRequirements" /> @L["EducationEvidence:NewRequirements"]</label>
+        <label class="d-block mb-2"><input type="checkbox" @bind="OriginsChecked" /> @L["EducationEvidence:OriginsChecked"]</label>
+        <label for="qualification-reason" class="form-label">@L["EducationEvidence:Reason"]</label><textarea id="qualification-reason" class="form-control mb-2" maxlength="2048" @bind="QualificationReason" @bind:event="oninput"></textarea>
+        <button class="btn btn-primary" @onclick="SaveQualificationAsync" disabled="@(string.IsNullOrWhiteSpace(QualificationReason) || Use == EducationLearningEvidenceUse.Independent && !(NoHints && NewRequirements && OriginsChecked))">@L["EducationEvidence:Save"]</button>
+    </div></fieldset>
+    <section class="card mb-3"><div class="card-body"><h2 id="origin-title" class="h5">@L["EducationEvidence:Originals"]</h2><p>@L["EducationEvidence:OriginalsHint"]</p>
+        <label for="origin-candidate" class="form-label">@L["EducationEvidence:OtherQuestion"]</label>
+        <select id="origin-candidate" class="form-select mb-2" value="@CandidateId" disabled="@(Busy || Pending != null)" @onchange="SelectOriginAsync">
+            <option value="">@L["EducationEvidence:Choose"]</option>
+            @foreach (var candidate in Candidates.Items) { <option value="@candidate.QuestionGradeId">@candidate.TaskTitle · @candidate.QuestionTitle</option> }
+        </select>
+        <div class="d-flex gap-2 mb-3"><button class="btn btn-sm btn-outline-secondary" disabled="@(Busy || Pending != null || CandidateOffset == 0)" @onclick="() => CandidatePageAsync(0)">@L["EducationEvidence:FirstPage"]</button><button class="btn btn-sm btn-outline-secondary" disabled="@(Busy || Pending != null || !Candidates.HasMore)" @onclick="() => CandidatePageAsync(Candidates.NextSkipCount)">@L["EducationPaper:Next"]</button></div>
+        @if (Relation != null)
+        {
+            <p style="white-space:pre-wrap">@Candidates.Items.Single(x => x.QuestionGradeId == CandidateId).QuestionStem</p>
+            @if (Relation.Current is { } relation) { <p>@L["EducationEvidence:Version", relation.RevisionNumber, relation.RecordedAtUtc.ToLocalTime().ToString("g")] · @L[relation.IsEnabled ? "EducationEvidence:Related" : "EducationEvidence:Unrelated"]</p><p style="white-space:pre-wrap">@relation.Reason</p> }
+            <fieldset aria-labelledby="origin-title" disabled="@(Busy || Pending != null)"><label class="d-block mb-2"><input type="checkbox" @bind="Related" /> @L["EducationEvidence:Related"]</label>
+                <label for="origin-reason" class="form-label">@L["EducationEvidence:Reason"]</label><textarea id="origin-reason" class="form-control mb-2" maxlength="2048" @bind="OriginReason" @bind:event="oninput"></textarea>
+                <button class="btn btn-primary" @onclick="SaveOriginAsync" disabled="@string.IsNullOrWhiteSpace(OriginReason)">@L["EducationEvidence:Save"]</button>
+            </fieldset>
+        }
+    </div></section>
+    <section class="card"><div class="card-body"><h2 class="h5">@L["EducationEvidence:Contexts"]</h2><p>@L["EducationEvidence:ContextsHint"]</p>
+        @foreach (var exposure in Exposures)
+        {
+            <div class="border-bottom py-2"><span>@exposure.ExposedAtUtc.ToLocalTime().ToString("g") · @L[$"EducationEvidence:Source:{exposure.Source}"] · @L[$"EducationEvidence:HintUse:{exposure.Use}"]</span>
+                @if (exposure.CanReview && exposure.Source == EducationQuestionExposureSource.FormalAssessmentPlan && exposure.ReviewActivityId is Guid formalActivity) { <a class="btn btn-sm btn-outline-primary ms-2" href="@($"/education/teaching-plans/activities/{formalActivity}/assessment")">@L["EducationEvidence:ReviewContext"]</a> }
+                else if (exposure.CanReview && exposure.Source == EducationQuestionExposureSource.TeachingPlan) { <a class="btn btn-sm btn-outline-primary ms-2" href="@($"/education/teaching-plans/contexts/{exposure.Id}")">@L["EducationEvidence:ReviewContext"]</a> }
+                else if (exposure.CanReview && exposure.Source == EducationQuestionExposureSource.StudyTask) { <a class="btn btn-sm btn-outline-primary ms-2" href="@($"/education/study-tasks/recipients/{exposure.ReviewStudyRecipientId}/hints?questionId={exposure.ReviewPaperQuestionId}")">@L["EducationEvidence:ReviewContext"]</a> }
+                else if (exposure.CanReview) { <button class="btn btn-sm btn-outline-primary ms-2" disabled="@(Busy || Pending != null)" @onclick="() => OpenHintAsync(exposure.Id)">@L["EducationEvidence:ReviewContext"]</button> }
+            </div>
+        }
+        @if (Exposures.Count == 0) { <p>@L["EducationEvidence:NoContext"]</p> }
+        <div class="d-flex gap-2 my-3"><button class="btn btn-sm btn-outline-secondary" disabled="@(Busy || Pending != null || ExposureOffset == 0)" @onclick="() => ExposurePageAsync(ExposureOffset - PageSize)">@L["EducationPaper:Previous"]</button><button class="btn btn-sm btn-outline-secondary" disabled="@(Busy || Pending != null || ExposureOffset + PageSize >= ExposureTotal)" @onclick="() => ExposurePageAsync(ExposureOffset + PageSize)">@L["EducationPaper:Next"]</button></div>
+        @if (Hint is { } hint)
+        {
+            <h3 id="hint-title" class="h6">@L["EducationEvidence:FeedbackVersion", hint.FeedbackRevisionNumber, hint.ExposedAtUtc.ToLocalTime().ToString("g")]</h3>
+            <p>@hint.Context</p><p style="white-space:pre-wrap">@hint.Text</p>
+            <details class="mb-3"><summary>@hint.QuestionTitle</summary><p style="white-space:pre-wrap">@hint.QuestionStem</p><p style="white-space:pre-wrap">@hint.ReferenceAnswer</p><p>@string.Join(" / ", hint.CorrectAnswers)</p>@foreach (var answer in hint.BlankAnswers) { <p style="white-space:pre-wrap">@answer</p> }</details>
+            @if (hint.Current is { } reviewed) { <p>@L["EducationEvidence:Version", reviewed.RevisionNumber, reviewed.RecordedAtUtc.ToLocalTime().ToString("g")]</p><p style="white-space:pre-wrap">@reviewed.Reason</p> }
+            <fieldset aria-labelledby="hint-title" disabled="@(Busy || Pending != null)"><label for="hint-use" class="form-label">@L["EducationEvidence:ContextDecision"]</label>
+                <select id="hint-use" class="form-select mb-2" @bind="HintUse">@foreach (var use in Enum.GetValues<EducationLearningExposureUse>()) { <option value="@use">@L[$"EducationEvidence:HintUse:{use}"]</option> }</select>
+                <label class="d-block mb-2"><input type="checkbox" @bind="ExactContext" /> @L["EducationEvidence:ExactContext"]</label>
+                <label for="hint-reason" class="form-label">@L["EducationEvidence:Reason"]</label><textarea id="hint-reason" class="form-control mb-2" maxlength="2048" @bind="HintReason" @bind:event="oninput"></textarea>
+                <button class="btn btn-primary" @onclick="SaveHintAsync" disabled="@(!ExactContext || string.IsNullOrWhiteSpace(HintReason))">@L["EducationEvidence:Save"]</button>
+            </fieldset>
+        }
+    </div></section>
+}
+
+@code {
+    [Parameter] public Guid QuestionGradeId { get; set; }
+    private const int PageSize = 20;
+    private Guid? LoadedId, CandidateId;
+    private EducationQuestionEvidenceDto? Evidence;
+    private EducationOriginCandidatesDto Candidates = new();
+    private EducationOriginRelationDto? Relation;
+    private EducationHintContextDto? Hint;
+    private List<EducationEvidenceExposureDto> Exposures = [];
+    private EducationLearningEvidenceUse Use;
+    private EducationLearningExposureUse HintUse;
+    private bool NoHints, NewRequirements, OriginsChecked, Related, ExactContext, Busy, RestoreNeeded;
+    private int CandidateOffset, ExposureOffset; private long ExposureTotal;
+    private string? QualificationReason, OriginReason, HintReason, Error, Receipt;
+    private string Initial = "";
+    private Command? Pending;
+    private string StorageKey => $"knowpulse.evidence.{Tenant.Id}.{Account.Id}.{QuestionGradeId}";
+    private string FormState() => JsonSerializer.Serialize(new { Use, NoHints, NewRequirements, OriginsChecked, QualificationReason, Related, OriginReason, HintUse, ExactContext, HintReason });
+    private bool Dirty => Evidence != null && Initial != FormState();
+    protected override async Task OnParametersSetAsync() => await RunAsync(async () =>
+    {
+        if (LoadedId == QuestionGradeId) return;
+        Evidence = null; Relation = null; Hint = null; CandidateId = null; Pending = null; Receipt = null; CandidateOffset = ExposureOffset = 0;
+        Candidates = await EvidenceService.GetOriginCandidatesAsync(QuestionGradeId, new() { MaxResultCount = PageSize });
+        await ReloadAsync(); LoadedId = QuestionGradeId; RestoreNeeded = true;
+    });
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!RestoreNeeded || Busy) return; RestoreNeeded = false;
+        await RunAsync(async () => { var raw = await JS.InvokeAsync<string?>("sessionStorage.getItem", StorageKey);
+            if (raw != null) { var command = JsonSerializer.Deserialize<Command>(raw); if (command == null || !Matches(command) || command.OperationId == Guid.Empty) throw new InvalidOperationException(L["EducationGrading:NoReceipt"]); Pending = command; } });
+        StateHasChanged();
+    }
+    private bool Matches(Command op) => Account.Id.HasValue && op.QuestionGradeId == QuestionGradeId && op.TenantId == Tenant.Id && op.AccountId == Account.Id &&
+        (op.Kind switch { "qualification" => op.Qualification != null && op.Origin == null && op.Hint == null,
+            "origin" => op.Qualification == null && op.Origin != null && op.Origin.SecondQuestionGradeId != Guid.Empty && op.Hint == null,
+            "hint" => op.Qualification == null && op.Origin == null && op.Hint != null && op.ExposureId != Guid.Empty, _ => false });
+    private async Task ReloadAsync()
+    {
+        Evidence = await EvidenceService.GetEvidenceAsync(QuestionGradeId); var current = Evidence.Current;
+        Use = current?.Use ?? EducationLearningEvidenceUse.Unverified; NoHints = current?.NoHintsOrAnswersConfirmed ?? false;
+        NewRequirements = current?.NewRequirementsConfirmed ?? false; OriginsChecked = current?.OriginalRelationshipsChecked ?? false; QualificationReason = null;
+        if (CandidateId is Guid candidate) { Relation = await EvidenceService.GetOriginRelationAsync(QuestionGradeId, candidate); Related = Relation.Current?.IsEnabled ?? false; }
+        OriginReason = null;
+        if (Hint != null) { Hint = await EvidenceService.GetHintContextAsync(QuestionGradeId, Hint.ExposureId); HintUse = Hint.Current?.Use ?? EducationLearningExposureUse.Unverified; }
+        ExactContext = false; HintReason = null; await LoadExposuresAsync(); Initial = FormState();
+    }
+    private async Task LoadExposuresAsync() { var page = await EvidenceService.GetExposureContextsAsync(QuestionGradeId, new() { SkipCount = ExposureOffset, MaxResultCount = PageSize }); Exposures = page.Items.ToList(); ExposureTotal = page.TotalCount; }
+    private async Task<bool> DiscardAsync()
+    { if (!Dirty) return true; if (!await JS.InvokeAsync<bool>("confirm", L["EducationGrading:Discard"].Value)) return false; await ReloadAsync(); return true; }
+    private Task RefreshAsync() => RunAsync(async () => { if (await DiscardAsync()) await ReloadAsync(); });
+    private Task SelectOriginAsync(ChangeEventArgs args) => RunAsync(async () =>
+    {
+        if (!await DiscardAsync()) return; CandidateId = Guid.TryParse(args.Value?.ToString(), out var id) && Candidates.Items.Any(x => x.QuestionGradeId == id) ? id : null;
+        Relation = null;
+        Relation = CandidateId.HasValue ? await EvidenceService.GetOriginRelationAsync(QuestionGradeId, CandidateId.Value) : null;
+        Related = Relation?.Current?.IsEnabled ?? false; OriginReason = null; Initial = FormState();
+    });
+    private Task CandidatePageAsync(int offset) => RunAsync(async () => { if (!await DiscardAsync()) return; CandidateOffset = offset; CandidateId = null; Relation = null; Related = false; OriginReason = null;
+        Candidates = await EvidenceService.GetOriginCandidatesAsync(QuestionGradeId, new() { SkipCount = offset, MaxResultCount = PageSize }); Initial = FormState(); });
+    private Task ExposurePageAsync(int offset) => RunAsync(async () => { if (!await DiscardAsync()) return; ExposureOffset = offset; await LoadExposuresAsync(); });
+    private Task OpenHintAsync(Guid id) => RunAsync(async () => { if (!await DiscardAsync()) return; Hint = await EvidenceService.GetHintContextAsync(QuestionGradeId, id); HintUse = Hint.Current?.Use ?? EducationLearningExposureUse.Unverified; ExactContext = false; HintReason = null; Initial = FormState(); });
+    private Task SaveQualificationAsync() => RunAsync(() => StartAsync(new() { Kind = "qualification", Qualification = new() { OperationId = Guid.NewGuid(), ExpectedRevisionId = Evidence!.Current?.Id,
+        ConcurrencyStamp = Evidence.ConcurrencyStamp, Use = Use, NoHintsOrAnswersConfirmed = NoHints, NewRequirementsConfirmed = NewRequirements, OriginalRelationshipsChecked = OriginsChecked, Reason = QualificationReason ?? "" } }));
+    private Task SaveOriginAsync() => RunAsync(() => StartAsync(new() { Kind = "origin", Origin = new() { OperationId = Guid.NewGuid(), SecondQuestionGradeId = CandidateId!.Value,
+        ExpectedRevisionId = Relation!.Current?.Id, ConcurrencyStamp = Relation.ConcurrencyStamp, IsEnabled = Related, Reason = OriginReason ?? "" } }));
+    private Task SaveHintAsync() => RunAsync(() => StartAsync(new() { Kind = "hint", ExposureId = Hint!.ExposureId, Hint = new() { OperationId = Guid.NewGuid(), ExpectedRevisionId = Hint.Current?.Id,
+        ConcurrencyStamp = Hint.ConcurrencyStamp, Use = HintUse, ConfirmedExactContext = ExactContext, Reason = HintReason ?? "" } }));
+    private async Task StartAsync(Command op)
+    {
+        if (Pending != null || !await JS.InvokeAsync<bool>("confirm", L["EducationEvidence:Confirm"].Value)) return;
+        op.QuestionGradeId = QuestionGradeId; op.TenantId = Tenant.Id; op.AccountId = Account.Id; Pending = op; await ExecuteAsync(false);
+    }
+    private async Task ExecuteAsync(bool retry)
+    {
+        if (Pending is not { } op) return; if (!Matches(op)) throw new InvalidOperationException(L["EducationGrading:NoReceipt"]);
+        await JS.InvokeVoidAsync("sessionStorage.setItem", StorageKey, JsonSerializer.Serialize(op));
+        try
+        {
+            EducationEvidenceDecisionRevisionDto result = op.Kind switch
+            { "qualification" => await EvidenceService.SaveEvidenceQualificationAsync(QuestionGradeId, op.Qualification!),
+              "origin" => await EvidenceService.SaveOriginRelationAsync(QuestionGradeId, op.Origin!),
+              "hint" => await EvidenceService.SaveHintReviewAsync(QuestionGradeId, op.ExposureId, op.Hint!), _ => throw new InvalidOperationException(L["EducationGrading:NoReceipt"]) };
+            await CompleteAsync(result);
+        }
+        catch (Exception ex) { if (!retry && Definitive(ex)) { await JS.InvokeVoidAsync("sessionStorage.removeItem", StorageKey); Pending = null; } throw; }
+    }
+    private async Task CompleteAsync(EducationEvidenceDecisionRevisionDto result)
+    {
+        if (Pending == null || !Matches(Pending) || result.Id != Pending.OperationId) throw new InvalidOperationException(L["EducationGrading:NoReceipt"]);
+        await JS.InvokeVoidAsync("sessionStorage.removeItem", StorageKey); Pending = null; Receipt = result.Id.ToString(); await ReloadAsync();
+    }
+    private Task RecoverAsync() => RunAsync(async () =>
+    {
+        if (Pending is not { } op) return; if (!Matches(op)) throw new InvalidOperationException(L["EducationGrading:NoReceipt"]);
+        EducationEvidenceDecisionRevisionDto? result = op.Kind switch
+        { "qualification" => await EvidenceService.GetQualificationOperationAsync(QuestionGradeId, op.OperationId),
+          "origin" => await EvidenceService.GetOriginOperationAsync(QuestionGradeId, op.Origin!.SecondQuestionGradeId, op.OperationId),
+          "hint" => await EvidenceService.GetHintReviewOperationAsync(QuestionGradeId, op.ExposureId, op.OperationId), _ => null };
+        if (result == null) Error = L["EducationGrading:Unknown"]; else await CompleteAsync(result);
+    });
+    private static bool Definitive(Exception ex)
+    {
+        for (Exception? e = ex; e != null; e = e.InnerException)
+        {
+            if (e is Volo.Abp.BusinessException or Volo.Abp.Authorization.AbpAuthorizationException or Volo.Abp.Data.AbpDbConcurrencyException or Volo.Abp.Validation.AbpValidationException) return true;
+            var code = e.GetType().GetProperty("HttpStatusCode")?.GetValue(e) ?? e.GetType().GetProperty("StatusCode")?.GetValue(e);
+            if (code is System.Net.HttpStatusCode status && (int)status is 400 or 401 or 403 or 409 or 422) return true;
+        }
+        return false;
+    }
+    private async Task RunAsync(Func<Task> action) { if (Busy) return; Busy = true; Error = null; try { await action(); } catch (Exception ex) { Error = GetUserFriendlyErrorMessage(ex); } finally { Busy = false; } }
+    private async Task LeaveAsync(Microsoft.AspNetCore.Components.Routing.LocationChangingContext context)
+    { if ((Pending != null || Dirty) && !await JS.InvokeAsync<bool>("confirm", L["EducationGrading:Discard"].Value)) context.PreventNavigation(); }
+    private sealed class Command
+    {
+        public string Kind { get; set; } = ""; public Guid QuestionGradeId { get; set; } public Guid? TenantId { get; set; } public Guid? AccountId { get; set; } public Guid ExposureId { get; set; }
+        public SaveEducationEvidenceQualificationDto? Qualification { get; set; } public SaveEducationOriginRelationDto? Origin { get; set; } public SaveEducationHintReviewDto? Hint { get; set; }
+        public Guid OperationId => Qualification?.OperationId ?? Origin?.OperationId ?? Hint?.OperationId ?? Guid.Empty;
+    }
+}

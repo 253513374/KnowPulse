@@ -1,0 +1,164 @@
+@page "/account/wechat-bindings"
+@attribute [Authorize]
+@inherits KnowPulseComponentBase
+@implements IDisposable
+@using KnowPulse.WeChat
+@using System.Security.Claims
+@using Volo.Abp.Security.Claims
+@inject IWeChatAccountAppService Bindings
+@inject AuthenticationStateProvider Authentication
+@inject Volo.Abp.Users.ICurrentUser Account
+
+<PageTitle>@L["WeChat:Title"]</PageTitle>
+<h1 class="h4">@L["WeChat:Title"]</h1>
+<p><a href="/account/assistance">@L["AccountHelp:Title"]</a></p>
+<p>@L["WeChat:Introduction"]</p><p class="fw-semibold">@L["WeChat:CurrentAccount", Account.UserName ?? ""]</p>
+@if (Error != null) { <p class="alert alert-danger" role="alert">@Error</p> }
+@if (Busy) { <p role="status">@L["WeChat:Loading"]</p> }
+@if (ViewScope != null)
+{
+    @if (Applications.Count == 0) { <p class="alert alert-info">@L["WeChat:NotConfigured"]</p> }
+    else
+    {
+        <section class="card mb-3"><div class="card-body">
+            <h2 class="h5">@L["WeChat:GenerateTitle"]</h2>
+            <p>@L["WeChat:CodeNotice"]</p>
+            <div class="mb-3"><label for="wechat-app" class="form-label">@L["WeChat:Application"]</label>
+                <select id="wechat-app" class="form-select" @bind="AppKey" @bind:after="ApplicationChanged" disabled="@(Busy || VisibleCode != null)">
+                    @foreach (var app in Applications) { <option value="@app.AppKey">@app.DisplayName · @app.AppId</option> }
+                </select>
+            </div>
+            <div class="mb-3"><label for="wechat-password" class="form-label">@L["WeChat:ConfirmPassword"]</label>
+                <input id="wechat-password" class="form-control" type="password" maxlength="256" autocomplete="current-password" @bind="Password" @bind:event="oninput" disabled="@Busy" />
+            </div>
+            <label class="form-check mb-3"><input class="form-check-input" type="checkbox" @bind="Consent" disabled="@Busy" />
+                <span class="form-check-label">@L["WeChat:Consent"]</span></label>
+            <button class="btn btn-primary" @onclick="IssueAsync" disabled="@(Busy || !Consent || Password.Length == 0 || AppKey.Length == 0)">@L["WeChat:Generate"]</button>
+            @if (VisibleCode != null)
+            {
+                <div class="alert alert-warning mt-3" role="status">
+                    <label for="wechat-code" class="form-label">@L["WeChat:BindingCode"]</label>
+                    <textarea id="wechat-code" class="form-control font-monospace" rows="3" readonly value="@VisibleCode.BindingCode"></textarea>
+                    <p class="mt-2">@L["WeChat:Expires", VisibleCode.ExpiresAtUtc.ToString("yyyy-MM-dd HH:mm:ss")]</p>
+                    <p>@L["WeChat:CodeTransient"]</p>
+                    <button class="btn btn-outline-secondary" @onclick="ClearCode" disabled="@Busy">@L["WeChat:ClearCode"]</button>
+                </div>
+            }
+        </div></section>
+    }
+    <section class="card"><div class="card-body">
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3"><h2 class="h5 mb-0">@L["WeChat:History"]</h2>
+            <button class="btn btn-outline-primary" @onclick="LoadAsync" disabled="@Busy">@L["WeChat:Refresh"]</button></div>
+        @if (Records.Count == 0) { <p>@L["WeChat:NoBindings"]</p> }
+        else
+        {
+            <div class="table-responsive"><table class="table"><thead><tr><th>@L["WeChat:Application"]</th><th>@L["WeChat:Status"]</th><th>@L["WeChat:Issued"]</th><th>@L["WeChat:Actions"]</th></tr></thead>
+                <tbody>@foreach (var binding in Records)
+                {
+                    <tr><td>@binding.AppKey<br /><small>@binding.AppId</small></td><td>@Status(binding)</td><td>@binding.IssuedAtUtc.ToString("yyyy-MM-dd HH:mm:ss") UTC</td><td>
+                        @if (!binding.RevokedAtUtc.HasValue) { <button class="btn btn-sm btn-outline-danger" disabled="@Busy" @onclick="(() => RevokeCandidate = binding.Id)">@L["WeChat:Revoke"]</button> }
+                    </td></tr>
+                }</tbody></table></div>
+        }
+        @if (RevokeCandidate.HasValue)
+        {
+            <div class="alert alert-warning"><p>@L["WeChat:RevokeNotice"]</p>
+                <button class="btn btn-danger me-2" @onclick="RevokeAsync" disabled="@Busy">@L["WeChat:ConfirmRevoke"]</button>
+                <button class="btn btn-outline-secondary" @onclick="(() => RevokeCandidate = null)" disabled="@Busy">@L["WeChat:Cancel"]</button></div>
+        }
+        <div class="d-flex flex-wrap gap-2 align-items-center">
+            <button class="btn btn-outline-secondary" disabled="@(Busy || Offset == 0)" @onclick="(() => PageAsync(-1))">@L["WeChat:Previous"]</button>
+            <span>@L["WeChat:Total", Total]</span>
+            <button class="btn btn-outline-secondary" disabled="@(Busy || Offset + PageSize >= Total)" @onclick="(() => PageAsync(1))">@L["WeChat:Next"]</button>
+        </div>
+    </div></section>
+}
+
+@code {
+    private IReadOnlyList<WeChatApplicationDto> Applications = [];
+    private IReadOnlyList<WeChatAccountBindingDto> Records = [];
+    private WeChatBindingCodeDto? VisibleCode;
+    private string AppKey = "", Password = "";
+    private string? ViewScope, Error;
+    private Guid? RevokeCandidate;
+    private bool Busy, Consent, Disposed;
+    private int Epoch, Offset;
+    private long Total;
+    private const int PageSize = 10;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Authentication.AuthenticationStateChanged += AccountChanged;
+        await LoadAsync();
+    }
+    private Task LoadAsync() => RunAsync(async () =>
+    {
+        var apps = Bindings.GetApplicationsAsync();
+        var rows = Bindings.GetMyBindingsAsync(new() { SkipCount = Offset, MaxResultCount = PageSize });
+        await Task.WhenAll(apps, rows);
+        return (Apps: (await apps).Items, Rows: await rows);
+    }, (result, scope) =>
+    {
+        ViewScope = scope; Applications = result.Apps; Records = result.Rows.Items; Total = result.Rows.TotalCount;
+        if (!Applications.Any(x => x.AppKey == AppKey)) AppKey = Applications.FirstOrDefault()?.AppKey ?? "";
+        if (VisibleCode != null && Records.Any(x => x.Id.ToString("N") == VisibleCode.BindingCode.Split('.')[0] && (x.BoundAtUtc.HasValue || x.RevokedAtUtc.HasValue))) VisibleCode = null;
+    });
+    private async Task IssueAsync()
+    {
+        if (ViewScope == null) return;
+        var scope = ViewScope; var ids = scope.Split(':');
+        var input = new IssueWeChatBindingCodeDto
+        {
+            ExpectedAccountUserId = Guid.Parse(ids[1]), ExpectedTenantId = ids[0] == "host" ? null : Guid.Parse(ids[0]),
+            AppKey = AppKey, Password = Password, ConfirmOwnWeChatAndAccount = Consent
+        };
+        Password = ""; VisibleCode = null;
+        if (await RunAsync(() => Bindings.IssueBindingCodeAsync(input), (result, _) => { VisibleCode = result; Offset = 0; }, scope)) await LoadAsync();
+    }
+    private async Task RevokeAsync()
+    {
+        if (ViewScope == null || !RevokeCandidate.HasValue) return;
+        var id = RevokeCandidate.Value;
+        if (await RunAsync(() => Bindings.RevokeMyBindingAsync(id), (_, _) => { RevokeCandidate = null; VisibleCode = null; }, ViewScope)) await LoadAsync();
+    }
+    private Task PageAsync(int direction) { Offset = Math.Max(0, Offset + direction * PageSize); return LoadAsync(); }
+    private void ClearCode() { VisibleCode = null; Consent = false; Password = ""; }
+    private void ApplicationChanged() { ClearCode(); RevokeCandidate = null; }
+    private string Status(WeChatAccountBindingDto row) => L[row.RevokedAtUtc.HasValue ? "WeChat:Revoked" : row.RequiresRebinding ? "WeChat:RebindRequired" : row.BoundAtUtc.HasValue ? "WeChat:Bound" : "WeChat:Pending"];
+
+    private async Task<bool> RunAsync<T>(Func<Task<T>> request, Action<T, string> apply, string? expectedScope = null)
+    {
+        if (Busy || Disposed) return false;
+        var epoch = Epoch; var scope = Scope((await Authentication.GetAuthenticationStateAsync()).User);
+        if (scope == null || (expectedScope != null && scope != expectedScope)) return false;
+        Busy = true; Error = null;
+        try
+        {
+            var result = await request();
+            if (await CurrentAsync(scope, epoch)) { apply(result, scope); return true; }
+            return false;
+        }
+        catch (Exception ex) { if (await CurrentAsync(scope, epoch)) Error = GetUserFriendlyErrorMessage(ex); return false; }
+        finally { if (!Disposed && Epoch == epoch) Busy = false; }
+    }
+    private async Task<bool> CurrentAsync(string scope, int epoch) => !Disposed && Epoch == epoch && scope == Scope((await Authentication.GetAuthenticationStateAsync()).User);
+    private static string? Scope(ClaimsPrincipal principal)
+    {
+        if (principal.Identity?.IsAuthenticated != true || !Guid.TryParse(principal.FindFirst(AbpClaimTypes.UserId)?.Value, out var user)) return null;
+        var raw = principal.FindFirst(AbpClaimTypes.TenantId)?.Value;
+        if (raw != null && !Guid.TryParse(raw, out _)) return null;
+        return $"{(raw == null ? "host" : Guid.Parse(raw).ToString("N"))}:{user:N}";
+    }
+    private void AccountChanged(Task<AuthenticationState> state)
+    {
+        System.Threading.Interlocked.Increment(ref Epoch);
+        Password = ""; VisibleCode = null; Records = []; Applications = []; ViewScope = null; AppKey = "";
+        Consent = false; RevokeCandidate = null; Busy = false; Error = null; Offset = 0; Total = 0;
+        if (!Disposed) _ = InvokeAsync(async () => { if (Disposed) return; StateHasChanged(); await LoadAsync(); if (!Disposed) StateHasChanged(); });
+    }
+    public void Dispose()
+    {
+        Disposed = true; System.Threading.Interlocked.Increment(ref Epoch); Password = ""; VisibleCode = null;
+        Authentication.AuthenticationStateChanged -= AccountChanged;
+    }
+}

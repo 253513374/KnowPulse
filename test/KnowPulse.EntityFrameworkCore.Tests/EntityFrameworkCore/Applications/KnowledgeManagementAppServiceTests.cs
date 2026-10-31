@@ -6,6 +6,7 @@ using KnowPulse.KnowledgeIndexing;
 using Shouldly;
 using Volo.Abp;
 using Volo.Abp.Authorization;
+using Volo.Abp.Domain.Repositories;
 using Xunit;
 
 namespace KnowPulse.EntityFrameworkCore.Applications;
@@ -35,8 +36,7 @@ public class KnowledgeManagementAppServiceTests : KnowPulseEntityFrameworkCoreTe
 
         var readyVersion = await _itemAppService.PublishVersionAsync(ready.Item.Id, ready.Version.Id);
         var readyJob = await GetLatestJobAsync(readyVersion.Id);
-        await _indexJobAppService.StartAsync(readyJob.Id);
-        await _indexJobAppService.MarkIndexedAsync(readyJob.Id);
+        await SetIndexedReadModelFixtureAsync(readyJob.Id);
 
         var publishingVersion = await _itemAppService.PublishVersionAsync(publishing.Item.Id, publishing.Version.Id);
         var publishingJob = await GetLatestJobAsync(publishingVersion.Id);
@@ -104,8 +104,7 @@ public class KnowledgeManagementAppServiceTests : KnowPulseEntityFrameworkCoreTe
         var knowledge = await CreateVersionAsync($"atomic-publish-{Guid.NewGuid():N}");
         var firstPublish = await _itemAppService.PublishVersionAsync(knowledge.Item.Id, knowledge.Version.Id);
         var firstJob = await GetLatestJobAsync(firstPublish.Id);
-        await _indexJobAppService.StartAsync(firstJob.Id);
-        await _indexJobAppService.MarkIndexedAsync(firstJob.Id);
+        await SetIndexedReadModelFixtureAsync(firstJob.Id);
 
         var nextVersion = await _itemAppService.CreateVersionAsync(knowledge.Item.Id, new CreateKnowledgeVersionDto
         {
@@ -207,6 +206,18 @@ public class KnowledgeManagementAppServiceTests : KnowPulseEntityFrameworkCoreTe
             _itemAppService.DeletePermissionScopeAsync(knowledge.Item.Id, scopes.Items[0].Id));
         exception.Code.ShouldBe(KnowPulseDomainErrorCodes.KnowledgeAccessPolicyRequired);
         (await _itemAppService.GetPermissionScopesAsync(knowledge.Item.Id)).Items.Count.ShouldBe(1);
+    }
+
+    private Task SetIndexedReadModelFixtureAsync(Guid jobId)
+    {
+        // 仅构造读取模型所需的历史状态；真实 pipeline 完成由索引应用服务集成测试验证。
+        return WithUnitOfWorkAsync(async () =>
+        {
+            var jobs = GetRequiredService<IRepository<KnowledgeIndexJob, Guid>>();
+            var job = await jobs.GetAsync(jobId);
+            job.MarkIndexed(DateTime.UtcNow);
+            await jobs.UpdateAsync(job, autoSave: true);
+        });
     }
 
     private async Task<(KnowledgeItemDto Item, KnowledgeVersionDto Version)> CreateVersionAsync(string title)

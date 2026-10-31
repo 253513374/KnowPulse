@@ -1,0 +1,352 @@
+@page "/education/papers"
+@attribute [Authorize(KnowPulsePermissions.Exam.Manage)]
+@inherits KnowPulseComponentBase
+@using KnowPulse.Education
+@using KnowPulse.Blazor.Client.Pages.QuestionBank
+@using System.Text.Json
+@using System.Security.Cryptography
+@using System.Text
+@inject IExamAppService ExamAppService
+@inject IQuestionAppService QuestionAppService
+@inject IEducationSchoolAppService SchoolAppService
+@inject IEducationCurriculumAppService CurriculumAppService
+@inject IPermissionChecker PermissionChecker
+@inject IJSRuntime JSRuntime
+@inject Volo.Abp.Users.ICurrentUser CurrentAccount
+@inject Volo.Abp.MultiTenancy.ICurrentTenant CurrentTenantContext
+
+<PageTitle>@L["EducationPaper:Title"]</PageTitle>
+<NavigationLock OnBeforeInternalNavigation="ConfirmNavigationAsync" ConfirmExternalNavigation="@HasUnsavedChanges" />
+
+<div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+    <div><h1 class="h4 mb-1">@L["EducationPaper:Title"]</h1><p class="text-muted small mb-0">@L["EducationPaper:Description"]</p></div>
+    <a href="/education/preparations" class="btn btn-outline-secondary btn-sm">@L["EducationGeneration:ReturnPreparation"]</a>
+</div>
+@if (ErrorMessage != null) { <div class="alert alert-danger" role="alert">@ErrorMessage</div> }
+@if (SuccessMessage != null) { <div class="alert alert-success" role="status">@SuccessMessage</div> }
+@if (StorageNotice != null) { <p class="small text-warning" role="status">@StorageNotice</p> }
+@if (SaveOperation != null)
+{
+    <div class="alert alert-info d-flex flex-wrap align-items-center justify-content-between gap-2" role="status"><span>@L["EducationPaper:RecoverHint"]</span><button type="button" class="btn btn-sm btn-outline-primary" @onclick="RecoverSaveAsync" disabled="@IsBusy">@L["EducationPaper:Recover"]</button></div>
+}
+
+<div class="row g-3">
+    <div class="col-xl-5">
+        <div class="card"><div class="card-body">
+            <h2 class="h6">@L["EducationPaper:BuildHeading"]</h2>
+            <EditForm EditContext="@(EditorContext!)" OnValidSubmit="PreviewAsync">
+                <DataAnnotationsValidator /><Microsoft.AspNetCore.Components.Forms.ValidationSummary />
+                <fieldset disabled="@IsBusy">
+                    <label class="form-label" for="education-paper-title">@L["EducationPaper:PaperTitle"]</label><InputText id="education-paper-title" class="form-control mb-3" @bind-Value="FormModel.Title" />
+                    <label class="form-label" for="education-paper-selection">@L["EducationGeneration:Selection"]</label>
+                    <select id="education-paper-selection" class="form-select" @bind="SelectionIdText" @bind:after="SelectionChangedAsync"><option value="">@L["EducationCurriculum:Choose"]</option>@foreach (var choice in CurriculumChoices) { <option value="@choice.Selection.Id">@SelectionLabel(choice)</option> }</select>
+                    <button type="button" class="btn btn-sm btn-outline-secondary mt-2" @onclick="RefreshCurriculumAsync">@L["EducationGeneration:RefreshSelections"]</button>
+                    @if (CurriculumError != null) { <p class="small text-danger mt-2" role="alert">@CurriculumError</p> }
+                    @if (CurriculumChoices.Count == 0) { <p class="small text-muted mt-2">@L["EducationGeneration:NoSelections"] <a href="/education/curriculum">@L["EducationGeneration:ManageSelections"]</a></p> }
+                    @if (SelectedTextbook is { } book)
+                    {
+                        <p class="small text-muted mt-3">@BookLabel(book)</p>
+                        <label class="form-label" for="education-paper-chapter">@L["EducationGeneration:ChapterFilter"]</label>
+                        <select id="education-paper-chapter" class="form-select" @bind="ChapterIdText"><option value="">@L["EducationGeneration:AllChapters"]</option>@foreach (var chapter in book.Chapters.OrderBy(x => x.DisplayOrder)) { <option value="@chapter.Id">@chapter.Code · @chapter.Title</option> }</select>
+                        <div class="education-paper-mappings mt-2" role="group" aria-label="@L["EducationGeneration:Mappings"]">
+                            @foreach (var mapping in FilteredMappings) { <label class="d-flex gap-2 align-items-start"><input class="form-check-input" type="checkbox" checked="@SelectedMappingIds.Contains(mapping.Id)" @onchange="args => ToggleMappingAsync(mapping.Id, args)" /><span>@MappingLabel(mapping)</span></label> }
+                        </div>
+                        <p class="small text-muted mt-2">@L["EducationGeneration:SelectedCount", SelectedMappingIds.Count]</p>
+                    }
+
+                    <h3 class="h6 mt-4">@L["EducationPaper:ChooseQuestions"]</h3>
+                    <p class="small text-muted">@L["EducationPaper:ConfirmedQuestionsHint"]</p>
+                    @if (!CanViewQuestions) { <p class="small text-warning">@L["EducationPaper:QuestionPermissionRequired"]</p> }
+                    <div class="d-flex gap-2 mb-2"><label class="flex-grow-1"><span class="small">@L["EducationPaper:SearchQuestions"]</span><input class="form-control" @bind="QuestionKeyword" @bind:event="oninput" /></label><button type="button" class="btn btn-outline-secondary align-self-end" @onclick="SearchQuestionsAsync" disabled="@(!HasValidScope || !CanViewQuestions)">@L["EducationPaper:Search"]</button></div>
+                    @if (QuestionOptions.Count == 0) { <p class="small text-muted">@L[HasValidScope ? "EducationPaper:NoQuestions" : "EducationGeneration:ChooseScopeRequired"]</p> }
+                    <div class="d-flex flex-column gap-2">
+                        @foreach (var question in QuestionOptions)
+                        {
+                            <label class="education-paper-question-option" @key="question.Id"><input class="form-check-input" type="checkbox" checked="@SelectedQuestionIds.Contains(question.Id)" @onchange="args => ToggleQuestion(question, args)" /><span><strong>@question.Title</strong><span class="d-block small text-muted">@TypeLabel(question.Type) · @L["EducationPaper:QuestionScore", question.CurriculumScore?.ToString() ?? "—"] · @QuestionPointsLabel(question)</span></span></label>
+                        }
+                    </div>
+                    @if (QuestionTotal > QuestionPageSize)
+                    {
+                        <div class="d-flex gap-2 align-items-center mt-2"><button type="button" class="btn btn-sm btn-outline-secondary" disabled="@(QuestionOffset == 0)" @onclick="PreviousQuestionPageAsync">@L["EducationPaper:Previous"]</button><span class="small">@L["EducationPaper:Page", QuestionOffset / QuestionPageSize + 1, (QuestionTotal + QuestionPageSize - 1) / QuestionPageSize]</span><button type="button" class="btn btn-sm btn-outline-secondary" disabled="@(QuestionOffset + QuestionPageSize >= QuestionTotal)" @onclick="NextQuestionPageAsync">@L["EducationPaper:Next"]</button></div>
+                    }
+                    @if (SelectedQuestionIds.Count > 0)
+                    {
+                        <h3 class="h6 mt-4">@L["EducationPaper:SelectedQuestions", SelectedQuestionIds.Count, SelectedQuestionIds.Sum(id => SelectedQuestions[id].CurriculumScore ?? 0)]</h3>
+                        <ol class="education-paper-selected">
+                            @for (var index = 0; index < SelectedQuestionIds.Count; index++)
+                            {
+                                var position = index; var question = SelectedQuestions[SelectedQuestionIds[index]];
+                                <li @key="question.Id"><span>@question.Title · @L["EducationPaper:QuestionScore", question.CurriculumScore?.ToString() ?? "—"]</span><span class="d-flex gap-1"><button type="button" class="btn btn-sm btn-outline-secondary" @onclick="() => MoveQuestion(position, -1)" disabled="@(position == 0)" aria-label="@L["EducationPaper:MoveUp"]">↑</button><button type="button" class="btn btn-sm btn-outline-secondary" @onclick="() => MoveQuestion(position, 1)" disabled="@(position == SelectedQuestionIds.Count - 1)" aria-label="@L["EducationPaper:MoveDown"]">↓</button><button type="button" class="btn btn-sm btn-outline-secondary" @onclick="() => RemoveQuestion(question.Id)">@L["EducationGeneration:Remove"]</button></span></li>
+                            }
+                        </ol>
+                    }
+                    <p class="small text-muted mt-3">@L["EducationPaper:ScoreHint"]</p>
+                    <div class="d-flex gap-2 mt-3"><button type="submit" class="btn btn-outline-primary" disabled="@(!CanBuild)">@L["EducationPaper:Preview"]</button><button type="button" class="btn btn-primary" @onclick="SaveAsync" disabled="@(!CanBuild)">@L["EducationPaper:Save"]</button></div>
+                    <p class="small text-muted mt-2 mb-0">@L["EducationPaper:SaveHint"]</p>
+                </fieldset>
+            </EditForm>
+        </div></div>
+    </div>
+    <div class="col-xl-7">
+        @if (CurrentPaper == null)
+        {
+            <div class="card"><div class="card-body text-center text-muted py-5">@L["EducationPaper:EmptyPreview"]</div></div>
+        }
+        else
+        {
+            <div class="card"><div class="card-body">
+                <div class="d-flex flex-wrap align-items-start justify-content-between gap-2"><div><h2 class="h5">@CurrentPaper.Title</h2><p class="small text-muted mb-1">@L["EducationPaper:Summary", CurrentPaper.QuestionCount, CurrentPaper.TotalScore, CurrentPaper.SnapshotVersion]</p><span class="badge @(IsSavedPaper ? "bg-success" : "bg-secondary")">@L[IsSavedPaper ? "EducationPaper:Saved" : "EducationPaper:PreviewOnly"]</span></div><label><span class="small">@L["EducationPaper:PreviewPerspective"]</span><select class="form-select" @bind="TeacherPerspective"><option value="true">@L["EducationPaper:TeacherPerspective"]</option><option value="false">@L["EducationPaper:StudentPerspective"]</option></select></label></div>
+                @if (IsSavedPaper) { <p class="small mt-2"><a href="@($"/education/papers?paperId={CurrentPaper.Id}")">@L["EducationPaper:OpenSaved"]</a> · @L["EducationPaper:FrozenHint"]</p> }
+                @if (!string.IsNullOrWhiteSpace(PreviewSignature) && PreviewSignature != InputSignature()) { <p class="small text-warning mt-2" role="status">@L["EducationPaper:PreviewChanged"]</p> }
+                @if (CurrentPaper.Curriculum is { } scope) { <p class="small mt-2">@SnapshotLabel(scope)</p><ul class="small">@foreach (var mapping in scope.Mappings) { <li>@SnapshotMappingLabel(mapping)</li> }</ul> }
+                @if (!TeacherPerspective)
+                {
+                    <p class="small text-muted mt-2">@L["EducationPaper:StudentPreviewHint"]</p>
+                    @if (StudentPreview is { } student)
+                    {
+                        @foreach (var question in student.Questions)
+                        {
+                            <section class="education-paper-preview-question" @key="question.DisplayOrder">
+                                <h3 class="h6">@(question.DisplayOrder). @TypeLabel(question.Type) · @L["EducationPaper:QuestionScore", question.Score]</h3><p class="education-paper-stem">@question.Stem</p>
+                                @foreach (var option in question.Options) { <div>@(option.Key). @option.Content</div> }
+                                @if (question.Type == QuestionType.FillBlank && question.ResponseFields.Count > 0)
+                                {
+                                    @foreach (var field in question.ResponseFields.OrderBy(x => x.DisplayOrder)) { <label class="d-block mt-2">@L["EducationScoring:StudentBlank", field.StemMarker]<input class="form-control" disabled aria-label="@L["EducationScoring:StudentBlank", field.StemMarker]" /></label> }
+                                }
+                                else if (question.Type == QuestionType.Subjective) { <label class="d-block mt-2">@L["EducationScoring:StudentResponse"]<textarea class="form-control" rows="5" disabled></textarea></label> }
+                                else { <div class="education-paper-answer-space" aria-label="@L["EducationPaper:AnswerSpace"]"></div> }
+                            </section>
+                        }
+                    }
+                }
+                else
+                {
+                    @foreach (var question in CurrentPaper.Questions.OrderBy(x => x.DisplayOrder))
+                    {
+                        <section class="education-paper-preview-question" @key="question.Id"><h3 class="h6">@(question.DisplayOrder). @question.Title · @L["EducationPaper:QuestionScore", question.Score]</h3><p class="education-paper-stem">@question.Stem</p>@foreach (var option in question.Options.OrderBy(x => x.DisplayOrder)) { <div>@(option.OptionKey). @option.Content</div> }
+                            @if (question.ScoringDefinition != null) { <QuestionScoringEditor Type="question.Type" Definition="question.ScoringDefinition" ReadOnly="true" Mappings="PaperRuleMappings(question)" Stem="question.Stem" TotalScore="question.Score" /> }
+                            @if (question.QuestionDefinitionRevisionId.HasValue) { <p class="small text-muted mt-2">@L["EducationScoring:FrozenRevision"]</p> }
+                            <div class="education-paper-teacher-detail mt-3"><strong>@L["EducationPaper:CorrectAnswers"]</strong><p>@string.Join("、", question.CorrectAnswers)</p>@if (question.Analysis != null) { <strong>@L["EducationPaper:Analysis"]</strong><p>@question.Analysis</p> }<strong>@L["EducationPaper:ScoringPoints"]</strong><ul>@foreach (var point in question.CurriculumScoringPoints) { <li>@point.ChapterCode · @point.ChapterTitle · @point.KnowledgePointCode · @point.KnowledgePointName · @L["EducationPaper:PointAllocation", point.Score, point.Weight.ToString("P2")]</li> }</ul><strong>@L["EducationPaper:Sources"]</strong><ul>@foreach (var source in SourceLabels(question.SourceSnapshot)) { <li>@source</li> }</ul></div></section>
+                    }
+                }
+            </div></div>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter, SupplyParameterFromQuery(Name = "paperId")] public string? PaperIdText { get; set; }
+    private string? LoadedPaperQuery;
+    private readonly PaperFormModel FormModel = new();
+    private EditContext? EditorContext;
+    private readonly List<CurriculumChoice> CurriculumChoices = [];
+    private TextbookVersionDto? SelectedTextbook;
+    private string SelectionIdText = string.Empty, ChapterIdText = string.Empty;
+    private readonly HashSet<Guid> SelectedMappingIds = [];
+    private readonly List<QuestionDto> QuestionOptions = [];
+    private readonly List<Guid> SelectedQuestionIds = [];
+    private readonly Dictionary<Guid, QuestionDto> SelectedQuestions = [];
+    private const int QuestionPageSize = 25;
+    private int QuestionOffset;
+    private long QuestionTotal;
+    private string? QuestionKeyword, CurriculumError, ErrorMessage, SuccessMessage, StorageNotice;
+    private bool IsBusy, CanViewQuestions, TeacherPerspective = true, IsSavedPaper;
+    private ExamPaperDto? CurrentPaper;
+    private StudentPaperView? StudentPreview;
+    private SaveOperationReceipt? SaveOperation;
+    private string Baseline = string.Empty, PreviewSignature = string.Empty;
+    private bool HasUnsavedChanges => Baseline.Length > 0 && FormState() != Baseline;
+    private CurriculumChoice? SelectedChoice => CurriculumChoices.FirstOrDefault(x => x.Selection.Id.ToString() == SelectionIdText);
+    private bool HasValidScope => SelectedChoice != null && SelectedTextbook is { Status: TextbookVersionStatus.Published } book && SelectedMappingIds.Count > 0 && SelectedMappingIds.All(id => book.Mappings.Any(x => x.Id == id));
+    private bool CanBuild => HasValidScope && CanViewQuestions && SelectedQuestionIds.Count > 0;
+    private IEnumerable<TextbookKnowledgePointMappingDto> FilteredMappings => SelectedTextbook is { } book ? book.Mappings.Where(x => string.IsNullOrWhiteSpace(ChapterIdText) || x.ChapterId.ToString() == ChapterIdText).OrderBy(x => book.Chapters.FirstOrDefault(c => c.Id == x.ChapterId)?.DisplayOrder).ThenBy(x => x.KnowledgePointCode) : [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        EditorContext = new EditContext(FormModel);
+        CanViewQuestions = await PermissionChecker.IsGrantedAsync(KnowPulsePermissions.QuestionBank.Questions);
+        await RunBusyAsync(LoadCurriculumChoicesAsync);
+        Baseline = FormState();
+    }
+    protected override async Task OnParametersSetAsync()
+    {
+        if (LoadedPaperQuery == PaperIdText) return;
+        LoadedPaperQuery = PaperIdText;
+        if (PaperIdText == null) return;
+        await RunBusyAsync(async () =>
+        {
+            if (!Guid.TryParse(PaperIdText, out var id) || id == Guid.Empty) throw new InvalidOperationException(L["EducationPaper:InvalidLink"]);
+            SetPaper(await ExamAppService.GetSavedPaperAsync(id), saved: true);
+            PreviewSignature = string.Empty;
+        });
+    }
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        try
+        {
+            var value = await JSRuntime.InvokeAsync<string?>("sessionStorage.getItem", OperationStorageKey);
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                var receipt = JsonSerializer.Deserialize<SaveOperationReceipt>(value);
+                if (receipt is { Id: var id } && id != Guid.Empty) SaveOperation = receipt;
+                StateHasChanged();
+            }
+        }
+        catch (Exception) { StorageNotice = L["EducationGeneration:StorageUnavailable"]; StateHasChanged(); }
+    }
+    private string OperationStorageKey => $"knowpulse.education.paper-save.{CurrentTenantContext.Id}.{CurrentAccount.Id}";
+    private async Task PersistOperationAsync()
+    {
+        try { await JSRuntime.InvokeVoidAsync("sessionStorage.setItem", OperationStorageKey, JsonSerializer.Serialize(SaveOperation)); }
+        catch (Exception) { StorageNotice = L["EducationGeneration:StorageUnavailable"]; }
+    }
+    private async Task LoadCurriculumChoicesAsync()
+    {
+        CurriculumChoices.Clear(); CurriculumError = null;
+        try
+        {
+            var schools = await SchoolAppService.GetMySchoolsAsync();
+            foreach (var school in schools.Items.Where(x => x.Roles.Contains(SchoolMemberRole.Teacher)))
+            {
+                try
+                {
+                    var context = await CurriculumAppService.GetContextAsync(school.Id);
+                    var selections = await CurriculumAppService.GetMySelectionsAsync(school.Id);
+                    foreach (var selection in selections.Items.Where(x => x.EndedAtUtc == null && x.TextbookStatus == TextbookVersionStatus.Published))
+                        if (context.TeachingContexts.FirstOrDefault(x => x.Id == selection.TeachingAssignmentId) is { } assignment) CurriculumChoices.Add(new CurriculumChoice(school, assignment, selection));
+                }
+                catch (Exception exception) { CurriculumError = GetUserFriendlyErrorMessage(exception); }
+            }
+        }
+        catch (Exception exception) { CurriculumChoices.Clear(); CurriculumError = GetUserFriendlyErrorMessage(exception); }
+    }
+    private Task SelectionChangedAsync() => RunBusyAsync(async () =>
+    {
+        SelectedMappingIds.Clear(); SelectedQuestionIds.Clear(); SelectedQuestions.Clear(); QuestionOptions.Clear(); QuestionOffset = 0; QuestionTotal = 0;
+        await LoadBookAsync();
+    });
+    private async Task LoadBookAsync()
+    {
+        SelectedTextbook = null; ChapterIdText = string.Empty;
+        if (SelectedChoice is not { } choice) return;
+        var book = await CurriculumAppService.GetTextbookAsync(choice.Selection.TextbookVersionId);
+        if (book.Status != TextbookVersionStatus.Published || book.SchoolId != choice.School.Id || book.EducationSubjectId != choice.Assignment.EducationSubjectId || book.Grade != choice.Assignment.Grade)
+            throw new InvalidOperationException(L["EducationGeneration:InvalidSelection"]);
+        SelectedTextbook = book;
+    }
+    private Task RefreshCurriculumAsync() => RunBusyAsync(async () =>
+    {
+        await LoadCurriculumChoicesAsync(); await LoadBookAsync();
+        foreach (var id in SelectedMappingIds.Where(id => SelectedTextbook?.Mappings.Any(x => x.Id == id) != true).ToList()) SelectedMappingIds.Remove(id);
+        RemoveOutOfScopeQuestions();
+        await LoadQuestionsCoreAsync(resetPage: true);
+    });
+    private Task ToggleMappingAsync(Guid id, ChangeEventArgs args) => RunBusyAsync(async () =>
+    {
+        if (args.Value is true) SelectedMappingIds.Add(id); else SelectedMappingIds.Remove(id);
+        RemoveOutOfScopeQuestions();
+        await LoadQuestionsCoreAsync(resetPage: true);
+    });
+    private void RemoveOutOfScopeQuestions()
+    {
+        foreach (var id in SelectedQuestionIds.Where(id => !MatchesScope(SelectedQuestions[id])).ToList()) RemoveQuestion(id);
+    }
+    private bool MatchesScope(QuestionDto question) => HasValidScope && question.CurriculumConfirmed && question.Status == QuestionStatus.Approved && question.Curriculum is { } scope &&
+        scope.TeacherTextbookSelectionId == SelectedChoice!.Selection.Id && scope.TextbookVersionId == SelectedTextbook!.Id && question.CurriculumScore is > 0 && question.CurriculumPointWeights.Count > 0 && question.CurriculumPointWeights.All(x => SelectedMappingIds.Contains(x.TextbookKnowledgePointMappingId));
+    private Task SearchQuestionsAsync() => RunBusyAsync(() => LoadQuestionsCoreAsync(resetPage: true));
+    private Task PreviousQuestionPageAsync() => RunBusyAsync(async () => { QuestionOffset = Math.Max(0, QuestionOffset - QuestionPageSize); await LoadQuestionsCoreAsync(resetPage: false); });
+    private Task NextQuestionPageAsync() => RunBusyAsync(async () => { if (QuestionOffset + QuestionPageSize < QuestionTotal) QuestionOffset += QuestionPageSize; await LoadQuestionsCoreAsync(resetPage: false); });
+    private async Task LoadQuestionsCoreAsync(bool resetPage)
+    {
+        if (resetPage) QuestionOffset = 0;
+        QuestionOptions.Clear(); QuestionTotal = 0;
+        if (!HasValidScope || !CanViewQuestions) return;
+        var result = await QuestionAppService.GetFormalListAsync(new GetQuestionListInput { CurriculumScope = BuildScope(), Keyword = QuestionKeyword, SkipCount = QuestionOffset, MaxResultCount = QuestionPageSize });
+        QuestionTotal = result.TotalCount;
+        QuestionOptions.AddRange(result.Items.Where(MatchesScope));
+        foreach (var question in QuestionOptions.Where(x => SelectedQuestionIds.Contains(x.Id))) SelectedQuestions[question.Id] = question;
+    }
+    private void ToggleQuestion(QuestionDto question, ChangeEventArgs args)
+    {
+        if (args.Value is true && MatchesScope(question)) { if (!SelectedQuestionIds.Contains(question.Id)) SelectedQuestionIds.Add(question.Id); SelectedQuestions[question.Id] = question; }
+        else RemoveQuestion(question.Id);
+    }
+    private void RemoveQuestion(Guid id) { SelectedQuestionIds.Remove(id); SelectedQuestions.Remove(id); }
+    private void MoveQuestion(int index, int direction)
+    {
+        var target = index + direction;
+        if (index < 0 || index >= SelectedQuestionIds.Count || target < 0 || target >= SelectedQuestionIds.Count) return;
+        (SelectedQuestionIds[index], SelectedQuestionIds[target]) = (SelectedQuestionIds[target], SelectedQuestionIds[index]);
+    }
+    private EducationCurriculumScopeDto BuildScope() => new() { TeacherTextbookSelectionId = SelectedChoice!.Selection.Id, TextbookKnowledgePointMappingIds = SelectedMappingIds.OrderBy(x => x).ToList() };
+    private GenerateExamPaperDto BuildInput() => new() { Title = FormModel.Title.Trim(), CurriculumScope = BuildScope(), BuildMode = ExamPaperBuildMode.Fixed, FixedQuestionIds = SelectedQuestionIds.ToList(), Rules = [] };
+    private string InputSignature() => !CanBuild ? string.Empty : Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(BuildInput()))));
+    private Task PreviewAsync() => RunBusyAsync(async () =>
+    {
+        if (!CanBuild) throw new InvalidOperationException(L["EducationPaper:ChooseScopeAndQuestions"]);
+        SetPaper(await ExamAppService.PreviewPaperAsync(BuildInput()), saved: false);
+        PreviewSignature = InputSignature();
+    });
+    private async Task SaveAsync()
+    {
+        if (EditorContext?.Validate() != true) return;
+        await RunBusyAsync(async () =>
+        {
+            if (!CanBuild) throw new InvalidOperationException(L["EducationPaper:ChooseScopeAndQuestions"]);
+            var signature = InputSignature();
+            if (SaveOperation == null || SaveOperation.Signature != signature) SaveOperation = new SaveOperationReceipt { Id = Guid.NewGuid(), Signature = signature };
+            var input = BuildInput(); input.OperationId = SaveOperation.Id;
+            await PersistOperationAsync();
+            SetPaper(await ExamAppService.SavePaperAsync(input), saved: true);
+            PreviewSignature = signature; Baseline = FormState();
+            SuccessMessage = L["EducationPaper:SaveSucceeded"];
+        });
+    }
+    private Task RecoverSaveAsync() => RunBusyAsync(async () =>
+    {
+        if (SaveOperation == null) return;
+        SetPaper(await ExamAppService.GetSavedPaperAsync(SaveOperation.Id), saved: true);
+        PreviewSignature = CanBuild ? SaveOperation.Signature : string.Empty;
+        SuccessMessage = L["EducationPaper:Recovered"];
+    });
+    private void SetPaper(ExamPaperDto paper, bool saved)
+    {
+        CurrentPaper = paper; IsSavedPaper = saved;
+        // Student controls use only the server's safe response-field projection, never scoring rules.
+        StudentPreview = new StudentPaperView(paper.Questions.OrderBy(x => x.DisplayOrder).Select(x => new StudentQuestionView(x.DisplayOrder, x.Type, x.Stem, x.Score,
+            x.Options.OrderBy(o => o.DisplayOrder).Select(o => new StudentOptionView(o.OptionKey, o.Content)).ToList(),
+            x.ResponseFields.Select(field => new StudentResponseField(field.Id, field.DisplayOrder, field.StemMarker)).ToList())).ToList());
+    }
+    private async Task RunBusyAsync(Func<Task> action)
+    {
+        if (IsBusy) return;
+        IsBusy = true; ErrorMessage = null; SuccessMessage = null;
+        try { await action(); } catch (Exception exception) { ErrorMessage = GetUserFriendlyErrorMessage(exception); } finally { IsBusy = false; }
+    }
+    private async Task ConfirmNavigationAsync(LocationChangingContext context)
+    {
+        if (HasUnsavedChanges && !await JSRuntime.InvokeAsync<bool>("confirm", L["EducationGeneration:ConfirmLeave"].Value)) context.PreventNavigation();
+    }
+    private string FormState() => JsonSerializer.Serialize(new { FormModel.Title, SelectionIdText, Mappings = SelectedMappingIds.OrderBy(x => x).ToList(), Questions = SelectedQuestionIds.ToList() });
+    private string SelectionLabel(CurriculumChoice choice) => $"{choice.School.Name} · {choice.Assignment.TermName} · {choice.Assignment.ClassName} · {choice.Assignment.SubjectName} · {choice.Selection.TextbookTitle} · {L["EducationCurriculum:RevisionNumber", choice.Selection.CatalogRevision]}";
+    private string BookLabel(TextbookVersionDto book) => $"{book.Publisher} · {book.Edition} · {book.Volume} · {L["EducationCurriculum:GradeNumber", book.Grade]} · {L["EducationCurriculum:RevisionNumber", book.CatalogRevision]}";
+    private string MappingLabel(TextbookKnowledgePointMappingDto mapping) => $"{SelectedTextbook?.Chapters.FirstOrDefault(x => x.Id == mapping.ChapterId)?.Title} · {mapping.KnowledgePointCode} · {mapping.KnowledgePointName} · {L["EducationCurriculum:RevisionNumber", mapping.RevisionNumber]}";
+    private string SnapshotLabel(EducationCurriculumSnapshot scope) => $"{scope.SubjectName} · {scope.TextbookTitle} · {scope.Publisher} · {scope.Edition} · {scope.Volume} · {L["EducationCurriculum:GradeNumber", scope.Grade]} · {L["EducationCurriculum:RevisionNumber", scope.CatalogRevision]}";
+    private string SnapshotMappingLabel(EducationCurriculumMappingSnapshot mapping) => $"{mapping.ChapterCode} · {mapping.ChapterTitle} · {mapping.KnowledgePointCode} · {mapping.KnowledgePointName} · {L["EducationCurriculum:RevisionNumber", mapping.RevisionNumber]}";
+    private string QuestionPointsLabel(QuestionDto question) => string.Join("；", question.CurriculumScoringPoints.Select(x => $"{x.ChapterTitle} · {x.KnowledgePointName} · {L["EducationPaper:QuestionScore", x.Score]}"));
+    private IReadOnlyDictionary<Guid, string> PaperRuleMappings(ExamPaperQuestionDto question) => (question.Curriculum?.Mappings ?? []).ToDictionary(x => x.MappingId, SnapshotMappingLabel);
+    private string TypeLabel(QuestionType type) => L[$"QuestionType:{type}"].Value;
+    private static IReadOnlyList<string> SourceLabels(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return [];
+        try { return JsonSerializer.Deserialize<List<string>>(json) ?? []; } catch (JsonException) { return [json]; }
+    }
+    private sealed record CurriculumChoice(MySchoolDto School, MyTeachingContextDto Assignment, TeacherTextbookSelectionDto Selection);
+    private sealed record StudentOptionView(string Key, string Content);
+    private sealed record StudentResponseField(Guid Id, int DisplayOrder, string StemMarker);
+    private sealed record StudentQuestionView(int DisplayOrder, QuestionType Type, string Stem, decimal Score, IReadOnlyList<StudentOptionView> Options, IReadOnlyList<StudentResponseField> ResponseFields);
+    private sealed record StudentPaperView(IReadOnlyList<StudentQuestionView> Questions);
+    private sealed class SaveOperationReceipt { public SaveOperationReceipt() { } public Guid Id { get; set; } public string Signature { get; set; } = string.Empty; }
+    private sealed class PaperFormModel { [Required, StringLength(256)] public string Title { get; set; } = string.Empty; }
+}

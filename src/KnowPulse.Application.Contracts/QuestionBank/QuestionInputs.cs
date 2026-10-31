@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
+using KnowPulse.Education;
 using Volo.Abp.Application.Dtos;
 
 namespace KnowPulse.QuestionBank;
@@ -11,6 +12,8 @@ namespace KnowPulse.QuestionBank;
 /// </summary>
 public class GetQuestionListInput : PagedAndSortedResultRequestDto
 {
+    /// <summary>教材组卷时仅返回此当前范围内已确认评分的课程题。</summary>
+    public EducationCurriculumScopeDto? CurriculumScope { get; set; }
     /// <summary>
     /// 按草稿、审核队列或正式题库任务视图筛选。
     /// 指定后由服务端统一映射状态，避免页面复制状态组合判断。
@@ -72,6 +75,14 @@ public class GetQuestionListInput : PagedAndSortedResultRequestDto
 /// </summary>
 public class SaveQuestionDraftDto
 {
+    /// <summary>逐空、多选或人工评分规则。草稿可未完成，正式确认时完整校验。</summary>
+    public QuestionScoringDefinition? ScoringDefinition { get; set; }
+    /// <summary>手工新建课程题时必需；同编号同参数重试返回原草稿。编辑时忽略。</summary>
+    public Guid? OperationId { get; set; }
+    [StringLength(40)] public string? ConcurrencyStamp { get; set; }
+    public EducationCurriculumScopeDto? CurriculumScope { get; set; }
+    [Range(0.01, 1000)] public decimal CurriculumScore { get; set; } = 1;
+    public List<QuestionCurriculumPointWeight> CurriculumPointWeights { get; set; } = [];
     /// <summary>
     /// 题型。
     /// 不同题型会触发不同的选项和答案校验规则。
@@ -150,6 +161,14 @@ public class SaveQuestionDraftDto
     public List<CreateUpdateQuestionSourceDto> Sources { get; set; } = new();
 }
 
+public class ConfirmQuestionCurriculumDto
+{
+    [Required] public EducationCurriculumScopeDto Scope { get; set; } = new();
+    [Required, StringLength(40)] public string ConcurrencyStamp { get; set; } = string.Empty;
+    [Range(0.01, 1000)] public decimal Score { get; set; } = 1;
+    public List<QuestionCurriculumPointWeight> PointWeights { get; set; } = [];
+}
+
 /// <summary>
 /// 兼容现有题目创建接口的输入。
 /// <see cref="CreationSource"/> 仅用于旧客户端兼容，服务端创建人工草稿时不会采用调用方传入值。
@@ -176,6 +195,9 @@ public class UpdateQuestionDto : CreateQuestionDto
 /// </summary>
 public class DecideQuestionReviewDto
 {
+    /// <summary>课程题审核必需，同编号同请求恢复同一审核决策。</summary>
+    public Guid? OperationId { get; set; }
+    [StringLength(40)] public string? ConcurrencyStamp { get; set; }
     /// <summary>
     /// 审核决策。
     /// </summary>
@@ -252,6 +274,9 @@ public class CreateUpdateQuestionAnswerDto
 /// </summary>
 public class CreateUpdateQuestionSourceDto
 {
+    public Guid? SchoolKnowledgeShareId { get; set; }
+    public List<Guid> CurriculumBindingIds { get; set; } = [];
+    public List<Guid> TextbookKnowledgePointMappingIds { get; set; } = [];
     /// <summary>
     /// 关联的知识条目编号。
     /// </summary>
@@ -298,6 +323,8 @@ public class CreateUpdateQuestionSourceDto
 /// </summary>
 public class ReviewQuestionDto
 {
+    public Guid? OperationId { get; set; }
+    [StringLength(40)] public string? ConcurrencyStamp { get; set; }
     /// <summary>
     /// 审核意见或退回原因，最长 512 个字符。
     /// </summary>

@@ -58,6 +58,63 @@ public class AiQuestionCandidate : FullAuditedEntity<Guid>, IMultiTenant
     /// </summary>
     public Guid TaskId { get; private set; }
 
+    public int RunNumber { get; private set; }
+    public int OutputOrdinal { get; private set; }
+    public string? CurriculumSnapshotJson { get; private set; }
+    public string CurriculumMappingIdsJson { get; private set; } = "[]";
+    public string SubmittedCitationChunkIdsJson { get; private set; } = "[]";
+    public decimal Score { get; private set; } = 1;
+    public string Purpose { get; private set; } = "Practice";
+    public int ContentRevision { get; private set; }
+    public bool IsEdited { get; private set; }
+    public bool HasValidatedCurriculumMapping { get; private set; }
+    public string? ScoringDefinitionJson { get; private set; }
+
+    public void SetScoringDefinition(QuestionScoringDefinition? definition)
+    {
+        definition?.ValidateDraft();
+        ScoringDefinitionJson = definition?.ToCanonicalJson();
+    }
+
+    public void SetGenerationContext(int runNumber, int outputOrdinal, string? curriculumSnapshotJson,
+        string curriculumMappingIdsJson, string submittedCitationChunkIdsJson, decimal score, string purpose,
+        bool hasValidatedCurriculumMapping)
+    {
+        if (RunNumber != 0 || runNumber < 1 || outputOrdinal < 1) throw new InvalidOperationException("Candidate generation identity is immutable.");
+        if (score <= 0 || score > 1000 || decimal.Round(score, 2) != score) throw new ArgumentOutOfRangeException(nameof(score));
+        var checkedMappingIds = Check.NotNull(curriculumMappingIdsJson, nameof(curriculumMappingIdsJson));
+        var checkedCitationIds = Check.NotNull(submittedCitationChunkIdsJson, nameof(submittedCitationChunkIdsJson));
+        var checkedPurpose = Check.NotNullOrWhiteSpace(purpose, nameof(purpose), 64);
+        RunNumber = runNumber;
+        OutputOrdinal = outputOrdinal;
+        CurriculumSnapshotJson = curriculumSnapshotJson;
+        CurriculumMappingIdsJson = checkedMappingIds;
+        SubmittedCitationChunkIdsJson = checkedCitationIds;
+        Score = score;
+        Purpose = checkedPurpose;
+        HasValidatedCurriculumMapping = hasValidatedCurriculumMapping;
+    }
+
+    public void Edit(string title, string stem, string? analysis, string optionsJson, string answersJson, string? validationErrors,
+        QuestionScoringDefinition? scoringDefinition = null)
+    {
+        if (LinkedQuestionId.HasValue || Status is AiQuestionCandidateStatus.AdoptedAsDraft or AiQuestionCandidateStatus.Rejected)
+            throw new BusinessException("KnowPulse:AiGeneration:CandidateLocked");
+        var updated = new AiQuestionCandidate(Id, TenantId, TaskId, Status, Type, Difficulty, title, stem,
+            ApplicablePositionId, SecurityLevel, Tags, analysis, optionsJson, answersJson, KnowledgePointsJson, validationErrors);
+        updated.SetScoringDefinition(scoringDefinition);
+        Title = updated.Title;
+        Stem = updated.Stem;
+        Analysis = updated.Analysis;
+        OptionsJson = updated.OptionsJson;
+        AnswersJson = updated.AnswersJson;
+        ScoringDefinitionJson = updated.ScoringDefinitionJson;
+        ValidationErrors = updated.ValidationErrors;
+        Status = validationErrors == null ? AiQuestionCandidateStatus.Generated : AiQuestionCandidateStatus.ValidationFailed;
+        IsEdited = true;
+        ContentRevision = checked(ContentRevision + 1);
+    }
+
     /// <summary>
     /// 候选题状态，决定页面是否允许提交题库审核。
     /// </summary>

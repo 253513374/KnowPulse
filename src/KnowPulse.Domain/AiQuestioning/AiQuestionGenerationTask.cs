@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Text.Json;
 using KnowPulse.QuestionBank;
 using Volo.Abp;
 using Volo.Abp.Domain.Entities.Auditing;
@@ -63,10 +65,118 @@ public class AiQuestionGenerationTask : FullAuditedAggregateRoot<Guid>, IMultiTe
     /// </summary>
     public Guid? TenantId { get; protected set; }
 
+    public Guid? PersonalOwnerUserId { get; private set; }
+
+    public void RestrictToPersonalOwner(Guid ownerUserId)
+    {
+        if (ownerUserId == Guid.Empty || (PersonalOwnerUserId.HasValue && PersonalOwnerUserId != ownerUserId))
+        {
+            throw new ArgumentException("A personal generation task cannot change its owner.", nameof(ownerUserId));
+        }
+
+        PersonalOwnerUserId = ownerUserId;
+    }
+
     /// <summary>
     /// 任务生命周期状态。
     /// </summary>
     public AiQuestionGenerationTaskStatus Status { get; private set; }
+
+    public string? RequestFingerprint { get; private set; }
+    public string? CurriculumScopeJson { get; private set; }
+    public string? CurriculumSnapshotJson { get; private set; }
+    public decimal Score { get; private set; } = 1;
+    public string Purpose { get; private set; } = "Practice";
+    public int RunNumber { get; private set; } = 1;
+    public int AttemptCount { get; private set; }
+    public Guid? RunId { get; private set; }
+    public DateTime? LastHeartbeatAtUtc { get; private set; }
+    public DateTime? NextAttemptAtUtc { get; private set; }
+
+    public void InitializeExecution(string fingerprint, string? curriculumScopeJson, string? curriculumSnapshotJson,
+        decimal score, string purpose)
+    {
+        if (RequestFingerprint != null) throw new InvalidOperationException("Generation inputs are immutable.");
+        if (score <= 0 || score > 1000 || decimal.Round(score, 2) != score) throw new ArgumentOutOfRangeException(nameof(score));
+        var checkedFingerprint = Check.NotNullOrWhiteSpace(fingerprint, nameof(fingerprint), 64);
+        var checkedPurpose = Check.NotNullOrWhiteSpace(purpose, nameof(purpose), 64).Trim();
+        RequestFingerprint = checkedFingerprint;
+        Purpose = checkedPurpose;
+        Score = score;
+        CurriculumScopeJson = curriculumScopeJson;
+        CurriculumSnapshotJson = curriculumSnapshotJson;
+    }
+
+    public bool TryClaim(Guid runId, DateTime now, int leaseSeconds, int maxAttempts)
+    {
+        EnsureUtc(now);
+        if (runId == Guid.Empty || leaseSeconds <= 0 || maxAttempts <= 0) throw new ArgumentException("Invalid generation lease.");
+        if (Status == AiQuestionGenerationTaskStatus.Processing && LastHeartbeatAtUtc > now.AddSeconds(-leaseSeconds)) return false;
+        if (Status != AiQuestionGenerationTaskStatus.Pending && Status != AiQuestionGenerationTaskStatus.Processing) return false;
+        if (NextAttemptAtUtc > now) return false;
+        if (AttemptCount >= maxAttempts)
+        {
+            MarkFailed("worker", "KnowPulse:AiGeneration:RetryLimit", now);
+            return false;
+        }
+        AttemptCount++;
+        RunId = runId;
+        LastHeartbeatAtUtc = now;
+        NextAttemptAtUtc = null;
+        MarkProcessing(now);
+        return true;
+    }
+
+    public void Heartbeat(Guid runId, DateTime now)
+    {
+        EnsureUtc(now);
+        EnsureRun(runId);
+        LastHeartbeatAtUtc = now;
+    }
+
+    public void EnsureRun(Guid runId)
+    {
+        if (Status != AiQuestionGenerationTaskStatus.Processing || RunId != runId)
+            throw new InvalidOperationException("The generation lease is no longer current.");
+    }
+
+    public void QueueRetry(DateTime now, int maxAttempts)
+    {
+        EnsureUtc(now);
+        if (Status != AiQuestionGenerationTaskStatus.Failed) return;
+        if (AttemptCount >= maxAttempts) throw new BusinessException("KnowPulse:AiGeneration:RetryLimit");
+        Status = AiQuestionGenerationTaskStatus.Pending;
+        NextAttemptAtUtc = now;
+    }
+
+    public bool QueueRegeneration(Guid operationId, DateTime now, int maxOperations = 100)
+    {
+        EnsureUtc(now);
+        if (operationId == Guid.Empty) throw new ArgumentException("A regeneration operation ID is required.");
+        var operations = ExtraProperties.TryGetValue("RegenerationOperations", out var stored)
+            ? JsonSerializer.Deserialize<List<Guid>>(stored?.ToString() ?? "[]") ?? [] : [];
+        if (operations.Contains(operationId)) return false;
+        if (operations.Count >= maxOperations) throw new BusinessException("KnowPulse:AiGeneration:RegenerationLimit");
+        if (Status is AiQuestionGenerationTaskStatus.Pending or AiQuestionGenerationTaskStatus.Processing)
+            throw new BusinessException("KnowPulse:AiGeneration:AlreadyRunning");
+        operations.Add(operationId);
+        ExtraProperties["RegenerationOperations"] = JsonSerializer.Serialize(operations);
+        RunNumber = checked(Math.Max(1, RunNumber) + 1);
+        AttemptCount = 0;
+        GeneratedCount = 0;
+        RunId = null;
+        LastHeartbeatAtUtc = null;
+        NextAttemptAtUtc = now;
+        StartedTime = null;
+        CompletedTime = null;
+        Status = AiQuestionGenerationTaskStatus.Pending;
+        return true;
+    }
+
+    private static void EnsureUtc(DateTime now)
+    {
+        if (now.Kind != DateTimeKind.Utc) throw new ArgumentException("Generation timestamps must use UTC.");
+    }
 
     /// <summary>
     /// 本任务使用的 prompt 模板 ID。
@@ -232,6 +342,7 @@ public class AiQuestionGenerationTask : FullAuditedAggregateRoot<Guid>, IMultiTe
     /// </summary>
     public void MarkProcessing(DateTime now)
     {
+        EnsureUtc(now);
         Status = AiQuestionGenerationTaskStatus.Processing;
         StartedTime ??= now;
         CompletedTime = null;
@@ -245,6 +356,7 @@ public class AiQuestionGenerationTask : FullAuditedAggregateRoot<Guid>, IMultiTe
     /// </summary>
     public void MarkGenerated(int generatedCount, DateTime now)
     {
+        EnsureUtc(now);
         GeneratedCount = generatedCount;
         Status = AiQuestionGenerationTaskStatus.Generated;
         CompletedTime = now;
@@ -258,6 +370,7 @@ public class AiQuestionGenerationTask : FullAuditedAggregateRoot<Guid>, IMultiTe
     /// </summary>
     public void MarkFailed(string failureStage, string failureReason, DateTime now)
     {
+        EnsureUtc(now);
         Status = AiQuestionGenerationTaskStatus.Failed;
         CompletedTime = now;
         FailureStage = Check.Length(failureStage, nameof(failureStage), MaxFailureStageLength);

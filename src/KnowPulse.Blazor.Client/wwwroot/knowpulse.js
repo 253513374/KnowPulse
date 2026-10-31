@@ -1,5 +1,86 @@
 window.knowPulse = window.knowPulse || {};
 
+window.knowPulse.answerImageDrafts = (() => {
+    const databaseName = "knowpulse-assessment-image-drafts-v1";
+    const storeName = "pending";
+    const lifetimeMs = 24 * 60 * 60 * 1000;
+
+    async function transact(mode, work) {
+        let connection;
+        const database = await new Promise((resolve, reject) => {
+            let finished = false;
+            const timer = setTimeout(() => { finished = true; reject(new Error("Image cache open timed out")); }, 5000);
+            const request = indexedDB.open(databaseName, 1);
+            request.onupgradeneeded = () => request.result.createObjectStore(storeName);
+            request.onerror = request.onblocked = () => { finished = true; clearTimeout(timer); reject(new Error("Image cache unavailable")); };
+            request.onsuccess = () => {
+                clearTimeout(timer);
+                if (finished) { request.result.close(); return; }
+                connection = request.result;
+                connection.onversionchange = () => connection.close();
+                resolve(connection);
+            };
+        });
+        try {
+            return await new Promise((resolve, reject) => {
+                const transaction = database.transaction(storeName, mode);
+                let result;
+                const timer = setTimeout(() => { try { transaction.abort(); } catch {} reject(new Error("Image cache transaction timed out")); }, 5000);
+                transaction.oncomplete = () => { clearTimeout(timer); resolve(result); };
+                transaction.onerror = transaction.onabort = () => { clearTimeout(timer); reject(new Error("Image cache transaction failed")); };
+                try { work(transaction.objectStore(storeName), value => { result = value; }); }
+                catch (error) { try { transaction.abort(); } catch {} clearTimeout(timer); reject(error); }
+            });
+        } finally { database.close(); }
+    }
+
+    function key(scope, operationId) {
+        if (typeof scope !== "string" || scope.length > 256 || !scope || !/^[a-f0-9-]{36}$/i.test(operationId)) throw new Error("Invalid image cache key");
+        return [scope, operationId];
+    }
+
+    return {
+        async put(scope, operationId, bytes) {
+            if (!(bytes instanceof Uint8Array) || !bytes.length || bytes.length > 20 * 1024 * 1024) throw new Error("Invalid image cache bytes");
+            const id = key(scope, operationId);
+            await transact("readwrite", store => {
+                const request = store.get(id);
+                request.onsuccess = () => store.put({
+                    bytes: new Blob([bytes], { type: "application/octet-stream" }),
+                    expiresAt: request.result?.expiresAt > Date.now() ? request.result.expiresAt : Date.now() + lifetimeMs
+                }, id);
+            });
+        },
+        async get(scope, operationId) {
+            const id = key(scope, operationId);
+            const bytes = await transact("readwrite", (store, result) => {
+                const request = store.get(id);
+                request.onsuccess = () => {
+                    if (request.result?.expiresAt > Date.now()) result(request.result.bytes);
+                    else if (request.result) store.delete(id);
+                };
+            });
+            return bytes ? DotNet.createJSStreamReference(bytes) : null;
+        },
+        async remove(scope, operationId) {
+            const id = key(scope, operationId);
+            await transact("readwrite", store => store.delete(id));
+        },
+        async cleanupExpired(accountPrefix) {
+            if (typeof accountPrefix !== "string" || !accountPrefix || accountPrefix.length > 256) throw new Error("Invalid image cache account");
+            await transact("readwrite", store => {
+                const request = store.openCursor(IDBKeyRange.bound([accountPrefix], [accountPrefix + "\uffff"]));
+                request.onsuccess = () => {
+                    const cursor = request.result;
+                    if (!cursor) return;
+                    if (cursor.value.expiresAt <= Date.now()) cursor.delete();
+                    cursor.continue();
+                };
+            });
+        }
+    };
+})();
+
 /**
  * Reads a .NET stream reference and triggers a browser download without keeping the file in Blazor component state.
  *

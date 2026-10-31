@@ -217,7 +217,7 @@
                     <div class="knowledge-publish-panel">
                         <div>
                             <small>准备发布</small>
-                            <strong>v@PublishCandidate.VersionNumber · @PublishCandidate.Title</strong>
+                            <strong>v@(PublishCandidate.VersionNumber) · @PublishCandidate.Title</strong>
                             <p>系统会在一个事务内保存访问策略、切换当前版本、使旧索引失效并创建新索引任务。</p>
                         </div>
                         <div class="knowledge-publish-policy">
@@ -245,7 +245,7 @@
                             @foreach (var version in Detail.Versions)
                             {
                                 <tr>
-                                    <td><strong>v@version.VersionNumber</strong></td><td>@version.Title</td>
+                                    <td><strong>v@(version.VersionNumber)</strong></td><td>@version.Title</td>
                                     <td><span class="badge @(version.IsCurrentPublished ? "text-bg-success" : "text-bg-secondary")">@GetVersionStatusText(version)</span></td>
                                     <td>@FormatNullableDateTime(version.PublishedTime)</td>
                                     <td class="text-end">

@@ -1,0 +1,400 @@
+@page "/school-knowledge"
+@attribute [Authorize(KnowPulsePermissions.KnowledgeBase.PersonalLibrary)]
+@inherits KnowPulseComponentBase
+@using KnowPulse.Education
+@inject IKnowledgeSchoolSharingAppService SharingAppService
+@inject IEducationSchoolAppService SchoolAppService
+@inject IKnowledgeItemAppService ItemAppService
+@inject IJSRuntime JSRuntime
+
+<PageTitle>@L["Menu:SchoolKnowledge"]</PageTitle>
+<NavigationLock OnBeforeInternalNavigation="ConfirmNavigationAsync" ConfirmExternalNavigation="@HasPendingInput" />
+
+<div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-3">
+    <div>
+        <h1 class="h3 mb-1">@L["Menu:SchoolKnowledge"]</h1>
+        <p class="text-muted mb-0">@L["SchoolKnowledge:Description"]</p>
+    </div>
+    <div class="d-flex gap-2">
+        <a class="btn btn-outline-primary" href="/my-knowledge">@L["SchoolKnowledge:PersonalLibrary"]</a>
+        <button type="button" class="btn btn-outline-secondary" @onclick="RefreshAsync" disabled="@IsBusy">@L["SchoolKnowledge:Refresh"]</button>
+    </div>
+</div>
+@if (!string.IsNullOrEmpty(ErrorMessage))
+{
+    <div class="alert alert-danger" role="alert">@ErrorMessage</div>
+}
+@if (!string.IsNullOrEmpty(SuccessMessage))
+{
+    <div class="alert alert-success" role="status">@SuccessMessage</div>
+}
+
+@if (SourceVersion != null)
+{
+    <section class="card mb-3" aria-labelledby="school-share-heading">
+        <div class="card-body">
+            <h2 id="school-share-heading" class="h5">@L["SchoolKnowledge:ShareVersion"]</h2>
+            <p class="fw-semibold">@SourceVersion.Title · @L["SchoolKnowledge:VersionNumber", SourceVersion.VersionNumber]</p>
+            <p class="small text-muted">@L["SchoolKnowledge:FixedVersionDescription"]</p>
+            @if (TeacherSchools.Count == 0)
+            {
+                <p class="text-muted">@L["SchoolKnowledge:NoTeacherSchool"]</p>
+            }
+            else
+            {
+                <label for="share-school" class="form-label">@L["SchoolKnowledge:TargetSchool"]</label>
+                <select id="share-school" class="form-select mb-3" @bind="TargetSchoolId" disabled="@(IsBusy || SubmittedRequest != null)">
+                    <option value="">@L["SchoolKnowledge:ChooseSchool"]</option>
+                    @foreach (var school in TeacherSchools)
+                    {
+                        <option value="@school.Id">@school.Name</option>
+                    }
+                </select>
+                <label for="share-summary" class="form-label">@L["SchoolKnowledge:SharedSummary"]</label>
+                <textarea id="share-summary" class="form-control mb-2" rows="3" maxlength="1024" @bind="SharedSummary" disabled="@(IsBusy || SubmittedRequest != null)"></textarea>
+                <p class="small text-muted">@L["SchoolKnowledge:SummaryDescription"]</p>
+                <fieldset disabled="@(IsBusy || SubmittedRequest != null)" class="mb-3">
+                    <legend class="h6">@L["SchoolKnowledge:AllowedUses"]</legend>
+                    <div class="form-check">
+                        <input id="share-read" class="form-check-input" type="checkbox" checked disabled />
+                        <label for="share-read" class="form-check-label">@L["SchoolKnowledge:Use:Read"]</label>
+                    </div>
+                    <div class="form-check">
+                        <input id="share-retrieve" class="form-check-input" type="checkbox" @bind="AllowRetrieve" disabled="@AllowGenerateQuestions" />
+                        <label for="share-retrieve" class="form-check-label">@L["SchoolKnowledge:Use:Retrieve"]</label>
+                    </div>
+                    <div class="form-check">
+                        <input id="share-generate" class="form-check-input" type="checkbox" @bind="AllowGenerateQuestions" @bind:after="EnsureGenerationRetrieval" />
+                        <label for="share-generate" class="form-check-label">@L["SchoolKnowledge:Use:GenerateQuestions"]</label>
+                    </div>
+                    <div class="form-check">
+                        <input id="share-download" class="form-check-input" type="checkbox" @bind="AllowDownload" />
+                        <label for="share-download" class="form-check-label">@L["SchoolKnowledge:Use:Download"]</label>
+                    </div>
+                    <div class="form-check"><input id="share-students" class="form-check-input" type="checkbox" @bind="AllowAssignToStudents" /><label for="share-students" class="form-check-label">@L["SchoolKnowledge:Use:AssignToStudents"]</label></div>
+                </fieldset>
+                @if (SubmittedRequest != null)
+                {
+                    <p class="small text-muted" role="status">@L["SchoolKnowledge:RetryDescription"]</p>
+                }
+                <button type="button" class="btn btn-primary" @onclick="ShareAsync" disabled="@(IsBusy || string.IsNullOrEmpty(TargetSchoolId))">
+                    @(SubmittedRequest == null ? L["SchoolKnowledge:ConfirmShare"] : L["SchoolKnowledge:RetryShare"])
+                </button>
+            }
+        </div>
+    </section>
+}
+
+<div class="d-flex flex-wrap gap-2 mb-3">
+    <button type="button" class="btn @(ShowMine ? "btn-outline-primary" : "btn-primary")" aria-pressed="@(!ShowMine)" @onclick="() => ChangeViewAsync(false)" disabled="@IsBusy">@L["SchoolKnowledge:SchoolLibrary"]</button>
+    <button type="button" class="btn @(ShowMine ? "btn-primary" : "btn-outline-primary")" aria-pressed="@ShowMine" @onclick="() => ChangeViewAsync(true)" disabled="@IsBusy">@L["SchoolKnowledge:MyShares"]</button>
+</div>
+
+<div class="row g-3">
+    <div class="col-lg-5">
+        <div class="card"><div class="card-body">
+            @if (!ShowMine)
+            {
+                <label for="browse-school" class="form-label">@L["SchoolKnowledge:School"]</label>
+                <select id="browse-school" class="form-select mb-3" @bind="BrowseSchoolId" @bind:after="SchoolChangedAsync" disabled="@IsBusy">
+                    <option value="">@L["SchoolKnowledge:ChooseSchool"]</option>
+                    @foreach (var school in TeacherSchools)
+                    {
+                        <option value="@school.Id">@school.Name</option>
+                    }
+                </select>
+            }
+            else
+            {
+                <label for="share-status-filter" class="form-label">@L["SchoolKnowledge:ShareStatus"]</label>
+                <select id="share-status-filter" class="form-select mb-3" @bind="StatusFilter" disabled="@IsBusy">
+                    <option value="">@L["SchoolKnowledge:AllStatuses"]</option>
+                    <option value="false">@L["SchoolKnowledge:Active"]</option>
+                    <option value="true">@L["SchoolKnowledge:Revoked"]</option>
+                </select>
+            }
+            <label for="school-share-search" class="form-label">@L["SchoolKnowledge:SearchLabel"]</label>
+            <div class="input-group mb-3">
+                <input id="school-share-search" class="form-control" maxlength="256" @bind="Keyword" disabled="@IsBusy" />
+                <button type="button" class="btn btn-outline-secondary" @onclick="SearchAsync" disabled="@IsBusy">@L["SchoolKnowledge:Search"]</button>
+            </div>
+            <p class="small text-muted">@L["SchoolKnowledge:Count", TotalCount]</p>
+            @if (IsBusy && Shares.Count == 0)
+            {
+                <p role="status">@L["SchoolKnowledge:Loading"]</p>
+            }
+            else if (!ShowMine && TeacherSchools.Count == 0)
+            {
+                <p class="text-muted">@L["SchoolKnowledge:NoTeacherSchool"]</p>
+            }
+            else if (!ShowMine && string.IsNullOrEmpty(BrowseSchoolId))
+            {
+                <p class="text-muted">@L["SchoolKnowledge:ChooseSchool"]</p>
+            }
+            else if (Shares.Count == 0)
+            {
+                <p class="text-muted">@L["SchoolKnowledge:Empty"]</p>
+            }
+            @foreach (var share in Shares)
+            {
+                <article class="border rounded p-3 mb-2">
+                    <h2 class="h6 mb-1">@share.Title</h2>
+                    @if (!string.IsNullOrWhiteSpace(share.Summary)) { <p class="small mb-2">@share.Summary</p> }
+                    <p class="small text-muted mb-1">@SchoolName(share.SchoolId) · @LocalTime(share.SharedAtUtc)</p>
+                    <p class="small mb-2">@UseNames(share.Uses)</p>
+                    @if (share.IsRevoked)
+                    {
+                        <p class="small text-muted mb-0">@L["SchoolKnowledge:RevokedAt", LocalTime(share.RevokedAtUtc)]</p>
+                    }
+                    else
+                    {
+                        <div class="d-flex flex-wrap gap-2">
+                            @if (TeacherSchools.Any(x => x.Id == share.SchoolId))
+                            {
+                                <button type="button" class="btn btn-sm btn-outline-primary" @onclick="() => ReadAsync(share.Id)" disabled="@IsBusy">@L["SchoolKnowledge:ReadVersion"]</button>
+                            }
+                            @if (ShowMine)
+                            {
+                                <button type="button" class="btn btn-sm btn-outline-danger" @onclick="() => RevokeAsync(share)" disabled="@IsBusy">@L["SchoolKnowledge:Revoke"]</button>
+                            }
+                        </div>
+                    }
+                </article>
+            }
+            <div class="d-flex justify-content-between mt-3">
+                <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="() => PageAsync(-1)" disabled="@(IsBusy || SkipCount == 0)">@L["SchoolKnowledge:Previous"]</button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="() => PageAsync(1)" disabled="@(IsBusy || SkipCount + PageSize >= TotalCount)">@L["SchoolKnowledge:Next"]</button>
+            </div>
+        </div></div>
+    </div>
+    <div class="col-lg-7">
+        <div class="card"><div class="card-body">
+            @if (Detail == null)
+            {
+                <p class="text-muted mb-0">@L["SchoolKnowledge:SelectSharedVersion"]</p>
+            }
+            else
+            {
+                <div class="d-flex justify-content-between gap-2 align-items-start mb-2">
+                    <h2 class="h5">@Detail.Share.Title · @L["SchoolKnowledge:VersionNumber", Detail.VersionNumber]</h2>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="() => ReadAsync(Detail.Share.Id)" disabled="@IsBusy">@L["SchoolKnowledge:Refresh"]</button>
+                </div>
+                <p class="small text-muted">@SchoolName(Detail.Share.SchoolId) · @UseNames(Detail.Share.Uses)</p>
+                @if (!string.IsNullOrWhiteSpace(Detail.Share.Summary)) { <p>@Detail.Share.Summary</p> }
+                <p class="small" role="status">@L["SchoolKnowledge:IndexStatus"]：@IndexStatusName(Detail.IndexStatus)</p>
+                <pre style="white-space: pre-wrap; overflow-wrap: anywhere; font-family: inherit;">@Detail.ContentText</pre>
+                <div class="border-top pt-3">
+                    <h3 class="h6">@L["SchoolKnowledge:Attachments"]</h3>
+                    @if (Detail.Attachments.Count == 0) { <p class="small text-muted">@L["SchoolKnowledge:NoAttachments"]</p> }
+                    @foreach (var attachment in Detail.Attachments)
+                    {
+                        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+                            <span>@attachment.FileName · @Math.Ceiling(attachment.Size / 1024d) KB</span>
+                            @if (Detail.Share.Uses.HasFlag(SchoolKnowledgeShareUses.Download))
+                            {
+                                <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="() => DownloadAsync(attachment)" disabled="@IsBusy">@L["SchoolKnowledge:Download"]</button>
+                            }
+                        </div>
+                    }
+                    @if (Detail.Attachments.Count != 0 && !Detail.Share.Uses.HasFlag(SchoolKnowledgeShareUses.Download))
+                    {
+                        <p class="small text-muted">@L["SchoolKnowledge:DownloadNotAllowed"]</p>
+                    }
+                </div>
+            }
+        </div></div>
+    </div>
+</div>
+
+@code {
+    [Parameter, SupplyParameterFromQuery(Name = "itemId")] public Guid? ItemId { get; set; }
+    [Parameter, SupplyParameterFromQuery(Name = "versionId")] public Guid? VersionId { get; set; }
+    [Parameter, SupplyParameterFromQuery(Name = "shareId")] public Guid? ShareId { get; set; }
+
+    private const int PageSize = 12;
+    private readonly List<MySchoolDto> TeacherSchools = [];
+    private readonly List<SchoolKnowledgeShareDto> Shares = [];
+    private KnowledgeVersionDto? SourceVersion;
+    private SchoolKnowledgeShareDetailDto? Detail;
+    private CreateSchoolKnowledgeShareDto? SubmittedRequest;
+    private Guid? LoadedItemId, LoadedVersionId, LoadedShareId;
+    private Guid OperationId = Guid.NewGuid();
+    private string TargetSchoolId = string.Empty, BrowseSchoolId = string.Empty, SharedSummary = string.Empty;
+    private string Keyword = string.Empty, AppliedKeyword = string.Empty, StatusFilter = string.Empty, AppliedStatusFilter = string.Empty;
+    private string? ErrorMessage, SuccessMessage;
+    private bool AllowRetrieve = true, AllowGenerateQuestions, AllowDownload, AllowAssignToStudents, ShowMine, IsBusy, IsLoaded;
+    private int SkipCount;
+    private long TotalCount;
+    private bool HasPendingInput => SourceVersion != null && (SubmittedRequest != null || !string.IsNullOrWhiteSpace(SharedSummary) ||
+        AllowGenerateQuestions || AllowDownload || AllowAssignToStudents || !AllowRetrieve);
+
+    protected override Task OnParametersSetAsync() => RunAsync(async () =>
+    {
+        if (!IsLoaded)
+        {
+            await LoadSchoolsAsync();
+            ShowMine = TeacherSchools.Count == 0;
+            await LoadSharesAsync();
+            IsLoaded = true;
+        }
+        await LoadRequestedVersionAsync();
+        await LoadRequestedShareAsync();
+    });
+
+    private async Task LoadRequestedShareAsync()
+    {
+        if (ShareId == LoadedShareId) return;
+        Detail = null;
+        if (!ShareId.HasValue) { LoadedShareId = null; return; }
+        var detail = await SharingAppService.GetDetailAsync(ShareId.Value);
+        BrowseSchoolId = detail.Share.SchoolId.ToString(); ShowMine = false; SkipCount = 0;
+        await LoadSharesAsync();
+        Detail = detail; LoadedShareId = ShareId;
+    }
+
+    private async Task LoadRequestedVersionAsync()
+    {
+        if (ItemId == LoadedItemId && VersionId == LoadedVersionId) return;
+        SourceVersion = null;
+        if (!ItemId.HasValue && !VersionId.HasValue)
+        {
+            LoadedItemId = LoadedVersionId = null; SubmittedRequest = null;
+            return;
+        }
+        if (!ItemId.HasValue || !VersionId.HasValue) throw new InvalidOperationException(L["SchoolKnowledge:InvalidVersion"]);
+        var item = await ItemAppService.GetAsync(ItemId.Value);
+        if (!item.LibraryId.HasValue || !item.OwnerUserId.HasValue)
+            throw new InvalidOperationException(L["SchoolKnowledge:InvalidVersion"]);
+        var versions = await ItemAppService.GetVersionsAsync(item.Id);
+        var version = versions.Items.FirstOrDefault(x => x.Id == VersionId && x.KnowledgeItemId == item.Id && x.Status == KnowledgeVersionStatus.Published);
+        SourceVersion = version ?? throw new InvalidOperationException(L["SchoolKnowledge:InvalidVersion"]);
+        LoadedItemId = ItemId; LoadedVersionId = VersionId;
+        OperationId = Guid.NewGuid(); SubmittedRequest = null;
+        SharedSummary = string.Empty; AllowRetrieve = true; AllowGenerateQuestions = AllowDownload = AllowAssignToStudents = false;
+        TargetSchoolId = TeacherSchools.Count == 1 ? TeacherSchools[0].Id.ToString() : string.Empty;
+    }
+
+    private async Task LoadSchoolsAsync()
+    {
+        var result = await SchoolAppService.GetMySchoolsAsync();
+        TeacherSchools.Clear();
+        TeacherSchools.AddRange(result.Items.Where(x => x.Roles.Contains(SchoolMemberRole.Teacher)));
+        if (!TeacherSchools.Any(x => x.Id.ToString() == BrowseSchoolId))
+            BrowseSchoolId = TeacherSchools.FirstOrDefault()?.Id.ToString() ?? string.Empty;
+    }
+
+    private Task RefreshAsync() => RunAsync(async () =>
+    {
+        var detailId = Detail?.Share.Id;
+        Detail = null;
+        await LoadSchoolsAsync();
+        await LoadSharesAsync();
+        await LoadRequestedVersionAsync();
+        await LoadRequestedShareAsync();
+        if (detailId.HasValue) Detail = await SharingAppService.GetDetailAsync(detailId.Value);
+    });
+
+    private Task ChangeViewAsync(bool mine) => RunAsync(async () =>
+    {
+        ShowMine = mine; SkipCount = 0; Detail = null;
+        await LoadSharesAsync();
+    });
+    private Task SchoolChangedAsync() => RunAsync(async () => { SkipCount = 0; Detail = null; await LoadSharesAsync(); });
+    private Task SearchAsync() => RunAsync(async () =>
+    {
+        AppliedKeyword = Keyword; AppliedStatusFilter = StatusFilter; SkipCount = 0; Detail = null;
+        await LoadSharesAsync();
+    });
+    private Task PageAsync(int direction) => RunAsync(async () => { SkipCount = Math.Max(0, SkipCount + direction * PageSize); await LoadSharesAsync(); });
+    private async Task LoadSharesAsync()
+    {
+        Shares.Clear(); TotalCount = 0;
+        var input = new GetSchoolKnowledgeShareListInput
+        {
+            Keyword = AppliedKeyword, SkipCount = SkipCount, MaxResultCount = PageSize,
+            IsRevoked = ShowMine && bool.TryParse(AppliedStatusFilter, out var revoked) ? revoked : null
+        };
+        PagedResultDto<SchoolKnowledgeShareDto> result;
+        if (ShowMine) result = await SharingAppService.GetMySharesAsync(input);
+        else if (Guid.TryParse(BrowseSchoolId, out var schoolId)) result = await SharingAppService.GetSchoolSharesAsync(schoolId, input);
+        else return;
+        Shares.AddRange(result.Items); TotalCount = result.TotalCount;
+    }
+
+    private void EnsureGenerationRetrieval() { if (AllowGenerateQuestions) AllowRetrieve = true; }
+    private SchoolKnowledgeShareUses SelectedUses => SchoolKnowledgeShareUses.Read |
+        (AllowRetrieve ? SchoolKnowledgeShareUses.Retrieve : 0) |
+        (AllowGenerateQuestions ? SchoolKnowledgeShareUses.GenerateQuestions : 0) |
+        (AllowDownload ? SchoolKnowledgeShareUses.Download : 0) |
+        (AllowAssignToStudents ? SchoolKnowledgeShareUses.AssignToStudents : 0);
+    private async Task ShareAsync()
+    {
+        if (IsBusy || SourceVersion == null) return;
+        if (SubmittedRequest == null)
+        {
+            if (!Guid.TryParse(TargetSchoolId, out var schoolId) || !TeacherSchools.Any(x => x.Id == schoolId))
+            {
+                ErrorMessage = L["SchoolKnowledge:ChooseSchool"]; return;
+            }
+            if (!await JSRuntime.InvokeAsync<bool>("confirm", L["SchoolKnowledge:ShareConfirmation", SourceVersion.Title,
+                SourceVersion.VersionNumber, SchoolName(schoolId), UseNames(SelectedUses)].Value)) return;
+            SubmittedRequest = new CreateSchoolKnowledgeShareDto
+            {
+                IdempotencyKey = OperationId, KnowledgeItemId = LoadedItemId!.Value, KnowledgeVersionId = SourceVersion.Id,
+                SchoolId = schoolId, Uses = SelectedUses, SharedSummary = string.IsNullOrWhiteSpace(SharedSummary) ? null : SharedSummary
+            };
+        }
+        await RunAsync(async () =>
+        {
+            var result = await SharingAppService.ShareVersionAsync(SubmittedRequest!);
+            SourceVersion = null; SubmittedRequest = null; SharedSummary = string.Empty;
+            OperationId = Guid.NewGuid(); ShowMine = true; SkipCount = 0; Detail = null;
+            Keyword = AppliedKeyword = StatusFilter = AppliedStatusFilter = string.Empty;
+            SuccessMessage = result.IsRevoked ? L["SchoolKnowledge:OperationAlreadyRevoked"] : L["SchoolKnowledge:Shared"];
+            await LoadSharesAsync();
+        });
+    }
+
+    private Task ReadAsync(Guid shareId) => RunAsync(async () =>
+    {
+        Detail = null;
+        Detail = await SharingAppService.GetDetailAsync(shareId);
+    });
+    private Task DownloadAsync(KnowledgeAttachmentDto attachment) => RunAsync(async () =>
+    {
+        using var content = await SharingAppService.DownloadAttachmentAsync(Detail!.Share.Id, attachment.Id);
+        await using var stream = content.GetStream();
+        using var streamReference = new DotNetStreamReference(stream);
+        await JSRuntime.InvokeVoidAsync("knowPulse.downloadFileFromStream", content.FileName ?? attachment.FileName,
+            content.ContentType ?? attachment.ContentType, streamReference);
+    });
+    private async Task RevokeAsync(SchoolKnowledgeShareDto share)
+    {
+        if (IsBusy || !await JSRuntime.InvokeAsync<bool>("confirm", L["SchoolKnowledge:RevokeConfirmation", share.Title, SchoolName(share.SchoolId)].Value)) return;
+        await RunAsync(async () =>
+        {
+            if (Detail?.Share.Id == share.Id) Detail = null;
+            await SharingAppService.RevokeAsync(share.Id);
+            SuccessMessage = L["SchoolKnowledge:ShareRevoked"];
+            await LoadSharesAsync();
+        });
+    }
+    private async Task ConfirmNavigationAsync(LocationChangingContext context)
+    {
+        if (HasPendingInput && !await JSRuntime.InvokeAsync<bool>("confirm", L["SchoolKnowledge:ConfirmLeave"].Value)) context.PreventNavigation();
+    }
+    private string SchoolName(Guid id) => TeacherSchools.FirstOrDefault(x => x.Id == id)?.Name ?? L["SchoolKnowledge:FormerSchool"];
+    private string UseNames(SchoolKnowledgeShareUses uses) => string.Join(" · ", Enum.GetValues<SchoolKnowledgeShareUses>()
+        .Where(x => uses.HasFlag(x)).Select(x => L[$"SchoolKnowledge:Use:{x}"].Value));
+    private string IndexStatusName(KnowledgeIndexJobStatus? status) => status.HasValue
+        ? L[$"SchoolKnowledge:Index:{status.Value}"] : L["SchoolKnowledge:Index:None"];
+    private static string LocalTime(DateTime? value) => value.HasValue ? value.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm") : string.Empty;
+    private async Task RunAsync(Func<Task> action)
+    {
+        if (IsBusy) return;
+        IsBusy = true; ErrorMessage = SuccessMessage = null;
+        try { await action(); }
+        catch (Exception exception) { ErrorMessage = GetUserFriendlyErrorMessage(exception); }
+        finally { IsBusy = false; }
+    }
+}

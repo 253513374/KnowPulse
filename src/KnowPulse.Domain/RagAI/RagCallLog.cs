@@ -22,6 +22,18 @@ public class RagCallLog : CreationAuditedAggregateRoot<Guid>, IMultiTenant
 
     public Guid? TenantId { get; protected set; }
 
+    public Guid? PersonalOwnerUserId { get; private set; }
+
+    public void RestrictToPersonalOwner(Guid ownerUserId)
+    {
+        if (ownerUserId == Guid.Empty || (PersonalOwnerUserId.HasValue && PersonalOwnerUserId != ownerUserId))
+        {
+            throw new ArgumentException("A personal audit record cannot change its owner.", nameof(ownerUserId));
+        }
+
+        PersonalOwnerUserId = ownerUserId;
+    }
+
     public Guid? UserId { get; private set; }
 
     public RagCallType CallType { get; private set; }

@@ -1,0 +1,156 @@
+@inherits KnowPulseComponentBase
+@using System.Text.RegularExpressions
+
+<section class="border rounded p-3 mt-3" aria-label="@L["EducationScoring:Heading"]">
+    <h3 class="h6">@L["EducationScoring:Heading"]</h3>
+    @if (ReadOnly)
+    {
+        @if (Definition == null) { <p class="small text-warning mb-0">@L["EducationScoring:Missing"]</p> }
+        else
+        {
+            @if (Type == QuestionType.MultipleChoice) { <p class="small mb-0">@ModeLabel(Definition.MultipleChoiceScoringMode)</p> }
+            @if (Type == QuestionType.FillBlank)
+            {
+                <ol class="small mb-0">
+                    @foreach (var blank in Definition.Blanks.OrderBy(x => x.DisplayOrder))
+                    {
+                        <li @key="blank" class="mb-2"><strong>@blank.StemMarker · @L["EducationScoring:ScoreValue", blank.Score]</strong><div>@L["EducationScoring:AcceptedAnswers"]：@string.Join("；", blank.AllowedAnswers)</div><div>@TextRuleLabel(blank.TextRule) · @L[blank.TrimWhitespace ? "EducationScoring:TrimsWhitespace" : "EducationScoring:PreservesWhitespace"]</div>@if (!string.IsNullOrWhiteSpace(blank.FormatInstructions)) { <div>@blank.FormatInstructions</div> }<div>@MappingLabel(blank.TextbookKnowledgePointMappingId)</div></li>
+                    }
+                </ol>
+            }
+            @if (Type == QuestionType.Subjective)
+            {
+                <div class="small mb-2"><strong>@L["EducationScoring:ReferenceAnswer"]</strong><p class="text-break" style="white-space:pre-wrap">@Definition.ReferenceAnswer</p></div>
+                <ol class="small mb-0">@foreach (var point in Definition.ScoringPoints.OrderBy(x => x.DisplayOrder)) { <li @key="point" class="mb-2"><strong>@point.Description · @L["EducationScoring:ScoreValue", point.Score]</strong><div>@MappingLabel(point.TextbookKnowledgePointMappingId)</div></li> }</ol>
+            }
+        }
+    }
+    else
+    {
+        <p class="small text-muted">@L["EducationScoring:DraftHint"]</p>
+        @if (HasIncompatibleRules) { <p class="small text-warning">@L["EducationScoring:IncompatibleHint"] <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="ClearIncompatibleRulesAsync">@L["EducationScoring:ClearIncompatible"]</button></p> }
+        @if (RowsNeedRepair) { <p class="small text-warning">@L["EducationScoring:RepairOrderHint"] <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="ConfirmRowOrderAsync">@L["EducationScoring:RepairOrder"]</button></p> }
+        @if (Type == QuestionType.MultipleChoice)
+        {
+            <label class="form-label" for="@(ControlPrefix + "mode")">@L["EducationScoring:MultipleChoiceMode"]</label>
+            <select id="@(ControlPrefix + "mode")" class="form-select" @bind="Rules.MultipleChoiceScoringMode" @bind:after="ChangedAsync"><option value="">@L["EducationScoring:ChooseRule"]</option><option value="@MultipleChoiceScoringMode.AllOrNothing">@L["EducationScoring:AllOrNothing"]</option><option value="@MultipleChoiceScoringMode.PartialWithoutWrong">@L["EducationScoring:PartialWithoutWrong"]</option></select>
+        }
+        @if (Type == QuestionType.FillBlank)
+        {
+            <p class="small">@L["EducationScoring:MarkerHint"]</p>
+            @foreach (var blank in Rules.Blanks.OrderBy(x => x.DisplayOrder))
+            {
+                var prefix = RowControlPrefix(blank);
+                <div class="border rounded p-3 mb-3" @key="blank">
+                    <div class="d-flex align-items-center justify-content-between gap-2"><strong>@L["EducationScoring:BlankPosition", blank.DisplayOrder] · @blank.StemMarker</strong><span class="d-flex gap-1"><button type="button" class="btn btn-sm btn-outline-secondary" disabled="@(RowsNeedRepair || blank.DisplayOrder <= 1)" @onclick="() => MoveBlankAsync(blank, -1)" aria-label="@L["EducationPaper:MoveUp"]">↑</button><button type="button" class="btn btn-sm btn-outline-secondary" disabled="@(RowsNeedRepair || blank.DisplayOrder >= Rules.Blanks.Count)" @onclick="() => MoveBlankAsync(blank, 1)" aria-label="@L["EducationPaper:MoveDown"]">↓</button><button type="button" class="btn btn-sm btn-outline-secondary" @onclick="() => RemoveBlankAsync(blank)">@L["EducationGeneration:Remove"]</button></span></div>
+                    <div class="row g-2 mt-1"><div class="col-sm-6"><label class="form-label" for="@(prefix + "marker")">@L["EducationScoring:Marker"]</label><input id="@(prefix + "marker")" class="form-control" maxlength="32" @bind="blank.StemMarker" @bind:event="oninput" @bind:after="ChangedAsync" /></div><div class="col-sm-6"><label class="form-label" for="@(prefix + "score")">@L["EducationScoring:Score"]</label><InputNumber id="@(prefix + "score")" class="form-control" min="0" max="1000" step="0.01" @bind-Value="blank.Score" @bind-Value:after="ChangedAsync" /></div></div>
+                    @if (MarkerOccurrences(blank.StemMarker) != 1 || Rules.Blanks.Count(x => x.StemMarker == blank.StemMarker) != 1) { <p class="small text-warning mt-1" role="status">@L["EducationScoring:MarkerNotUnique"]</p> }
+                    <label class="form-label mt-2" for="@(prefix + "answers")">@L["EducationScoring:AcceptedAnswers"]</label><textarea id="@(prefix + "answers")" class="form-control" rows="3" value="@string.Join(Environment.NewLine, blank.AllowedAnswers)" @oninput="args => AnswersChangedAsync(blank, args)"></textarea><p class="form-text">@L["EducationScoring:AnswerLinesHint"]</p>
+                    <label class="form-label" for="@(prefix + "rule")">@L["EducationScoring:TextRule"]</label><select id="@(prefix + "rule")" class="form-select" @bind="blank.TextRule" @bind:after="ChangedAsync"><option value="">@L["EducationScoring:ChooseRule"]</option><option value="@QuestionBlankTextRule.Exact">@L["EducationScoring:Exact"]</option><option value="@QuestionBlankTextRule.IgnoreCase">@L["EducationScoring:IgnoreCase"]</option><option value="@QuestionBlankTextRule.Manual">@L["EducationScoring:Manual"]</option></select>
+                    <label class="form-check mt-2"><input class="form-check-input" type="checkbox" @bind="blank.TrimWhitespace" @bind:after="ChangedAsync" /><span class="form-check-label">@L["EducationScoring:TrimWhitespace"]</span></label>
+                    <label class="form-label mt-2" for="@(prefix + "format")">@L["EducationScoring:FormatInstructions"]</label><input id="@(prefix + "format")" class="form-control" maxlength="1024" @bind="blank.FormatInstructions" @bind:event="oninput" @bind:after="ChangedAsync" />
+                    <label class="form-label mt-2" for="@(prefix + "mapping")">@L["EducationScoring:Mapping"]</label><select id="@(prefix + "mapping")" class="form-select" @bind="blank.TextbookKnowledgePointMappingId" @bind:after="ChangedAsync"><option value="">@L["EducationScoring:ChooseMapping"]</option>@foreach (var mapping in Mappings) { <option value="@mapping.Key">@mapping.Value</option> }</select>
+                    @if (blank.TextbookKnowledgePointMappingId.HasValue && !Mappings.ContainsKey(blank.TextbookKnowledgePointMappingId.Value)) { <p class="small text-warning">@L["EducationScoring:MappingUnavailable"]</p> }
+                </div>
+            }
+            <button type="button" class="btn btn-sm btn-outline-primary" @onclick="AddBlankAsync" disabled="@(RowsNeedRepair || Rules.Blanks.Count >= QuestionScoringDefinition.MaxComponents)">@L["EducationScoring:AddBlank"]</button>
+            <p class="small mt-2 mb-0">@L["EducationScoring:Allocated", Rules.Blanks.Sum(x => x.Score), TotalScore]</p>
+        }
+        @if (Type == QuestionType.Subjective)
+        {
+            <label class="form-label" for="@(ControlPrefix + "reference")">@L["EducationScoring:ReferenceAnswer"]</label><textarea id="@(ControlPrefix + "reference")" class="form-control mb-3" rows="4" maxlength="8000" @bind="Rules.ReferenceAnswer" @bind:event="oninput" @bind:after="ChangedAsync"></textarea>
+            @foreach (var point in Rules.ScoringPoints.OrderBy(x => x.DisplayOrder))
+            {
+                var prefix = RowControlPrefix(point);
+                <div class="border rounded p-3 mb-3" @key="point"><div class="d-flex align-items-center justify-content-between gap-2"><strong>@L["EducationScoring:PointPosition", point.DisplayOrder]</strong><span class="d-flex gap-1"><button type="button" class="btn btn-sm btn-outline-secondary" disabled="@(RowsNeedRepair || point.DisplayOrder <= 1)" @onclick="() => MovePointAsync(point, -1)" aria-label="@L["EducationPaper:MoveUp"]">↑</button><button type="button" class="btn btn-sm btn-outline-secondary" disabled="@(RowsNeedRepair || point.DisplayOrder >= Rules.ScoringPoints.Count)" @onclick="() => MovePointAsync(point, 1)" aria-label="@L["EducationPaper:MoveDown"]">↓</button><button type="button" class="btn btn-sm btn-outline-secondary" @onclick="() => RemovePointAsync(point)">@L["EducationGeneration:Remove"]</button></span></div><label class="form-label mt-2" for="@(prefix + "description")">@L["EducationScoring:PointDescription"]</label><textarea id="@(prefix + "description")" class="form-control" rows="2" maxlength="1024" @bind="point.Description" @bind:event="oninput" @bind:after="ChangedAsync"></textarea><label class="form-label mt-2" for="@(prefix + "score")">@L["EducationScoring:Score"]</label><InputNumber id="@(prefix + "score")" class="form-control" min="0" max="1000" step="0.01" @bind-Value="point.Score" @bind-Value:after="ChangedAsync" /><label class="form-label mt-2" for="@(prefix + "mapping")">@L["EducationScoring:Mapping"]</label><select id="@(prefix + "mapping")" class="form-select" @bind="point.TextbookKnowledgePointMappingId" @bind:after="ChangedAsync"><option value="">@L["EducationScoring:ChooseMapping"]</option>@foreach (var mapping in Mappings) { <option value="@mapping.Key">@mapping.Value</option> }</select>@if (point.TextbookKnowledgePointMappingId.HasValue && !Mappings.ContainsKey(point.TextbookKnowledgePointMappingId.Value)) { <p class="small text-warning">@L["EducationScoring:MappingUnavailable"]</p> }</div>
+            }
+            <button type="button" class="btn btn-sm btn-outline-primary" @onclick="AddPointAsync" disabled="@(RowsNeedRepair || Rules.ScoringPoints.Count >= QuestionScoringDefinition.MaxComponents)">@L["EducationScoring:AddPoint"]</button><p class="small mt-2 mb-0">@L["EducationScoring:Allocated", Rules.ScoringPoints.Sum(x => x.Score), TotalScore]</p>
+        }
+    }
+</section>
+
+@code {
+    [Parameter] public QuestionType Type { get; set; }
+    [Parameter] public QuestionScoringDefinition? Definition { get; set; }
+    [Parameter] public EventCallback<QuestionScoringDefinition?> DefinitionChanged { get; set; }
+    [Parameter] public IReadOnlyDictionary<Guid, string> Mappings { get; set; } = new Dictionary<Guid, string>();
+    [Parameter] public string? Stem { get; set; }
+    [Parameter] public decimal TotalScore { get; set; }
+    [Parameter] public bool ReadOnly { get; set; }
+    private readonly string ControlPrefix = "scoring-" + Guid.NewGuid().ToString("N") + "-";
+    private QuestionScoringDefinition Draft = new();
+    private QuestionScoringDefinition? PreviousDefinition;
+    private QuestionType PreviousType;
+    private readonly Dictionary<object, string> RowControls = [];
+    private QuestionScoringDefinition Rules => Definition ?? Draft;
+    protected override void OnParametersSet()
+    {
+        if (Definition == null && (PreviousDefinition != null || PreviousType != Type)) Draft = new();
+        PreviousDefinition = Definition; PreviousType = Type;
+    }
+    private async Task ChangedAsync() { Definition = Rules; await DefinitionChanged.InvokeAsync(Definition); }
+    private async Task AddBlankAsync()
+    {
+        if (RowsNeedRepair || Rules.Blanks.Count >= QuestionScoringDefinition.MaxComponents) return;
+        var marker = Regex.Matches(Stem ?? string.Empty, "【[1-9][0-9]*】").Cast<System.Text.RegularExpressions.Match>().Select(x => x.Value)
+            .FirstOrDefault(value => MarkerOccurrences(value) == 1 && Rules.Blanks.All(x => x.StemMarker != value));
+        if (marker == null)
+        {
+            var number = 1;
+            while (Rules.Blanks.Any(x => x.StemMarker == $"【{number}】") || (Stem?.Contains($"【{number}】", StringComparison.Ordinal) ?? false)) number++;
+            marker = $"【{number}】";
+        }
+        Rules.Blanks.Add(new QuestionBlankScoringRule { Id = Guid.NewGuid(), DisplayOrder = Rules.Blanks.Count + 1, StemMarker = marker });
+        await ChangedAsync();
+    }
+    private async Task RemoveBlankAsync(QuestionBlankScoringRule blank) { Rules.Blanks = Rules.Blanks.OrderBy(x => x.DisplayOrder).ToList(); Rules.Blanks.Remove(blank); for (var index = 0; index < Rules.Blanks.Count; index++) Rules.Blanks[index].DisplayOrder = index + 1; await ChangedAsync(); }
+    private async Task AnswersChangedAsync(QuestionBlankScoringRule blank, ChangeEventArgs args)
+    {
+        // Each blank owns its answers. Preserve case, whitespace and equal answers in other blanks.
+        blank.AllowedAnswers = (args.Value?.ToString() ?? string.Empty).Split(["\r\n", "\n"], StringSplitOptions.None).Where(x => x.Length > 0).ToList();
+        await ChangedAsync();
+    }
+    private async Task AddPointAsync() { if (RowsNeedRepair || Rules.ScoringPoints.Count >= QuestionScoringDefinition.MaxComponents) return; Rules.ScoringPoints.Add(new QuestionSubjectiveScoringPoint { Id = Guid.NewGuid(), DisplayOrder = Rules.ScoringPoints.Count + 1 }); await ChangedAsync(); }
+    private async Task RemovePointAsync(QuestionSubjectiveScoringPoint point) { Rules.ScoringPoints = Rules.ScoringPoints.OrderBy(x => x.DisplayOrder).ToList(); Rules.ScoringPoints.Remove(point); for (var index = 0; index < Rules.ScoringPoints.Count; index++) Rules.ScoringPoints[index].DisplayOrder = index + 1; await ChangedAsync(); }
+    private bool RowsNeedRepair => Type == QuestionType.FillBlank ? Rules.Blanks.Any(x => x.Id == Guid.Empty) || !Rules.Blanks.Select(x => x.DisplayOrder).Order().SequenceEqual(Enumerable.Range(1, Rules.Blanks.Count)) :
+        Type == QuestionType.Subjective && (Rules.ScoringPoints.Any(x => x.Id == Guid.Empty) || !Rules.ScoringPoints.Select(x => x.DisplayOrder).Order().SequenceEqual(Enumerable.Range(1, Rules.ScoringPoints.Count)));
+    private bool HasIncompatibleRules => Type != QuestionType.MultipleChoice && Rules.MultipleChoiceScoringMode.HasValue || Type != QuestionType.FillBlank && Rules.Blanks.Count > 0 || Type != QuestionType.Subjective && Rules.ScoringPoints.Count > 0;
+    private async Task ClearIncompatibleRulesAsync()
+    {
+        if (Type != QuestionType.MultipleChoice) Rules.MultipleChoiceScoringMode = null;
+        if (Type != QuestionType.FillBlank) Rules.Blanks.Clear();
+        if (Type != QuestionType.Subjective) Rules.ScoringPoints.Clear();
+        await ChangedAsync();
+    }
+    private string RowControlPrefix(object row) { if (!RowControls.TryGetValue(row, out var prefix)) RowControls[row] = prefix = ControlPrefix + Guid.NewGuid().ToString("N") + "-"; return prefix; }
+    private async Task ConfirmRowOrderAsync()
+    {
+        if (Type == QuestionType.FillBlank)
+        {
+            Rules.Blanks = Rules.Blanks.OrderBy(x => x.DisplayOrder).ToList();
+            for (var index = 0; index < Rules.Blanks.Count; index++) { if (Rules.Blanks[index].Id == Guid.Empty) Rules.Blanks[index].Id = Guid.NewGuid(); Rules.Blanks[index].DisplayOrder = index + 1; }
+        }
+        if (Type == QuestionType.Subjective)
+        {
+            Rules.ScoringPoints = Rules.ScoringPoints.OrderBy(x => x.DisplayOrder).ToList();
+            for (var index = 0; index < Rules.ScoringPoints.Count; index++) { if (Rules.ScoringPoints[index].Id == Guid.Empty) Rules.ScoringPoints[index].Id = Guid.NewGuid(); Rules.ScoringPoints[index].DisplayOrder = index + 1; }
+        }
+        await ChangedAsync();
+    }
+    private async Task MoveBlankAsync(QuestionBlankScoringRule blank, int direction)
+    {
+        if (RowsNeedRepair) return; Rules.Blanks = Rules.Blanks.OrderBy(x => x.DisplayOrder).ToList(); var index = Rules.Blanks.IndexOf(blank); var target = index + direction;
+        if (index < 0 || target < 0 || target >= Rules.Blanks.Count) return; (Rules.Blanks[index], Rules.Blanks[target]) = (Rules.Blanks[target], Rules.Blanks[index]);
+        for (var position = 0; position < Rules.Blanks.Count; position++) Rules.Blanks[position].DisplayOrder = position + 1; await ChangedAsync();
+    }
+    private async Task MovePointAsync(QuestionSubjectiveScoringPoint point, int direction)
+    {
+        if (RowsNeedRepair) return; Rules.ScoringPoints = Rules.ScoringPoints.OrderBy(x => x.DisplayOrder).ToList(); var index = Rules.ScoringPoints.IndexOf(point); var target = index + direction;
+        if (index < 0 || target < 0 || target >= Rules.ScoringPoints.Count) return; (Rules.ScoringPoints[index], Rules.ScoringPoints[target]) = (Rules.ScoringPoints[target], Rules.ScoringPoints[index]);
+        for (var position = 0; position < Rules.ScoringPoints.Count; position++) Rules.ScoringPoints[position].DisplayOrder = position + 1; await ChangedAsync();
+    }
+    private int MarkerOccurrences(string marker) => string.IsNullOrEmpty(marker) ? 0 : (Stem ?? string.Empty).Split(marker, StringSplitOptions.None).Length - 1;
+    private string MappingLabel(Guid? mappingId) => mappingId.HasValue && Mappings.TryGetValue(mappingId.Value, out var label) ? label : L["EducationScoring:MappingUnavailable"].Value;
+    private string ModeLabel(MultipleChoiceScoringMode? mode) => L[mode switch { MultipleChoiceScoringMode.AllOrNothing => "EducationScoring:AllOrNothing", MultipleChoiceScoringMode.PartialWithoutWrong => "EducationScoring:PartialWithoutWrong", _ => "EducationScoring:Missing" }].Value;
+    private string TextRuleLabel(QuestionBlankTextRule? rule) => L[rule switch { QuestionBlankTextRule.Exact => "EducationScoring:Exact", QuestionBlankTextRule.IgnoreCase => "EducationScoring:IgnoreCase", QuestionBlankTextRule.Manual => "EducationScoring:Manual", _ => "EducationScoring:Missing" }].Value;
+}

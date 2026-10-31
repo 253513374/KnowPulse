@@ -14,6 +14,8 @@
 - 文件存储：MinIO。
 - 向量库：Qdrant，MVP-0 仅做健康检查。
 - 模型网关：LiteLLM，MVP-0 仅做健康检查。
+
+2026-10-17 的依赖核验发现 `Microsoft.AspNetCore.Components.WebAssembly.Server` 10.0.9 的两条 NU1903 告警，当前服务端项目固定为修复版 10.0.13，依据[维护者公告](https://github.com/dotnet/aspnetcore/security/advisories/GHSA-g27p-qf6j-c96c)。本机按 `global.json` 的 latestFeature 选择 SDK 10.0.402 后，须先重新 restore 获取对应 browser-wasm 运行时包；不能用旧 SDK 的还原产物配合 `--no-restore` 判断构建。实际构建和 NuGet 审计范围见教育实施记录。
 - LiteLLM 本地镜像默认使用固定 release tag `ghcr.io/berriai/litellm:v1.89.4`。如需生产级固定，可在 `.env` 或部署 secret 中替换为内部镜像摘要。
 
 ## 2. 依赖服务
@@ -82,6 +84,7 @@ ABP BlobStoring 默认使用 MinIO：
 | 配置键 | 默认值 | 说明 |
 | --- | --- | --- |
 | `BlobStoring:Minio:BucketName` | `knowpulse-knowledge` | 知识附件 bucket |
+| `BlobStoring:Minio:EducationAnswerBucketName` | `knowpulse-education-answers` | 教育作答图片独立 bucket，沿用相同 MinIO 连接配置 |
 | `BlobStoring:Minio:EndPoint` | `localhost:9000` | MinIO API endpoint，不带协议 |
 | `BlobStoring:Minio:AccessKey` | `knowpulse` | 本地访问账号 |
 | `BlobStoring:Minio:SecretKey` | `knowpulse-local-password` | 本地访问密钥 |
@@ -95,6 +98,12 @@ $env:BlobStoring__Minio__EndPoint="localhost:9000"
 $env:BlobStoring__Minio__AccessKey="knowpulse"
 $env:BlobStoring__Minio__SecretKey="knowpulse-local-password"
 ```
+
+教育测评截止封存在 API Host 的后台服务运行，不依赖学生保持客户端在线。`Education:AssessmentResponses` 开发默认启用 worker、每 5 秒轮询、每批 20 份作答；单图实际大小 5 MiB、每次作答图片总大小 20 MiB、最多 40 次不同上传操作。同操作恢复不新增上传记录，等待确认的上传也占额度。可用 `Education__AssessmentResponses__IsDeadlineWorkerEnabled`、`PollIntervalSeconds`、`DeadlineBatchSize`、`MaxImageBytes`、`MaxAttemptImageBytes`、`MaxUploadOperationsPerAttempt` 覆盖对应项，后五项沿用相同环境变量前缀。这些是开发保护参数，学校限制、留存清理和并发承诺仍按 PRD D04/D06/D09 确认；不把图片签名检查当作完整解码或 OCR。
+
+同一 worker 还按相同轮询和批量上限处理待初始化评分的唯一提交，在各记录租户内幂等建立全部题目的自动结果或人工待处理草稿；不会替换教师已保存或已确认的评分，也不会自动发布成绩。停用该 worker 同时停用自动封存和后台评分初始化，教师打开有效提交仍可显式初始化评分；这不会延长学生截止或替代封存/批改/统一发布的验收。
+
+关闭 worker 不会延长作答截止，但客户端退出后不再有该 Host 自动封存；因此仅在隔离测试或明确的替代执行安排下关闭。新部署须先应用对应迁移。EF 测试使用独立 FileSystem 图片容器，不依赖真实 MinIO；真实图片存储、截止并发和多 Host 仍需分别验证。
 
 健康检查：
 
@@ -364,3 +373,7 @@ docker compose down -v
 ```
 
 执行前确认没有需要保留的本地测试数据。
+
+## 9. 微信原生登录工程
+
+`miniprogram/` 提供已有账号绑定、真实微信登录调用及只读师生工作区。API 与 DbMigrator 默认 `WeChatLogin.Applications` 为空；配置实际应用后，运行当前构建的迁移器登记公有客户端，再重启 API。AppSecret 只在这两个服务端进程的安全配置中注入，不进入原生工程或仓库。完整步骤、账号恢复路径和测试范围见 [原生工程说明](../miniprogram/README.md)，信任边界见 [ADR 0037](adr/0037-bind-verified-wechat-proof-to-existing-accounts.md)。

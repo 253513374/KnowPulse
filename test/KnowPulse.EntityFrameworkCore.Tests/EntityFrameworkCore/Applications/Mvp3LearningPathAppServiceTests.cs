@@ -237,6 +237,144 @@ public class Mvp3LearningPathAppServiceTests : KnowPulseEntityFrameworkCoreTestB
         completedKnowledge.ReadCount.ShouldBe(2);
     }
 
+    [Theory]
+    [InlineData(ExamResultVisibility.Hidden, false, false)]
+    [InlineData(ExamResultVisibility.ScoreOnly, false, false)]
+    [InlineData(ExamResultVisibility.FullReview, false, false)]
+    [InlineData(ExamResultVisibility.Hidden, true, false)]
+    [InlineData(ExamResultVisibility.ScoreOnly, true, true)]
+    [InlineData(ExamResultVisibility.FullReview, true, true)]
+    public async Task My_Learning_Should_Respect_Exam_Result_Visibility_And_Window(
+        ExamResultVisibility visibility,
+        bool ended,
+        bool canViewResults)
+    {
+        var prefix = UniquePrefix();
+        var planId = await CreatePublishedExamPlanAsync($"{prefix} results", visibility,
+            ended ? DateTime.UtcNow.AddHours(-1) : DateTime.UtcNow.AddHours(1), passingScore: 60);
+        await CreateExamActivityAsync(planId, scored: true);
+        var path = await CreateExamPathAsync(prefix, planId, passingRequired: true);
+
+        var mine = await _learningPathAppService.GetMyAsync(path.Id);
+        AssertExamResultVisibility(mine.RequiredExams.Single(), canViewResults);
+        var list = await _learningPathAppService.GetMyListAsync(new GetLearningPathListInput { Keyword = prefix });
+        AssertExamResultVisibility(list.Items.Single().RequiredExams.Single(), canViewResults);
+
+        var managed = await _learningPathAppService.GetAsync(path.Id);
+        managed.Assignments.Single().ScopeType.ShouldBe(LearningPathAssignmentScopeType.All);
+        managed.RequiredExams.Single().ExamPlanId.ShouldBe(planId);
+        managed.RequiredExams.Single().PassingRequired.ShouldBeTrue();
+    }
+
+    [Theory]
+    [InlineData(false, LearningContentCompletionStatus.InProgress)]
+    [InlineData(true, LearningContentCompletionStatus.Completed)]
+    public async Task Non_Passing_Requirement_Should_Preserve_Activity_Without_Revealing_Hidden_Result(
+        bool scored,
+        LearningContentCompletionStatus expectedStatus)
+    {
+        var prefix = UniquePrefix();
+        var planId = await CreatePublishedExamPlanAsync($"{prefix} hidden", ExamResultVisibility.Hidden,
+            DateTime.UtcNow.AddHours(-1), passingScore: 60);
+        await CreateExamActivityAsync(planId, scored);
+        var path = await CreateExamPathAsync(prefix, planId, passingRequired: false);
+
+        var exam = (await _learningPathAppService.GetMyAsync(path.Id)).RequiredExams.Single();
+        exam.CompletionStatus.ShouldBe(expectedStatus);
+        exam.LastAttemptTime.ShouldNotBeNull();
+        exam.BestScore.ShouldBeNull();
+        exam.PassedTime.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task My_Learning_Should_Not_Reveal_Results_After_Exam_Assignment_Is_Removed()
+    {
+        var prefix = UniquePrefix();
+        var planId = await CreatePublishedExamPlanAsync($"{prefix} no longer assigned", ExamResultVisibility.ScoreOnly,
+            DateTime.UtcNow.AddHours(-1), passingScore: 60);
+        await CreateExamActivityAsync(planId, scored: true);
+        var path = await CreateExamPathAsync(prefix, planId, passingRequired: true);
+        await GetRequiredService<IRepository<ExamAssignment, Guid>>().InsertAsync(
+            new ExamAssignment(Guid.NewGuid(), null, planId, ExamAssignmentScopeType.User, Guid.NewGuid()),
+            autoSave: true);
+
+        var exam = (await _learningPathAppService.GetMyAsync(path.Id)).RequiredExams.Single();
+        exam.IsAssignedToCurrentUser.ShouldBeFalse();
+        exam.CompletionStatus.ShouldBe(LearningContentCompletionStatus.Unavailable);
+        exam.BestScore.ShouldBeNull();
+        exam.PassedTime.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task My_Learning_Should_Not_Publish_A_Score_Before_The_Attempt_Is_Scored()
+    {
+        var prefix = UniquePrefix();
+        var planId = await CreatePublishedExamPlanAsync($"{prefix} pending scoring", ExamResultVisibility.ScoreOnly,
+            DateTime.UtcNow.AddHours(-1), passingScore: 60);
+        var attempt = await CreateExamActivityAsync(planId, scored: false);
+        await GetRequiredService<IRepository<ExamScore, Guid>>().InsertAsync(
+            new ExamScore(Guid.NewGuid(), null, planId, attempt.PaperId, attempt.Id, CurrentUserId,
+                100, 100, 60, DateTime.UtcNow, "pending-scoring"), autoSave: true);
+        var path = await CreateExamPathAsync(prefix, planId, passingRequired: true);
+
+        var exam = (await _learningPathAppService.GetMyAsync(path.Id)).RequiredExams.Single();
+        exam.CompletionStatus.ShouldBe(LearningContentCompletionStatus.InProgress);
+        exam.BestScore.ShouldBeNull();
+        exam.PassedTime.ShouldBeNull();
+    }
+
+    private async Task<LearningPathDto> CreateExamPathAsync(string name, Guid planId, bool passingRequired)
+    {
+        return await _learningPathAppService.CreateAsync(new CreateLearningPathDto
+        {
+            Name = name,
+            Assignments = { new LearningPathAssignmentInputDto { ScopeType = LearningPathAssignmentScopeType.All } },
+            RequiredExams = { new LearningPathRequiredExamInputDto { ExamPlanId = planId, PassingRequired = passingRequired } }
+        });
+    }
+
+    private async Task<ExamAttempt> CreateExamActivityAsync(Guid planId, bool scored)
+    {
+        var plan = await _examPlanRepository.GetAsync(planId);
+        var attempt = new ExamAttempt(Guid.NewGuid(), null, plan.Id, plan.PaperId, CurrentUserId, 1,
+            plan.StartTime, plan.EndTime);
+        attempt.Submit(plan.StartTime.AddMinutes(1), $"learning-submit-{attempt.Id:N}");
+        var scoredTime = plan.StartTime.AddMinutes(2);
+        if (scored)
+        {
+            attempt.MarkScored(scoredTime);
+        }
+
+        await GetRequiredService<IRepository<ExamAttempt, Guid>>().InsertAsync(attempt, autoSave: true);
+        if (scored)
+        {
+            await GetRequiredService<IRepository<ExamScore, Guid>>().InsertAsync(
+                new ExamScore(Guid.NewGuid(), null, plan.Id, plan.PaperId, attempt.Id, CurrentUserId,
+                    100, 100, plan.PassingScore, scoredTime, "visibility-test"),
+                autoSave: true);
+        }
+
+        return attempt;
+    }
+
+    private static void AssertExamResultVisibility(LearningPathRequiredExamDto exam, bool canViewResults)
+    {
+        exam.IsAssignedToCurrentUser.ShouldBeTrue();
+        exam.LastAttemptTime.ShouldNotBeNull();
+        if (canViewResults)
+        {
+            exam.BestScore.ShouldBe(100m);
+            exam.PassedTime.ShouldNotBeNull();
+            exam.CompletionStatus.ShouldBe(LearningContentCompletionStatus.Completed);
+        }
+        else
+        {
+            exam.BestScore.ShouldBeNull();
+            exam.PassedTime.ShouldBeNull();
+            exam.CompletionStatus.ShouldBe(LearningContentCompletionStatus.InProgress);
+        }
+    }
+
     private async Task<LearningPathDto> CreatePathAsync(
         string name,
         LearningPathAssignmentScopeType scopeType,
@@ -310,8 +448,14 @@ public class Mvp3LearningPathAppServiceTests : KnowPulseEntityFrameworkCoreTestB
         return new PublishedKnowledge(item.Id, version.Id);
     }
 
-    private async Task<Guid> CreatePublishedExamPlanAsync(string name)
+    private async Task<Guid> CreatePublishedExamPlanAsync(
+        string name,
+        ExamResultVisibility resultVisibility = ExamResultVisibility.ScoreOnly,
+        DateTime? endTime = null,
+        decimal passingScore = 0)
     {
+        var now = DateTime.UtcNow;
+        var end = endTime ?? now.AddDays(1);
         var paper = await _examPaperRepository.InsertAsync(
             new ExamPaper(
                 Guid.NewGuid(),
@@ -329,12 +473,12 @@ public class Mvp3LearningPathAppServiceTests : KnowPulseEntityFrameworkCoreTestB
                 null,
                 name,
                 paper.Id,
-                DateTime.UtcNow.AddMinutes(-5),
-                DateTime.UtcNow.AddDays(1),
+                end < now ? end.AddHours(-1) : now.AddMinutes(-5),
+                end,
                 durationMinutes: 30,
-                passingScore: 0,
+                passingScore: passingScore,
                 maxAttempts: 1,
-                resultVisibility: ExamResultVisibility.ScoreOnly),
+                resultVisibility: resultVisibility),
             autoSave: true);
 
         return plan.Id;

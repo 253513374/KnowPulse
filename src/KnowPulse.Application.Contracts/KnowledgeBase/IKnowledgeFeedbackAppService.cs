@@ -17,7 +17,7 @@ public interface IKnowledgeFeedbackAppService : IApplicationService
     /// </summary>
     /// <param name="input">反馈提交输入。</param>
     /// <returns>提交后的反馈记录。</returns>
-    [Authorize(KnowPulsePermissions.KnowledgeBase.Items)]
+    [Authorize]
     Task<KnowledgeFeedbackDto> SubmitAsync(SubmitKnowledgeFeedbackDto input);
 
     /// <summary>
@@ -25,7 +25,7 @@ public interface IKnowledgeFeedbackAppService : IApplicationService
     /// </summary>
     /// <param name="input">筛选和分页条件。</param>
     /// <returns>反馈分页结果。</returns>
-    [Authorize(KnowPulsePermissions.KnowledgeBase.Feedback)]
+    [Authorize]
     Task<PagedResultDto<KnowledgeFeedbackDto>> GetListAsync(GetKnowledgeFeedbackListInput input);
 
     /// <summary>
@@ -33,7 +33,7 @@ public interface IKnowledgeFeedbackAppService : IApplicationService
     /// </summary>
     /// <param name="id">反馈 ID。</param>
     /// <returns>反馈详情。</returns>
-    [Authorize(KnowPulsePermissions.KnowledgeBase.Feedback)]
+    [Authorize]
     Task<KnowledgeFeedbackDto> GetAsync(Guid id);
 
     /// <summary>
@@ -42,7 +42,7 @@ public interface IKnowledgeFeedbackAppService : IApplicationService
     /// <param name="id">反馈 ID。</param>
     /// <param name="input">接手处理输入。</param>
     /// <returns>处理后的反馈详情。</returns>
-    [Authorize(KnowPulsePermissions.KnowledgeBase.Feedback)]
+    [Authorize]
     Task<KnowledgeFeedbackDto> ProcessAsync(Guid id, ProcessKnowledgeFeedbackDto input);
 
     /// <summary>
@@ -51,7 +51,7 @@ public interface IKnowledgeFeedbackAppService : IApplicationService
     /// </summary>
     /// <param name="id">反馈 ID。</param>
     /// <returns>已关联新修订草稿的反馈详情。</returns>
-    [Authorize(KnowPulsePermissions.KnowledgeBase.Feedback)]
+    [Authorize]
     Task<KnowledgeFeedbackDto> CreateRevisionAsync(Guid id);
 
     /// <summary>
@@ -60,7 +60,7 @@ public interface IKnowledgeFeedbackAppService : IApplicationService
     /// <param name="id">反馈 ID。</param>
     /// <param name="input">完成处理输入。</param>
     /// <returns>已处理的反馈详情。</returns>
-    [Authorize(KnowPulsePermissions.KnowledgeBase.Feedback)]
+    [Authorize]
     Task<KnowledgeFeedbackDto> ResolveAsync(Guid id, ResolveKnowledgeFeedbackDto input);
 
     /// <summary>
@@ -69,7 +69,7 @@ public interface IKnowledgeFeedbackAppService : IApplicationService
     /// <param name="id">反馈 ID。</param>
     /// <param name="input">关闭输入。</param>
     /// <returns>关闭后的反馈详情。</returns>
-    [Authorize(KnowPulsePermissions.KnowledgeBase.Feedback)]
+    [Authorize]
     Task<KnowledgeFeedbackDto> CloseAsync(Guid id, CloseKnowledgeFeedbackDto input);
 
     /// <summary>
@@ -78,6 +78,6 @@ public interface IKnowledgeFeedbackAppService : IApplicationService
     /// <param name="id">反馈 ID。</param>
     /// <param name="input">关联版本输入。</param>
     /// <returns>关联后的反馈详情。</returns>
-    [Authorize(KnowPulsePermissions.KnowledgeBase.Feedback)]
+    [Authorize]
     Task<KnowledgeFeedbackDto> LinkVersionAsync(Guid id, LinkKnowledgeFeedbackVersionDto input);
 }

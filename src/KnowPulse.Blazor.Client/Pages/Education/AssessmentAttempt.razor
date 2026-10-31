@@ -1,0 +1,286 @@
+@page "/education/assessments/{RecipientId:guid}"
+@attribute [Authorize(EducationPermissions.AssessmentParticipate)]
+@inherits KnowPulseComponentBase
+@using KnowPulse.Education
+@using KnowPulse.QuestionBank
+@using KnowPulse.Blazor.Client.Pages.Education
+@using System.Text.Json
+@using System.IO
+@using System.Security.Cryptography
+@inject IEducationAssessmentAppService Assessments
+@inject IJSRuntime JS
+@inject Volo.Abp.Users.ICurrentUser Account
+@inject Volo.Abp.MultiTenancy.ICurrentTenant Tenant
+
+<PageTitle>@L["EducationAttempt:Title"]</PageTitle>
+<NavigationLock ConfirmExternalNavigation="@(Busy || Drafts.Count != 0 || RejectedImages.Count != 0 || Pending != null)" OnBeforeInternalNavigation="LeaveAsync" />
+<h1 class="h4">@L["EducationAttempt:Title"]</h1>
+@if (Error != null) { <div class="alert alert-danger" role="alert">@Error</div> }
+@if (Receipt != null) { <p class="alert alert-success" role="status">@L["EducationGrading:Receipt", Receipt]</p> }
+@if (UploadedReceipt != null) { <p class="alert alert-info" role="status">@L["EducationAttempt:ImageUploaded", UploadedReceipt]</p> }
+@if (ImageCacheWarning) { <div class="alert alert-warning" role="alert">@L["EducationAttempt:ImageCacheWarning"] <button class="btn btn-outline-secondary" disabled="@Busy" @onclick="(() => RunAsync(() => CleanupImagesAsync(true)))">@L["EducationAttempt:RetryCacheCleanup"]</button></div> }
+@if (StorageAttempted && !StorageReady || Submission != null && (Drafts.Count != 0 || RejectedImages.Count != 0)) { <button class="btn btn-outline-danger mb-2" disabled="@Busy" @onclick="ResetLocalAsync">@L["EducationAttempt:ResetLocal"]</button> }
+@if (Pending != null) {
+    <div class="alert alert-info" role="status">@(Busy ? L["EducationAttempt:Synchronizing"] : L["EducationGrading:Unknown"])
+        <button class="btn btn-outline-primary" disabled="@Busy" @onclick="RecoverAsync">@L["EducationGrading:Recover"]</button>
+        <button class="btn btn-outline-primary" disabled="@(Busy || Pending.Kind == "upload" && UploadBytes == null && !ImageCacheConsent)" @onclick="(() => RunAsync(SendAsync))">@L["EducationReport:RetryCommand"]</button>
+        <button class="btn btn-outline-secondary" disabled="@Busy" @onclick="AbandonAsync">@L["EducationReport:Abandon"]</button>
+        @if (Pending.Kind == "upload") { <p>@L["EducationAttempt:ImageRetryFile", Pending.ImageFileName]</p><label for="image-retry">@L["EducationAttempt:ReselectImage"]</label><InputFile id="image-retry" class="form-control" accept="image/jpeg,image/png,image/webp" disabled="@Busy" OnChange="RetryImageAsync" /> }
+    </div>
+}
+<a href="@($"/education/assessment-results?recipientId={RecipientId}")">@L["EducationAttempt:Results"]</a>
+<button class="btn btn-outline-secondary ms-2 mb-2" disabled="@(Busy || Pending != null)" @onclick="(() => RunAsync(LoadAsync))">@L["EducationReport:Reload"]</button>
+@if (TaskView is { } task) {
+    <h2 class="h5">@task.Title</h2><p>@task.SchoolClassName · @task.SubjectName · @task.TextbookTitle</p>
+    <p style="white-space:pre-wrap">@task.Instructions</p><p>@task.StartsAtUtc.ToLocalTime().ToString("g") – @task.EndsAtUtc.ToLocalTime().ToString("g") · @L["EducationPlan:TotalMinutes", task.DurationMinutes]</p>
+    @if (Attempt == null) { <button class="btn btn-primary" disabled="@(Busy || Pending != null || !StorageReady || !task.CanStart)" @onclick="StartAsync">@L["EducationAttempt:Start"]</button> }
+}
+@if (Attempt is { } attempt) {
+    <p>@L["EducationAttempt:ServerTimes", attempt.StartedAtUtc.ToLocalTime().ToString("g"), attempt.ExpiresAtUtc.ToLocalTime().ToString("g"), attempt.ServerNowUtc.ToLocalTime().ToString("g")]</p>
+    <p>@L["EducationAttempt:SavedVersion", attempt.ResponseSetVersion] @attempt.LastSavedAtUtc?.ToLocalTime().ToString("g")</p>
+    @if (Submission is { } submission) { <p class="alert alert-info" role="status">@L["EducationAttempt:Sealed", submission.Id, submission.SealedAtUtc.ToLocalTime().ToString("g")]</p> }
+    @if (Drafts.Count != 0) { <p class="alert alert-warning" role="status">@L["EducationAttempt:LocalDrafts", Drafts.Count]</p> }
+    @if (ImagePolicy != null && Submission == null && attempt.Paper.Questions.Any(x => x.Type == QuestionType.Subjective)) {
+        <label class="alert alert-info d-block"><input type="checkbox" disabled="@(Busy || Pending?.Kind == "upload" && ImageCacheConsent)" @bind="ImageCacheConsent" @bind:after="CacheConsentAsync" /> @L["EducationAttempt:ImageCacheConsent"]</label>
+    }
+    @foreach (var question in attempt.Paper.Questions.OrderBy(x => x.DisplayOrder)) {
+        var response = Value(question);
+        <section class="card mb-3"><div class="card-body"><h3 class="h5">@question.DisplayOrder. @question.Title</h3><p style="white-space:pre-wrap">@question.Stem</p>
+            @if (Local.HasConflict(question.Id, attempt)) {
+                var server = attempt.Responses.FirstOrDefault(x => x.PaperQuestionId == question.Id);
+                <div class="alert alert-warning" role="alert"><p>@L["EducationAttempt:Conflict"]</p><details open><summary>@L["EducationAttempt:ServerAnswer"]</summary>
+                    @if (server == null) { <p>@L["EducationAttempt:ServerUnanswered"]</p> } else {
+                        <p>@server.SavedAtUtc.ToLocalTime().ToString("g")</p><p>@string.Join(" / ", server.Response.SelectedOptionKeys)</p><p style="white-space:pre-wrap">@server.Response.Text</p>
+                        @foreach (var blank in server.Response.Blanks) { <p>@question.ResponseFields.FirstOrDefault(x => x.Id == blank.BlankId)?.StemMarker · @blank.Text</p> }
+                        @foreach (var image in server.Response.Images) { <button class="btn btn-sm btn-outline-secondary me-2 mb-2" disabled="@Busy" @onclick="(() => ShowImageAsync(image.AttachmentId, image.RotationDegrees))">@L["EducationAttempt:ServerImage", server.Response.Images.IndexOf(image) + 1, image.RotationDegrees]</button> }
+                    }
+                </details><p>@L["EducationAttempt:LocalAnswerBelow"]</p><button class="btn btn-outline-warning" disabled="@(!CanEdit)" @onclick="(() => ConfirmLocalAsync(question.Id))">@L["EducationAttempt:UseLocal"]</button></div>
+            }
+            <fieldset disabled="@(Busy || Pending != null || !StorageReady || Submission != null || attempt.Status != EducationAssessmentAttemptStatus.InProgress || attempt.ServerNowUtc >= attempt.ExpiresAtUtc)">
+            @if (question.Type is QuestionType.SingleChoice or QuestionType.MultipleChoice or QuestionType.TrueFalse) {
+                @foreach (var option in question.Options.OrderBy(x => x.DisplayOrder)) { <label class="d-block mb-2"><input type="checkbox" checked="@response.SelectedOptionKeys.Contains(option.OptionKey)" @onchange="(args => ChoiceAsync(question, option.OptionKey, args))" /> @option.OptionKey. @option.Content</label> }
+            } else if (question.Type == QuestionType.FillBlank) {
+                @foreach (var blank in question.ResponseFields.OrderBy(x => x.DisplayOrder)) { <label for="@($"blank-{blank.Id}")">@blank.StemMarker</label><input id="@($"blank-{blank.Id}")" class="form-control mb-2" maxlength="20000" value="@(response.Blanks.FirstOrDefault(x => x.BlankId == blank.Id)?.Text ?? "")" @oninput="(args => BlankAsync(question, blank.Id, args))" /> }
+            } else if (question.Type == QuestionType.Subjective) {
+                <label for="@($"response-{question.Id}")">@L["EducationAttempt:Response"]</label><textarea id="@($"response-{question.Id}")" class="form-control mb-2" maxlength="20000" value="@response.Text" @oninput="(args => TextAsync(question, args))"></textarea>
+                @if (ImagePolicy is { } policy) {
+                    <p>@L["EducationAttempt:ImageLimits", policy.MaxFileBytes, policy.MaxImagesPerResponse]</p>
+                    <label for="@($"answer-image-{question.Id}")">@(ReplaceQuestionId == question.Id ? L["EducationAttempt:ReplaceSelection"] : L["EducationAttempt:AddImage"])</label>
+                    <InputFile id="@($"answer-image-{question.Id}")" @key="(question.Id, ReplaceQuestionId == question.Id ? ReplaceImageId : null, FileInputVersion)" class="form-control mb-2" accept="@string.Join(',', policy.AllowedContentTypes)" capture="environment" disabled="@(!ImageCacheConsent || ReplaceQuestionId != question.Id && response.Images.Count >= policy.MaxImagesPerResponse)" OnChange="(args => UploadImageAsync(question, args))" />
+                    @if (ReplaceQuestionId == question.Id) { <button class="btn btn-sm btn-outline-secondary mb-2" @onclick="CancelReplacement">@L["EducationAttempt:CancelReplacement"]</button> }
+                }
+            }
+            <button class="btn btn-primary" disabled="@(!Drafts.ContainsKey(question.Id) || Local.HasConflict(question.Id, attempt))" @onclick="(() => SaveAsync(question.Id))">@L["EducationAttempt:SaveQuestion"]</button>
+            <button class="btn btn-outline-secondary ms-2" disabled="@(!Drafts.ContainsKey(question.Id))" @onclick="(() => DiscardDraftAsync(question.Id))">@L["EducationAttempt:DiscardDraft"]</button>
+            </fieldset>
+            @if (question.Type == QuestionType.Subjective && response.Images.Count != 0) {
+                <h4 class="h6 mt-3">@L["EducationAttempt:ImageDraftScope"]</h4>
+                @foreach (var image in response.Images) { var index = response.Images.IndexOf(image); var savedImage = attempt.Responses.FirstOrDefault(x => x.PaperQuestionId == question.Id)?.Response.Images.ElementAtOrDefault(index);
+                    <div class="border rounded p-2 mb-2" @key="image.AttachmentId"><span>@L["EducationAttempt:ImagePosition", index + 1, image.RotationDegrees]</span>
+                        <small class="d-block">@(savedImage?.AttachmentId == image.AttachmentId && savedImage.RotationDegrees == image.RotationDegrees ? L["EducationAttempt:ImageLinked"] : L["EducationAttempt:ImageLocalOnly"])</small>
+                        <button class="btn btn-sm btn-outline-primary ms-2" disabled="@Busy" @onclick="(() => ShowImageAsync(image.AttachmentId, image.RotationDegrees))">@L["EducationAttempt:PreviewImage"]</button>
+                        <button class="btn btn-sm btn-outline-secondary ms-2" disabled="@(!CanEdit)" @onclick="(() => RotateImageAsync(question, image.AttachmentId))">@L["EducationAttempt:RotateImage"]</button>
+                        <button class="btn btn-sm btn-outline-secondary ms-2" disabled="@(!CanEdit || index == 0)" @onclick="(() => MoveImageAsync(question, image.AttachmentId, -1))">@L["EducationAttempt:MoveUp"]</button>
+                        <button class="btn btn-sm btn-outline-secondary ms-2" disabled="@(!CanEdit || index == response.Images.Count - 1)" @onclick="(() => MoveImageAsync(question, image.AttachmentId, 1))">@L["EducationAttempt:MoveDown"]</button>
+                        <button class="btn btn-sm btn-outline-secondary ms-2" disabled="@(!CanEdit)" @onclick="(() => ReplaceImage(question.Id, image.AttachmentId))">@L["EducationAttempt:ReplaceImage"]</button>
+                        <button class="btn btn-sm btn-outline-danger ms-2" disabled="@(!CanEdit)" @onclick="(() => RemoveImageAsync(question, image.AttachmentId))">@L["EducationAttempt:RemoveImage"]</button>
+                    </div>
+                }
+            }
+        </div></section>
+    }
+    @if (Submission == null) {
+        <fieldset disabled="@(Busy || Pending != null || !StorageReady || attempt.Status != EducationAssessmentAttemptStatus.InProgress || attempt.ServerNowUtc >= attempt.ExpiresAtUtc)">
+            <p>@L["EducationAttempt:SubmitHint"]</p>
+            <button class="btn btn-primary me-2 mb-2" @onclick="(() => RunAsync(SynchronizeAndReviewAsync))">@L["EducationAttempt:SyncAndReview"]</button>
+            <button class="btn btn-outline-primary mb-2" @onclick="(() => RunAsync(ReviewSubmissionAsync))">@L["EducationAttempt:ReviewSubmission"]</button>
+            @if (Review.Preview is { } preview) {
+                <section class="border rounded p-3 mt-2" aria-labelledby="submission-review-title">
+                    <h3 id="submission-review-title" class="h5">@L["EducationAttempt:SubmissionReview"]</h3>
+                    <p>@L["EducationAttempt:ReviewVersion", preview.ResponseSetVersion, preview.ServerNowUtc.ToLocalTime().ToString("g")]</p>
+                    <ul>@foreach (var item in preview.Questions) {
+                        <li>@item.DisplayOrder. @item.Title · @(item.IsUnanswered ? L["EducationAttempt:ServerUnanswered"] : L["EducationAttempt:SavedQuestion"]) · @L["EducationAttempt:MissingBlanks", item.UnansweredBlankCount] · @L["EducationAttempt:SavedImageCount", item.SavedImageCount]</li>
+                    }</ul>
+                    @if (Drafts.Count != 0) {
+                        <h4 class="h6">@L["EducationAttempt:ExcludedDrafts"]</h4>
+                        <ul>@foreach (var question in attempt.Paper.Questions.Where(x => Drafts.ContainsKey(x.Id)).OrderBy(x => x.DisplayOrder)) { <li>@question.DisplayOrder. @question.Title · @L["EducationAttempt:DraftExclusion"]</li> }</ul>
+                    }
+                    @if (RejectedImages.Count != 0) {
+                        <h4 class="h6">@L["EducationAttempt:UnuploadedSelections"]</h4>
+                        <ul>@foreach (var image in RejectedImages) { var question = attempt.Paper.Questions.Single(x => x.Id == image.Key);
+                            <li>@question.DisplayOrder. @question.Title · @image.Value · @L["EducationAttempt:ImageNotUploaded"] <button class="btn btn-sm btn-outline-secondary" @onclick="(() => DismissImageAsync(image.Key))">@L["EducationAttempt:DismissSelection"]</button></li>
+                        }</ul>
+                    }
+                    @if (preview.UnlinkedImages.Count != 0) {
+                        <h4 class="h6">@L["EducationAttempt:ExcludedImages"]</h4><p>@L["EducationAttempt:UnlinkedImageHint"]</p>
+                        <ul>@foreach (var image in preview.UnlinkedImages) { var question = attempt.Paper.Questions.Single(x => x.Id == image.PaperQuestionId);
+                            <li>@question.DisplayOrder. @question.Title · @image.FileName · @(image.IsUploaded ? L["EducationAttempt:UploadedUnlinked"] : L["EducationAttempt:UploadUnconfirmed"])</li>
+                        }</ul>
+                    }
+                    @if (Review.HasExclusions(LocalExclusionCount)) { <label class="d-block mb-2"><input type="checkbox" @bind="Review.ConfirmSavedOnly" /> @L["EducationAttempt:ConfirmExclusions"]</label> }
+                    <button class="btn btn-danger" disabled="@(Review.HasExclusions(LocalExclusionCount) && !Review.ConfirmSavedOnly)" @onclick="SubmitAsync">@L["EducationAttempt:Submit"]</button>
+                </section>
+            }
+        </fieldset>
+    }
+}
+<EducationAssessmentImagePreview ImageData="@ImageData" Rotation="@ImageRotation" Alt="@L["EducationAttempt:AnswerImageAlt"]" Closed="CloseImage" />
+
+@code {
+    [Parameter] public Guid RecipientId { get; set; }
+    private bool Busy, StorageReady, StorageAttempted, ImageCacheConsent, ImageCacheWarning;
+    private Guid? LoadedId, Receipt, UploadedReceipt, ReplaceQuestionId, ReplaceImageId, PreviewImageId; private string? Error, ImageData;
+    private int ImageRotation, FileInputVersion; private byte[]? UploadBytes;
+    private EducationStudentAssessmentTaskDto? TaskView; private EducationStudentAssessmentAttemptDto? Attempt;
+    private EducationAssessmentSubmissionDto? Submission; private EducationAssessmentAnswerImagePolicyDto? ImagePolicy;
+    private EducationAssessmentLocalDrafts Local = new(); private Dictionary<Guid, EducationAssessmentResponseValue> Drafts => Local.Values; private Command? Pending;
+    private HashSet<Guid> ImageCleanupIds = [];
+    private Dictionary<Guid, string> RejectedImages = [];
+    private readonly EducationAssessmentSubmissionReview Review = new();
+    private int LocalExclusionCount => Drafts.Count + RejectedImages.Count;
+    private bool CanEdit => !Busy && Pending == null && StorageReady && Submission == null && Attempt is { Status: EducationAssessmentAttemptStatus.InProgress } current && current.ServerNowUtc < current.ExpiresAtUtc;
+    private string AccountCachePrefix => $"education-attempt-v1:{Tenant.Id}:{Account.Id}:";
+    private string Key => AccountCachePrefix + RecipientId;
+    protected override Task OnParametersSetAsync() => RunAsync(async () => { if (LoadedId == RecipientId) return; LoadedId = RecipientId; StorageReady = StorageAttempted = ImageCacheConsent = ImageCacheWarning = false; ImageCleanupIds.Clear(); RejectedImages.Clear(); Pending = null; UploadBytes = null; UploadedReceipt = null; Local.Clear(); await LoadAsync(); });
+    protected override async Task OnAfterRenderAsync(bool firstRender) {
+        if (StorageAttempted || Busy) return; StorageAttempted = true;
+        await RunAsync(async () => { var raw = await JS.InvokeAsync<string?>("sessionStorage.getItem", Key);
+            if (raw != null) { var state = JsonSerializer.Deserialize<LocalState>(raw); if (state == null || state.RecipientId != RecipientId || state.AccountId != Account.Id || state.TenantId != Tenant.Id) throw new InvalidOperationException(L["EducationGrading:NoReceipt"]);
+                if (state.Drafts == null || state.DraftBases == null || state.ImageCleanupIds == null || state.Pending != null && !Matches(state.Pending)) throw new InvalidOperationException(L["EducationAttempt:DraftMismatch"]);
+                if ((state.Drafts.Count != 0 || state.RejectedImages?.Count != 0) && (state.AttemptId != Attempt?.Id || state.PaperSnapshotVersion != Attempt?.PaperSnapshotVersion)) throw new InvalidOperationException(L["EducationAttempt:DraftMismatch"]);
+                if (state.RejectedImages == null || state.RejectedImages.Any(x => Attempt?.Paper.Questions.Any(q => q.Id == x.Key) != true || string.IsNullOrWhiteSpace(x.Value) || x.Value.Length > 256)) throw new InvalidOperationException(L["EducationAttempt:DraftMismatch"]);
+                foreach (var entry in state.Drafts) { var question = Attempt?.Paper.Questions.SingleOrDefault(x => x.Id == entry.Key); if (question == null || entry.Value == null || entry.Value.Type != question.Type) throw new InvalidOperationException(L["EducationAttempt:DraftMismatch"]); entry.Value.ToCanonicalJson(); }
+                Pending = state.Pending; Local.Values = state.Drafts; Local.BaseRevisionIds = state.DraftBases; RejectedImages = state.RejectedImages; ImageCacheConsent = state.ImageCacheConsent; ImageCleanupIds = state.ImageCleanupIds; }
+            StorageReady = true; if (ImageCacheConsent || ImageCleanupIds.Count != 0) await CleanupImagesAsync(true); }); StateHasChanged();
+    }
+    private async Task LoadAsync() { Review.Invalidate(); TaskView = null; Attempt = null; Submission = null; ImagePolicy = null; CloseImage(); CancelReplacement(); TaskView = await Assessments.GetMyStudentTaskAsync(RecipientId); Attempt = TaskView.CurrentAttemptId is Guid id ? await Assessments.GetAttemptAsync(id) : null;
+        Submission = Attempt == null ? null : await Assessments.GetSubmissionAsync(Attempt.Id); ImagePolicy = Attempt == null ? null : await Assessments.GetAnswerImagePolicyAsync(Attempt.Id); }
+    private EducationAssessmentResponseValue Value(EducationStudentAssessmentQuestionDto question) => Local.Value(question, Attempt!);
+    private EducationAssessmentResponseValue Edit(EducationStudentAssessmentQuestionDto question) => Local.Edit(question, Attempt!);
+    private Task ChoiceAsync(EducationStudentAssessmentQuestionDto question, string key, ChangeEventArgs args) => LocalEditAsync(async () => { var value = Edit(question); var selected = args.Value is true;
+        if (question.Type != QuestionType.MultipleChoice) value.SelectedOptionKeys.Clear(); else value.SelectedOptionKeys.Remove(key);
+        if (selected) value.SelectedOptionKeys.Add(key); await PersistAsync(); });
+    private Task BlankAsync(EducationStudentAssessmentQuestionDto question, Guid blankId, ChangeEventArgs args) => LocalEditAsync(async () => { var value = Edit(question); var blank = value.Blanks.FirstOrDefault(x => x.BlankId == blankId);
+        if (blank == null) { blank = new() { BlankId = blankId }; value.Blanks.Add(blank); } blank.Text = args.Value?.ToString() ?? ""; await PersistAsync(); });
+    private Task TextAsync(EducationStudentAssessmentQuestionDto question, ChangeEventArgs args) => LocalEditAsync(async () => { Edit(question).Text = args.Value?.ToString() ?? ""; await PersistAsync(); });
+    private async Task LocalEditAsync(Func<Task> action) { if (!CanEdit) return; try { await action(); } catch (Exception ex) { Error = GetUserFriendlyErrorMessage(ex); } }
+    private async Task PersistAsync() { Review.Invalidate(); try { await JS.InvokeVoidAsync("sessionStorage.setItem", Key, JsonSerializer.Serialize(new LocalState { RecipientId = RecipientId, AccountId = Account.Id, TenantId = Tenant.Id, AttemptId = Attempt?.Id, PaperSnapshotVersion = Attempt?.PaperSnapshotVersion, Drafts = Drafts, DraftBases = Local.BaseRevisionIds, RejectedImages = RejectedImages, Pending = Pending, ImageCacheConsent = ImageCacheConsent, ImageCleanupIds = ImageCleanupIds })); }
+        catch { StorageReady = false; throw; } }
+    private bool Matches(Command command) => command.OperationId != Guid.Empty && command.RecipientId == RecipientId && command.AccountId == Account.Id && command.TenantId == Tenant.Id &&
+        (command.Kind == "start" || command.AttemptId != Guid.Empty && (command.Kind switch { "save" => command.Save?.OperationId == command.OperationId,
+            "submit" => command.Submit?.OperationId == command.OperationId, "upload" => command.Upload?.OperationId == command.OperationId && command.Upload.PaperQuestionId != Guid.Empty &&
+                command.ImageSize is > 0 and <= EducationAssessmentResponseValue.MaxImageFileBytes && !string.IsNullOrWhiteSpace(command.ImageFileName) && command.ImageFileName.Length <= 256 &&
+                command.ImageContentType is "image/jpeg" or "image/png" or "image/webp" && command.Upload.ContentHash?.Length == 64, _ => false }));
+    private Command NewCommand(string kind) => new() { Kind = kind, OperationId = Guid.NewGuid(), RecipientId = RecipientId, AccountId = Account.Id, TenantId = Tenant.Id, AttemptId = Attempt?.Id ?? Guid.Empty };
+    private async Task PrepareAsync(Command command) { Pending = command; await PersistAsync(); }
+    private Task StartAsync() => RunAsync(async () => { await PrepareAsync(NewCommand("start")); await SendAsync(); });
+    private Task SaveAsync(Guid questionId) => RunAsync(() => SaveQuestionAsync(questionId));
+    private async Task SaveQuestionAsync(Guid questionId) { if (Attempt == null || Pending != null || !Drafts.TryGetValue(questionId, out var value)) return; if (Local.HasConflict(questionId, Attempt)) throw new InvalidOperationException(L["EducationAttempt:Conflict"]); var command = NewCommand("save");
+        command.Save = new() { OperationId = command.OperationId, PaperQuestionId = questionId, PaperSnapshotVersion = Attempt.PaperSnapshotVersion, ExpectedResponseSetVersion = Attempt.ResponseSetVersion, Response = value }; await PrepareAsync(command); await SendAsync(); }
+    private async Task ReviewSubmissionAsync() { if (Pending != null || !StorageReady) return; await LoadAsync(); if (Attempt == null || Submission != null) return; Review.Prepare(await Assessments.PreviewSubmissionAsync(Attempt.Id), Attempt); }
+    private async Task SynchronizeAndReviewAsync() { if (Pending != null || !StorageReady) return; await LoadAsync(); if (Attempt == null || Submission != null) return;
+        foreach (var question in Attempt.Paper.Questions.Where(x => Drafts.ContainsKey(x.Id)).OrderBy(x => x.DisplayOrder).ToList()) await SaveQuestionAsync(question.Id);
+        await ReviewSubmissionAsync(); }
+    private Task SubmitAsync() => RunAsync(async () => { if (Attempt == null || Pending != null || Review.Preview == null) return;
+        var command = NewCommand("submit"); command.Submit = Review.Submit(command.OperationId, LocalExclusionCount);
+        var prompt = Review.HasExclusions(LocalExclusionCount) ? L["EducationAttempt:SubmitExclusionsAgain"] : L["EducationAttempt:SubmitAgain"];
+        if (!await JS.InvokeAsync<bool>("confirm", prompt.Value)) return; await PrepareAsync(command); await SendAsync(); });
+    private async Task SendAsync() { if (Pending == null || !Matches(Pending)) throw new InvalidOperationException(L["EducationGrading:NoReceipt"]); await PersistAsync(); StorageReady = true; var command = Pending;
+        if (command.Kind == "start") Receipt = (await Assessments.StartOrResumeAsync(RecipientId, new() { OperationId = command.OperationId })).Id;
+        else if (command.Kind == "save") { Receipt = (await Assessments.SaveResponseAsync(command.AttemptId, command.Save!)).Id; Local.Drop(command.Save!.PaperQuestionId); }
+        else if (command.Kind == "upload") {
+            if (UploadBytes == null) { var existing = await Assessments.GetAnswerImageAsync(command.AttemptId, command.OperationId); if (existing?.IsUploaded == true) { await FinishUploadAsync(existing, command); return; } await RestoreImageBytesAsync(command); }
+            if (!ImageCacheConsent) throw new InvalidOperationException(L["EducationAttempt:ImageCacheRequired"]);
+            if (UploadBytes == null) throw new InvalidOperationException(L["EducationAttempt:ReselectImage"]);
+            EnsureImageBytes(UploadBytes, command); await JS.InvokeVoidAsync("knowPulse.answerImageDrafts.put", Key, command.OperationId.ToString("D"), UploadBytes);
+            using var file = new RemoteStreamContent(new MemoryStream(UploadBytes, writable: false), command.ImageFileName, command.ImageContentType, command.ImageSize);
+            await FinishUploadAsync(await Assessments.UploadAnswerImageAsync(command.AttemptId, command.Upload!, file), command); return; }
+        else Receipt = (await Assessments.SubmitAsync(command.AttemptId, command.Submit!)).Id;
+        await FinishAsync(); }
+    private Task RecoverAsync() => RunAsync(async () => { if (Pending == null || !Matches(Pending)) throw new InvalidOperationException(L["EducationGrading:NoReceipt"]); var command = Pending;
+        if (command.Kind == "start") { var task = await Assessments.GetMyStudentTaskAsync(RecipientId); if (task.CurrentAttemptId == null) throw new InvalidOperationException(L["EducationGrading:NoReceipt"]); Receipt = task.CurrentAttemptId; }
+        else if (command.Kind == "save") { var receipt = await Assessments.GetResponseRevisionAsync(command.AttemptId, command.OperationId); if (receipt == null) throw new InvalidOperationException(L["EducationGrading:NoReceipt"]); Receipt = receipt.Id; Local.Drop(command.Save!.PaperQuestionId); }
+        else if (command.Kind == "upload") { var receipt = await Assessments.GetAnswerImageAsync(command.AttemptId, command.OperationId); if (receipt?.IsUploaded != true) throw new InvalidOperationException(L["EducationAttempt:UploadUnconfirmed"]); await FinishUploadAsync(receipt, command); return; }
+        else { var receipt = await Assessments.GetSubmissionAsync(command.AttemptId); if (receipt == null) throw new InvalidOperationException(L["EducationGrading:NoReceipt"]); Receipt = receipt.Id; }
+        await FinishAsync(); });
+    private async Task FinishAsync(bool refresh = true) { if (refresh) await LoadAsync(); var command = Pending; Pending = null; try { await PersistAsync(); } catch { Pending = command; throw; } }
+    private Task DiscardDraftAsync(Guid questionId) => RunAsync(async () => { if (await JS.InvokeAsync<bool>("confirm", L["EducationAttempt:DiscardDraftHint"].Value)) { Local.Drop(questionId); CloseImage(); if (ReplaceQuestionId == questionId) CancelReplacement(); await PersistAsync(); } });
+    private Task AbandonAsync() => RunAsync(async () => { if (!await JS.InvokeAsync<bool>("confirm", L["EducationReport:AbandonHint"].Value)) return; if (Pending?.Kind == "upload") { RejectedImages[Pending.Upload!.PaperQuestionId] = Pending.ImageFileName; if (ImageCacheConsent) ImageCleanupIds.Add(Pending.OperationId); } Pending = null; UploadBytes = null; await LoadAsync(); StorageReady = true; await PersistAsync(); await CleanupImagesAsync(); });
+    private Task ResetLocalAsync() => RunAsync(async () => { if (!await JS.InvokeAsync<bool>("confirm", L["EducationAttempt:ResetLocalHint"].Value)) return; if (Pending?.Kind == "upload" && ImageCacheConsent) ImageCleanupIds.Add(Pending.OperationId); await CleanupImagesAsync(); if (ImageCleanupIds.Count != 0) throw new InvalidOperationException(L["EducationAttempt:ImageCacheWarning"]); await JS.InvokeVoidAsync("sessionStorage.removeItem", Key); Pending = null; UploadBytes = null; Local.Clear(); RejectedImages.Clear(); await LoadAsync(); StorageReady = true; });
+    private Task DismissImageAsync(Guid questionId) => RunAsync(async () => { RejectedImages.Remove(questionId); FileInputVersion++; await PersistAsync(); });
+    private Task ConfirmLocalAsync(Guid questionId) => RunAsync(async () => { if (Attempt == null || !await JS.InvokeAsync<bool>("confirm", L["EducationAttempt:UseLocalHint"].Value)) return; Local.ConfirmLocal(questionId, Attempt); await PersistAsync(); });
+    private Task UploadImageAsync(EducationStudentAssessmentQuestionDto question, InputFileChangeEventArgs args) => RunAsync(async () => {
+        if (Attempt == null || ImagePolicy == null || Pending != null || !StorageReady) return; if (!ImageCacheConsent) throw new InvalidOperationException(L["EducationAttempt:ImageCacheRequired"]); var file = args.File;
+        try {
+        RejectedImages[question.Id] = string.IsNullOrWhiteSpace(file.Name) ? L["EducationAttempt:UnnamedImage"].Value : file.Name[..Math.Min(file.Name.Length, 256)]; await PersistAsync();
+        var type = file.ContentType.Trim().ToLowerInvariant();
+        if (!ImagePolicy.AllowedContentTypes.Contains(type) || string.IsNullOrWhiteSpace(file.Name) || file.Name.Length > 256) throw new InvalidOperationException(L["EducationAttempt:InvalidImage"]);
+        var bytes = await ReadFileAsync(file, ImagePolicy.MaxFileBytes); var command = NewCommand("upload");
+        command.Upload = new() { OperationId = command.OperationId, PaperQuestionId = question.Id, ContentHash = Convert.ToHexStringLower(SHA256.HashData(bytes)) };
+        command.ImageFileName = file.Name; command.ImageContentType = type; command.ImageSize = bytes.LongLength;
+        command.ReplacesImageId = ReplaceQuestionId == question.Id ? ReplaceImageId : null;
+        Edit(question); UploadBytes = bytes; RejectedImages.Remove(question.Id); await PrepareAsync(command); await SendAsync();
+        } finally { FileInputVersion++; }
+    });
+    private Task RetryImageAsync(InputFileChangeEventArgs args) => RunAsync(async () => {
+        if (Pending?.Kind != "upload" || !Matches(Pending)) throw new InvalidOperationException(L["EducationGrading:NoReceipt"]);
+        var bytes = await ReadFileAsync(args.File, Pending.ImageSize);
+        EnsureImageBytes(bytes, Pending);
+        UploadBytes = bytes; await SendAsync();
+    });
+    private async Task<byte[]> ReadFileAsync(IBrowserFile file, long maximum) {
+        if (file.Size < 1 || file.Size > maximum) throw new InvalidOperationException(L["EducationAttempt:InvalidImage"]);
+        using var input = file.OpenReadStream(maximum); using var bytes = new MemoryStream(); await input.CopyToAsync(bytes);
+        if (bytes.Length != file.Size) throw new InvalidOperationException(L["EducationAttempt:InvalidImage"]); return bytes.ToArray();
+    }
+    private async Task FinishUploadAsync(EducationAssessmentAnswerImageDto receipt, Command command) {
+        if (receipt.Id != command.OperationId || receipt.Size != command.ImageSize || receipt.ContentHash != command.Upload!.ContentHash ||
+            receipt.ContentType != command.ImageContentType || !receipt.IsUploaded) throw new InvalidOperationException(L["EducationAttempt:UploadUnconfirmed"]);
+        await LoadAsync(); if (Attempt?.Id != command.AttemptId) throw new InvalidOperationException(L["EducationAttempt:DraftMismatch"]);
+        var question = Attempt.Paper.Questions.Single(x => x.Id == command.Upload.PaperQuestionId);
+        Local.AttachUploaded(question, Attempt, receipt, command.ReplacesImageId); Receipt = UploadedReceipt = receipt.Id;
+        UploadBytes = null; CancelReplacement(); FileInputVersion++; if (ImageCacheConsent) ImageCleanupIds.Add(command.OperationId); await FinishAsync(refresh: false); await CleanupImagesAsync();
+    }
+    private Task CacheConsentAsync() => RunAsync(PersistAsync);
+    private void EnsureImageBytes(byte[] bytes, Command command) { if (bytes.LongLength != command.ImageSize || Convert.ToHexStringLower(SHA256.HashData(bytes)) != command.Upload!.ContentHash) throw new InvalidOperationException(L["EducationAttempt:WrongRetryImage"]); }
+    private async Task RestoreImageBytesAsync(Command command) {
+        if (!ImageCacheConsent) return;
+        await using var reference = await JS.InvokeAsync<IJSStreamReference?>("knowPulse.answerImageDrafts.get", Key, command.OperationId.ToString("D"));
+        if (reference == null) return; await using var input = await reference.OpenReadStreamAsync(EducationAssessmentResponseValue.MaxImageFileBytes);
+        using var bytes = new MemoryStream(); await input.CopyToAsync(bytes); var content = bytes.ToArray(); EnsureImageBytes(content, command); UploadBytes = content;
+    }
+    private async Task CleanupImagesAsync(bool expired = false) {
+        ImageCacheWarning = false; var changed = false;
+        try {
+            if (expired) await JS.InvokeVoidAsync("knowPulse.answerImageDrafts.cleanupExpired", AccountCachePrefix);
+            foreach (var id in ImageCleanupIds.ToList()) { await JS.InvokeVoidAsync("knowPulse.answerImageDrafts.remove", Key, id.ToString("D")); ImageCleanupIds.Remove(id); changed = true; }
+            if (changed) await PersistAsync();
+        } catch { ImageCacheWarning = true; }
+    }
+    private Task RotateImageAsync(EducationStudentAssessmentQuestionDto question, Guid attachmentId) => LocalEditAsync(async () => {
+        var image = Edit(question).Images.Single(x => x.AttachmentId == attachmentId); image.RotationDegrees = (image.RotationDegrees + 90) % 360;
+        if (PreviewImageId == attachmentId) ImageRotation = image.RotationDegrees; await PersistAsync();
+    });
+    private Task MoveImageAsync(EducationStudentAssessmentQuestionDto question, Guid attachmentId, int direction) => LocalEditAsync(async () => {
+        var images = Edit(question).Images; var index = images.FindIndex(x => x.AttachmentId == attachmentId); var target = index + direction;
+        if (index < 0 || target < 0 || target >= images.Count) return; (images[index], images[target]) = (images[target], images[index]); await PersistAsync();
+    });
+    private Task RemoveImageAsync(EducationStudentAssessmentQuestionDto question, Guid attachmentId) => RunAsync(async () => {
+        if (!await JS.InvokeAsync<bool>("confirm", L["EducationAttempt:RemoveImageHint"].Value)) return;
+        Edit(question).Images.RemoveAll(x => x.AttachmentId == attachmentId); if (PreviewImageId == attachmentId) CloseImage();
+        if (ReplaceImageId == attachmentId) CancelReplacement(); await PersistAsync();
+    });
+    private void ReplaceImage(Guid questionId, Guid attachmentId) { ReplaceQuestionId = questionId; ReplaceImageId = attachmentId; }
+    private void CancelReplacement() { ReplaceQuestionId = ReplaceImageId = null; }
+    private Task ShowImageAsync(Guid attachmentId, int rotation) => RunAsync(async () => {
+        if (Attempt == null) return; CloseImage(); using var file = await Assessments.DownloadAnswerImageAsync(Attempt.Id, attachmentId);
+        if (file.ContentType is not ("image/png" or "image/jpeg" or "image/webp")) throw new InvalidOperationException(L["EducationAttempt:InvalidImage"]);
+        using var bytes = new MemoryStream(); await file.GetStream().CopyToAsync(bytes); PreviewImageId = attachmentId; ImageRotation = rotation;
+        ImageData = $"data:{file.ContentType};base64,{Convert.ToBase64String(bytes.ToArray())}";
+    });
+    private void CloseImage() { ImageData = null; PreviewImageId = null; ImageRotation = 0; }
+    private async Task LeaveAsync(Microsoft.AspNetCore.Components.Routing.LocationChangingContext context) { if (Busy || (Drafts.Count != 0 || RejectedImages.Count != 0 || Pending != null) && !await JS.InvokeAsync<bool>("confirm", L["EducationAttempt:Leave"].Value)) context.PreventNavigation(); }
+    private async Task RunAsync(Func<Task> action) { if (Busy) return; Busy = true; Error = null; try { await action(); } catch (Exception ex) { var message = ex.GetBaseException().Message; Error = message is EducationAssessmentErrorCodes.PreparationChanged or EducationAssessmentErrorCodes.PreparationRequired or EducationAssessmentErrorCodes.IncompleteSubmission ? L[message].Value : GetUserFriendlyErrorMessage(ex); } finally { Busy = false; } }
+    private sealed class LocalState { public Guid RecipientId { get; set; } public Guid? AccountId { get; set; } public Guid? TenantId { get; set; } public Guid? AttemptId { get; set; } public int? PaperSnapshotVersion { get; set; } public Dictionary<Guid, EducationAssessmentResponseValue> Drafts { get; set; } = []; public Dictionary<Guid, Guid?> DraftBases { get; set; } = []; public Dictionary<Guid, string> RejectedImages { get; set; } = []; public Command? Pending { get; set; } public bool ImageCacheConsent { get; set; } public HashSet<Guid> ImageCleanupIds { get; set; } = []; }
+    private sealed class Command { public string Kind { get; set; } = ""; public Guid OperationId { get; set; } public Guid RecipientId { get; set; } public Guid? AccountId { get; set; } public Guid? TenantId { get; set; } public Guid AttemptId { get; set; } public SaveEducationAssessmentResponseDto? Save { get; set; } public SubmitEducationAssessmentDto? Submit { get; set; } public UploadEducationAssessmentAnswerImageDto? Upload { get; set; } public string ImageFileName { get; set; } = ""; public string ImageContentType { get; set; } = ""; public long ImageSize { get; set; } public Guid? ReplacesImageId { get; set; } }
+}

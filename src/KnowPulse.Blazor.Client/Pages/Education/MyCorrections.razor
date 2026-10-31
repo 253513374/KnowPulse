@@ -1,0 +1,120 @@
+@page "/education/corrections/my"
+@attribute [Authorize(EducationPermissions.AssessmentParticipate)]
+@attribute [Authorize(EducationPermissions.LearningParticipate)]
+@inherits KnowPulseComponentBase
+@using KnowPulse.Education
+@using System.Text.Json
+@using System.IO
+@using System.Security.Cryptography
+@inject IEducationCorrectionAppService Corrections
+@inject IJSRuntime JS
+@inject Volo.Abp.Users.ICurrentUser Account
+@inject Volo.Abp.MultiTenancy.ICurrentTenant Tenant
+<PageTitle>@L["EducationCorrection:MyTitle"]</PageTitle>
+<AuthorizeView Policy="@KnowPulsePermissions.KnowledgeBase.PersonalLibrary"><Authorized><p><a href="/education/notebook">@L["EducationNotebook:Title"]</a></p></Authorized></AuthorizeView>
+<AuthorizeView Policy="@EducationPermissions.LearningParticipate"><Authorized><p><a href="/education/workload">@L["EducationWorkload:Title"]</a></p></Authorized></AuthorizeView>
+<NavigationLock ConfirmExternalNavigation="@(Dirty || Busy || State?.Pending != null || State?.ImageOperationId != null)" OnBeforeInternalNavigation="LeaveAsync" />
+<h1 class="h4">@L["EducationCorrection:MyTitle"]</h1><p>@L["EducationCorrection:Separate"]</p>
+<p class="alert alert-info">@L["EducationCorrection:LocalNotice"]</p>
+@if (Error != null) { <p class="alert alert-danger" role="alert">@Error</p> }
+@if (Notice != null) { <p class="alert alert-success" role="status">@Notice</p> }
+@if (StorageBroken) { <p class="alert alert-warning" role="alert">@L["EducationCorrection:StorageBroken"] <button class="btn btn-sm btn-outline-danger" @onclick="ClearLocalAsync" disabled="@Busy">@L["EducationReport:Abandon"]</button></p> }
+@if (State?.Pending != null || State?.ImageOperationId != null) { <div class="alert alert-warning" role="status">@L["EducationGrading:Unknown"]
+    <button class="btn btn-outline-primary" @onclick="RecoverAsync" disabled="@Busy">@L["EducationGrading:Recover"]</button>
+    @if (State?.Pending != null) { <button class="btn btn-outline-primary" @onclick="(() => RunAsync(SendAsync))" disabled="@Busy">@L["EducationReport:RetryCommand"]</button> }
+    <button class="btn btn-outline-secondary" @onclick="AbandonAsync" disabled="@Busy">@L["EducationReport:Abandon"]</button></div> }
+<div class="row g-3"><aside class="col-lg-4"><button class="btn btn-outline-secondary mb-2" @onclick="RefreshAsync" disabled="@Locked">@L["EducationGrading:Refresh"]</button>
+<div class="list-group">@foreach (var item in Items) { <button class="list-group-item list-group-item-action" disabled="@Locked" @onclick="(() => OpenAsync(item.Id))">@item.SubjectName · @item.TeacherName<br />@item.ClassName · @item.DueAtUtc.ToLocalTime().ToString("g")<br />@L[$"EducationCorrection:Availability:{item.Availability}"]</button> }</div>
+<button class="btn btn-sm btn-outline-secondary" disabled="@(Locked || Offset == 0)" @onclick="(() => PageAsync(-1))">@L["EducationPaper:Previous"]</button>
+<button class="btn btn-sm btn-outline-secondary" disabled="@(Locked || Offset + 20 >= Total)" @onclick="(() => PageAsync(1))">@L["EducationPaper:Next"]</button>
+</aside><main class="col-lg-8">
+@if (Selected is { } row && State is { } local) {
+    <h2 class="h5">@(row.Title ?? L["EducationCorrection:MyTitle"].Value)</h2><p>@L[$"EducationCorrection:Availability:{row.Availability}"] · @row.DueAtUtc.ToLocalTime().ToString("g")</p>
+    <p style="white-space:pre-wrap">@row.Instructions</p><p style="white-space:pre-wrap">@row.PublicReason</p>
+    <button class="btn btn-sm btn-outline-secondary mb-2" disabled="@Locked" @onclick="ClearLocalAsync">@L["EducationCorrection:ClearLocal"]</button>
+    @if (row.OriginalQuestion is { } q) { <details><summary>@L["EducationCorrection:Original"]</summary><h3 class="h6">@q.Title (@q.ObtainedScore / @q.MaxScore)</h3><p style="white-space:pre-wrap">@q.Stem</p>
+        @foreach (var option in q.Options) { <p>@option.OptionKey. @option.Content</p> }
+        <p style="white-space:pre-wrap">@q.Response?.Text</p><p>@string.Join(", ", q.Response?.SelectedOptionKeys ?? [])</p>
+        @foreach (var blank in q.Response?.Blanks ?? []) { <p>@q.ScoringDefinition?.Blanks.FirstOrDefault(x => x.Id == blank.BlankId)?.StemMarker: @blank.Text</p> }
+        <p>@string.Join(", ", q.CorrectAnswers)</p><p style="white-space:pre-wrap">@q.ScoringDefinition?.ReferenceAnswer</p>
+        @foreach (var blank in q.ScoringDefinition?.Blanks ?? []) { <p>@blank.StemMarker: @string.Join(" / ", blank.AllowedAnswers)</p> }
+        <p style="white-space:pre-wrap">@q.Analysis</p><p style="white-space:pre-wrap">@q.Feedback</p>
+        <a href="@($"/education/assessment-results?recipientId={row.AssessmentRecipientId}")">@L["EducationGrading:MyResults"]</a></details> }
+    @if (local.ConflictsWith(row.CurrentSubmissionId)) { <p class="alert alert-warning">@L["EducationCorrection:Conflict"] <button class="btn btn-outline-secondary" disabled="@Locked" @onclick="RebaseAsync">@L["EducationCorrection:Rebase"]</button></p> }
+    <fieldset disabled="@(Locked || row.Availability != EducationCorrectionAvailability.Available)">
+        <label class="form-label w-100">@L["EducationCorrection:Thinking"]<textarea class="form-control" maxlength="4000" rows="3" @bind="Thinking" @bind:after="Changed"></textarea></label>
+        <label class="form-label w-100">@L["EducationCorrection:Solution"]<textarea class="form-control" maxlength="8192" rows="5" @bind="Solution" @bind:after="Changed"></textarea></label>
+        <label class="form-label w-100">@L["EducationCorrection:Checking"]<textarea class="form-control" maxlength="4000" rows="3" @bind="Checking" @bind:after="Changed"></textarea></label>
+        <label class="form-label">@L["EducationCorrection:AddImage"]<InputFile OnChange="UploadAsync" accept="image/png,image/jpeg,image/webp" disabled="@(local.Content.Images.Count >= 5)" /></label>
+        @foreach (var reference in local.Content.Images) { <div class="d-flex gap-2 mb-2"><button class="btn btn-sm btn-outline-secondary" @onclick="(() => ImageAsync(reference))">@L["EducationGrading:SubmittedImage"]</button><button class="btn btn-sm btn-outline-secondary" @onclick="(() => Rotate(reference))">@L["EducationCorrection:Rotate"]</button><button class="btn btn-sm btn-outline-danger" @onclick="(() => Remove(reference))">@L["EducationCorrection:RemoveImage"]</button></div> }
+        <button class="btn btn-outline-secondary" @onclick="SaveLocalAsync">@L["EducationCorrection:SaveLocal"]</button>
+        <button class="btn btn-outline-primary" disabled="@(local.ConflictsWith(row.CurrentSubmissionId) || !StorageReady)" @onclick="PreviewAsync">@L["EducationCorrection:Preview"]</button>
+    </fieldset>
+    @if (local.ImageOperationId != null) { <label class="form-label">@L["EducationCorrection:ReselectImage", local.ImageName ?? ""]<InputFile OnChange="UploadAsync" accept="image/png,image/jpeg,image/webp" disabled="@Busy" /></label> }
+    @if (Preview is { } p) { <section class="card mt-3"><div class="card-body"><h3 class="h6">@L["EducationCorrection:Preview"]</h3><p style="white-space:pre-wrap">@p.Content.OriginalThinking</p><p style="white-space:pre-wrap">@p.Content.CurrentSolution</p><p style="white-space:pre-wrap">@p.Content.CheckingStrategy</p>
+        @foreach (var image in p.Images) { var reference = p.Content.Images.Single(x => x.AttachmentId == image.Id); <button class="btn btn-sm btn-outline-secondary" disabled="@Busy" @onclick="(() => ImageAsync(reference))">@image.FileName · @reference.RotationDegrees°</button> }
+        <label class="form-check"><input type="checkbox" class="form-check-input" @bind="Share" />@L["EducationCorrection:ShareConfirm"]</label>
+        <button class="btn btn-primary" disabled="@(Locked || !Share || !local.MatchesPreview(Preview))" @onclick="SubmitAsync">@L["EducationCorrection:Submit"]</button></div></section> }
+    <h3 class="h6 mt-4">@L["EducationCorrection:History"]</h3>
+    @foreach (var h in History) { <article class="card my-2"><div class="card-body"><p>@L["EducationCorrection:SubmissionVersion", h.Submission.SubmissionNumber] · @h.Submission.SubmittedAtUtc.ToLocalTime().ToString("g")</p>
+        <p style="white-space:pre-wrap">@h.Submission.Content.OriginalThinking</p><p style="white-space:pre-wrap">@h.Submission.Content.CurrentSolution</p><p style="white-space:pre-wrap">@h.Submission.Content.CheckingStrategy</p>
+        @foreach (var image in h.Submission.Content.Images) { <button class="btn btn-sm btn-outline-secondary" disabled="@Busy" @onclick="(() => ImageAsync(image))">@L["EducationGrading:SubmittedImage"]</button> }
+        @foreach (var review in h.Reviews) { <p>@L[$"EducationCorrection:Decision:{review.Decision}"] · @review.PublishedAtUtc.ToLocalTime().ToString("g")</p><p style="white-space:pre-wrap">@review.StudentFeedback</p> }</div></article> }
+    <button class="btn btn-sm btn-outline-secondary" disabled="@(Locked || HistoryOffset == 0)" @onclick="(() => HistoryPageAsync(-1))">@L["EducationPaper:Previous"]</button><button class="btn btn-sm btn-outline-secondary" disabled="@(Locked || HistoryOffset + 20 >= HistoryTotal)" @onclick="(() => HistoryPageAsync(1))">@L["EducationPaper:Next"]</button>
+    <EducationAssessmentImagePreview ImageData="@ImageData" Rotation="@Rotation" Alt="@L["EducationGrading:SubmittedImage"]" Closed="@(() => ImageData = null)" />
+}
+</main></div>
+@code {
+    [SupplyParameterFromQuery(Name = "deliveryId")] public Guid? RequestedDeliveryId { get; set; }
+    private Guid? OpenedDeliveryParameter;
+    private bool Busy, Dirty, Share, StorageReady, StorageBroken; private string? Error, Notice, ImageData; private int Rotation, Offset, HistoryOffset; private long Total, HistoryTotal;
+    private string Thinking = "", Solution = "", Checking = ""; private EducationMyCorrectionDto? Selected; private EducationCorrectionLocalState? State; private EducationCorrectionSubmissionPreviewDto? Preview;
+    private List<EducationMyCorrectionDto> Items = []; private List<EducationCorrectionHistoryDto> History = [];
+    private bool Locked => Busy || StorageBroken || State?.Pending != null || State?.ImageOperationId != null;
+    private string Key => $"education-correction-student-v1:{Tenant.Id}:{Account.Id}:{Selected?.Id}";
+    protected override Task OnInitializedAsync() => RunAsync(ListAsync);
+    protected override async Task OnAfterRenderAsync(bool firstRender) {
+        if (!Locked && RequestedDeliveryId is Guid id && OpenedDeliveryParameter != id) { OpenedDeliveryParameter = id; await OpenAsync(id); StateHasChanged(); }
+    }
+    private async Task ListAsync() { var page = await Corrections.GetMyCorrectionListAsync(new() { SkipCount = Offset, MaxResultCount = 20 }); Items = page.Items.ToList(); Total = page.TotalCount; }
+    private async Task HistoryAsync() { if (Selected == null) return; var page = await Corrections.GetMyCorrectionHistoryAsync(Selected.Id, Selected.CurrentSubmissionId, new() { SkipCount = HistoryOffset, MaxResultCount = 20 }); History = page.Items.ToList(); HistoryTotal = page.TotalCount; }
+    private Task OpenAsync(Guid id) => RunAsync(async () => { if (Dirty && !await ConfirmDiscardAsync()) return; Selected = null; ImageData = null; State = null; History.Clear(); Preview = null; Share = false; StorageReady = false; StorageBroken = false;
+        Selected = await Corrections.GetMyCorrectionAsync(id); HistoryOffset = 0; await HistoryAsync();
+        var raw = await JS.InvokeAsync<string?>("localStorage.getItem", Key); try { State = raw == null ? new() { AccountId = Account.Id, TenantId = Tenant.Id, DeliveryId = id, BasedOnSubmissionId = Selected.CurrentSubmissionId } : JsonSerializer.Deserialize<EducationCorrectionLocalState>(raw); State!.Validate(Account.Id, Tenant.Id, id); StorageReady = true; }
+        catch { StorageBroken = true; throw new InvalidOperationException(L["EducationCorrection:StorageBroken"]); }
+        FillFields(); Dirty = false; });
+    private void FillFields() { Thinking = State?.Content.OriginalThinking ?? ""; Solution = State?.Content.CurrentSolution ?? ""; Checking = State?.Content.CheckingStrategy ?? ""; }
+    private void Changed() { if (State == null) return; State.Content = State.Content with { OriginalThinking = Thinking, CurrentSolution = Solution, CheckingStrategy = Checking }; Preview = null; Share = false; Dirty = true; Notice = null; }
+    private async Task StoreAsync() { State!.Validate(Account.Id, Tenant.Id, Selected!.Id); await JS.InvokeVoidAsync("localStorage.setItem", Key, JsonSerializer.Serialize(State)); StorageReady = true; Dirty = false; }
+    private Task SaveLocalAsync() => RunAsync(async () => { await StoreAsync(); Notice = L["EducationCorrection:LocalSaved"]; });
+    private Task PreviewAsync() => RunAsync(async () => { Preview = null; Share = false; await StoreAsync(); Preview = await Corrections.PreviewMyCorrectionAsync(Selected!.Id, new() { ExpectedSubmissionId = State!.BasedOnSubmissionId, Content = State.Content }); });
+    private Task SubmitAsync() => RunAsync(async () => { if (State == null || !Share || !State.MatchesPreview(Preview)) return;
+        State.Pending = new() { OperationId = Guid.NewGuid(), ExpectedSubmissionId = State.BasedOnSubmissionId, Content = State.Content, PreviewFingerprint = Preview!.Fingerprint, ConfirmSharingWithTeacher = true }; State.PendingFingerprint = EducationCorrectionFingerprint.Submit(Selected!.Id, State.Pending);
+        Preview = null; Share = false; await StoreAsync(); await SendAsync(); });
+    private async Task SendAsync() { if (State?.Pending == null) return; await StoreAsync(); await AcceptAsync(await Corrections.SubmitMyCorrectionAsync(Selected!.Id, State.Pending)); }
+    private async Task AcceptAsync(EducationCorrectionSubmissionDto receipt) { if (State?.Pending == null || receipt.Id != State.Pending.OperationId || receipt.DeliveryId != Selected!.Id || receipt.RequestFingerprint != State.PendingFingerprint) throw new InvalidOperationException(L["EducationGrading:NoReceipt"]);
+        State.BasedOnSubmissionId = receipt.Id; State.Pending = null; State.PendingFingerprint = null; await StoreAsync(); Selected = await Corrections.GetMyCorrectionAsync(Selected.Id); await HistoryAsync(); Notice = L["EducationGrading:Receipt", receipt.Id]; }
+    private Task RecoverAsync() => RunAsync(async () => { if (State?.Pending is { } pending) { var receipt = await Corrections.GetMyCorrectionOperationAsync(Selected!.Id, pending.OperationId); if (receipt != null) await AcceptAsync(receipt); }
+        else if (State?.ImageOperationId is Guid op) { var image = await Corrections.GetMyCorrectionImageOperationAsync(Selected!.Id, op); if (image?.IsUploaded == true) await AcceptImageAsync(image); } });
+    private Task RebaseAsync() => RunAsync(async () => { if (!await JS.InvokeAsync<bool>("confirm", L["EducationCorrection:RebaseConfirm"].Value)) return; State!.BasedOnSubmissionId = Selected!.CurrentSubmissionId; Preview = null; Share = false; await StoreAsync(); });
+    private Task ClearLocalAsync() => RunAsync(async () => { if (!await ConfirmDiscardAsync()) return; await JS.InvokeVoidAsync("localStorage.removeItem", Key); State = new() { AccountId = Account.Id, TenantId = Tenant.Id, DeliveryId = Selected!.Id, BasedOnSubmissionId = Selected.CurrentSubmissionId }; StorageReady = true; StorageBroken = false; Dirty = false; FillFields(); });
+    private Task AbandonAsync() => RunAsync(async () => { if (!await JS.InvokeAsync<bool>("confirm", L["EducationReport:AbandonHint"].Value)) return; State!.Pending = null; State.PendingFingerprint = null; State.ImageOperationId = null; State.ImageHash = null; State.ImageName = null; Preview = null; Share = false; await StoreAsync(); });
+    private Task UploadAsync(InputFileChangeEventArgs e) => RunAsync(async () => { if (State == null || Selected == null || State.Pending != null || State.Content.Images.Count >= 5) return;
+        using var source = e.File.OpenReadStream(5 * 1024 * 1024); using var bytes = new MemoryStream(); await source.CopyToAsync(bytes); var hash = Convert.ToHexString(SHA256.HashData(bytes.ToArray())).ToLowerInvariant();
+        if (State.ImageOperationId != null && (State.ImageHash != hash || State.ImageName != e.File.Name)) throw new InvalidOperationException(L["EducationCorrection:WrongImage"]);
+        if (State.ImageOperationId == null) { State.ImageOperationId = Guid.NewGuid(); State.ImageHash = hash; State.ImageName = e.File.Name; Preview = null; Share = false; await StoreAsync(); }
+        await StoreAsync(); bytes.Position = 0; using var remote = new Volo.Abp.Content.RemoteStreamContent(bytes, e.File.Name, e.File.ContentType);
+        await AcceptImageAsync(await Corrections.UploadMyCorrectionImageAsync(Selected.Id, State.ImageOperationId.Value, remote)); });
+    private async Task AcceptImageAsync(EducationCorrectionImageDto image) { if (State?.ImageOperationId != image.Id || image.ContentHash != State.ImageHash || !image.IsUploaded) throw new InvalidOperationException(L["EducationGrading:NoReceipt"]);
+        if (!State.Content.Images.Any(x => x.AttachmentId == image.Id)) State.Content = State.Content with { Images = [..State.Content.Images, new(image.Id)] };
+        State.ImageOperationId = null; State.ImageHash = null; State.ImageName = null; await StoreAsync(); }
+    private void Rotate(EducationCorrectionImageReference image) { State!.Content = State.Content with { Images = State.Content.Images.Select(x => x.AttachmentId == image.AttachmentId ? x with { RotationDegrees = (x.RotationDegrees + 90) % 360 } : x).ToList() }; Changed(); }
+    private void Remove(EducationCorrectionImageReference image) { State!.Content = State.Content with { Images = State.Content.Images.Where(x => x.AttachmentId != image.AttachmentId).ToList() }; Changed(); }
+    private Task ImageAsync(EducationCorrectionImageReference image) => RunAsync(async () => { using var file = await Corrections.DownloadMyCorrectionImageAsync(Selected!.Id, image.AttachmentId); using var bytes = new MemoryStream(); await file.GetStream().CopyToAsync(bytes); Rotation = image.RotationDegrees; ImageData = $"data:{file.ContentType};base64,{Convert.ToBase64String(bytes.ToArray())}"; });
+    private Task RefreshAsync() => RunAsync(async () => { Preview = null; Share = false; ImageData = null; await ListAsync(); if (Selected != null) { Selected = await Corrections.GetMyCorrectionAsync(Selected.Id); await HistoryAsync(); } });
+    private Task PageAsync(int d) => RunAsync(async () => { Offset += d * 20; await ListAsync(); });
+    private Task HistoryPageAsync(int d) => RunAsync(async () => { HistoryOffset += d * 20; await HistoryAsync(); });
+    private Task<bool> ConfirmDiscardAsync() => JS.InvokeAsync<bool>("confirm", L["EducationGrading:Discard"].Value).AsTask();
+    private async Task LeaveAsync(Microsoft.AspNetCore.Components.Routing.LocationChangingContext context) { if (Busy || (Dirty || State?.Pending != null || State?.ImageOperationId != null) && !await ConfirmDiscardAsync()) context.PreventNavigation(); }
+    private async Task RunAsync(Func<Task> action) { if (Busy) return; Busy = true; Error = null; try { await action(); } catch (Exception ex) { Error = GetUserFriendlyErrorMessage(ex); } finally { Busy = false; } }
+}

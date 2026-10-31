@@ -1,0 +1,38 @@
+<view class="page">
+  <view class="hero"><text class="title">本人成绩与回顾</text><text class="muted">只显示本人正式结果；逐题反馈随完整讲评开放。</text></view>
+  <view wx:if="{{error}}" class="error" aria-role="alert">{{error}}<button bindtap="login">重新登录</button></view><text wx:if="{{busy}}">正在重新核对…</text>
+  <block wx:if="{{detail}}">
+    <view class="card"><text class="heading">{{detail.title}}</text><text>{{detail.subjectName}} · {{detail.className}}</text>
+      <text wx:if="{{detail.absent}}">本次封卷记录为缺考，没有零分答卷。</text>
+      <block wx:elif="{{detail.visibility === 0}}"><text>成绩尚未开放。</text><text class="muted">计划成绩开放 {{detail.scoreOpensAt}}；是否可见以服务器正式发布与当前时间为准。</text></block>
+      <block wx:else><text class="score">{{detail.total}} / {{detail.max}}</text><text class="muted">正式发布时间 {{detail.releasedAt}}</text>
+        <text wx:if="{{detail.visibility === 1}}">当前仅开放成绩，题目、答案与评语尚未开放。计划讲评开放 {{detail.reviewOpensAt}}。</text>
+      </block>
+    </view>
+    <block wx:if="{{detail.visibility === 2}}"><view wx:if="{{detail.questionCount > 1}}" class="pager">
+      <button data-direction="-1" bindtap="question" disabled="{{busy || imageBusy || detail.questionIndex === 0}}">上一题</button>
+      <text>{{detail.questionIndex + 1}} / {{detail.questionCount}}</text>
+      <button data-direction="1" bindtap="question" disabled="{{busy || imageBusy || detail.questionIndex + 1 >= detail.questionCount}}">下一题</button>
+    </view></block>
+    <view class="card" wx:for="{{detail.questions}}" wx:key="id">
+      <text class="heading">{{item.order}}. {{item.title}}（{{item.total}} / {{item.max}}）</text><text class="prewrap">{{item.stem}}</text>
+      <text wx:for="{{item.options}}" wx:for-item="option" wx:key="key">{{option.key}}. {{option.content}}</text>
+      <text class="strong">原始上交作答</text><text wx:if="{{item.unanswered}}">未作答</text><text class="prewrap">{{item.responseText}}</text><text>{{item.selected}}</text>
+      <text class="prewrap" wx:for="{{item.blanks}}" wx:for-item="blank" wx:key="id">{{blank.marker}}：{{blank.text}}</text>
+      <button wx:for="{{item.images}}" wx:for-item="picture" wx:key="id" data-id="{{picture.id}}" bindtap="image" disabled="{{busy || imageBusy}}">查看上交原图（可缩放）</button>
+      <text class="strong">已开放的评分依据与反馈</text><text>{{item.answers}}</text><text class="prewrap">{{item.reference}}</text>
+      <text wx:for="{{item.blankAnswers}}" wx:for-item="blank" wx:key="id">{{blank.marker}}：{{blank.answers}}</text>
+      <text class="prewrap" wx:for="{{item.points}}" wx:for-item="point" wx:key="id">{{point.description}}（{{point.total}} / {{point.max}}）</text>
+      <text class="prewrap">{{item.analysis}}</text><text class="prewrap">{{item.feedback}}</text>
+      <button wx:if="{{detail.canUseCollections}}" bindtap="collection" data-id="{{item.id}}" disabled="{{busy || imageBusy}}">{{detail.allowCollection ? '核对并收藏此题引用' : '查看此题收藏状态'}}（不复制原题）</button>
+      <button wx:if="{{detail.canUseCollections}}" bindtap="practice" data-id="{{item.id}}" disabled="{{busy || imageBusy}}">核对此题独立复练与上交轮次</button>
+      <button wx:if="{{detail.canUseNotebook}}" bindtap="notebook" data-id="{{item.id}}" disabled="{{busy || imageBusy}}">写本人笔记并关联此题引用</button>
+    </view>
+  </block>
+  <view wx:if="{{imagePath}}" class="image-panel"><text class="strong">本人上交原图，双指缩放与拖动</text>
+    <movable-area class="image-area"><movable-view class="image-view" direction="all" scale="true" scale-min="0.5" scale-max="4"><image src="{{imagePath}}" mode="aspectFit" class="answer-image" aria-label="本人上交的原始答题图片" style="transform: rotate({{imageRotation}}deg);" /></movable-view></movable-area>
+    <button bindtap="closeImage">关闭原图</button>
+  </view>
+  <button bindtap="load" disabled="{{busy || imageBusy}}">刷新本人结果</button>
+  <button wx:if="{{detail}}" bindtap="growth" disabled="{{busy || imageBusy}}">查看本人的学科成长与证据</button>
+</view>

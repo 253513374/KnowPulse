@@ -1,0 +1,26 @@
+flowchart TD
+  %% 这是简化业务关系图；省略所有租户列和复合外键，不等于完整物理 ERD。
+  n0["IdentityUser · 账号"]
+  n1["KnowledgeLibrary · 本人默认库"]
+  n2["KnowledgeItem · 条目 / 当前版本指针"]
+  n3["KnowledgeVersion · 正文版本"]
+  n4["KnowledgeAttachment · 原始 Blob 引用"]
+  n5["SchoolKnowledgeShare · 指定版本 + 学校 + 用途"]
+  n6["School · 租户内学校"]
+  n7["SchoolMembership · 账号身份 / 有效期"]
+  n8["Teaching / Enrollment · 任教 / 在班 / 学期"]
+  n9["Curriculum revisions · 教材 / 知识点 / 映射"]
+  n10["KnowledgeIndexJob · 执行事实"]
+  n11["Chunk / EmbeddingRecord · 可追溯分块与模型"]
+  n0 -->|"拥有"| n1
+  n1 -->|"包含"| n2
+  n2 -->|"版本"| n3
+  n3 -->|"附件"| n4
+  n3 -->|"授权"| n5
+  n5 -->|"指定"| n6
+  n6 -->|"成员"| n7
+  n0 -->|"账号"| n7
+  n7 -->|"有效关系"| n8
+  n8 -->|"课程范围"| n9
+  n3 -->|"索引"| n10
+  n10 -->|"产出"| n11

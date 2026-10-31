@@ -1,0 +1,159 @@
+@page "/education/learning-reports"
+@attribute [Authorize(EducationPermissions.AnalysisManage)]
+@inherits KnowPulseComponentBase
+@using KnowPulse.Education
+@using System.Text.Json
+@using Volo.Abp.Application.Dtos
+@inject IEducationLearningReportAppService Reports
+@inject IEducationSchoolAppService Schools
+@inject IEducationCurriculumAppService Curriculum
+@inject IJSRuntime JS
+@inject Volo.Abp.Users.ICurrentUser Account
+@inject Volo.Abp.MultiTenancy.ICurrentTenant Tenant
+
+<PageTitle>@L["EducationReport:Title"]</PageTitle>
+<NavigationLock ConfirmExternalNavigation="@(Pending != null)" OnBeforeInternalNavigation="LeaveAsync" />
+<h1 class="h4">@L["EducationReport:Title"]</h1>
+<p class="text-muted">@L["EducationReport:Description"]</p>
+@if (Error != null) { <div class="alert alert-danger" role="alert">@Error</div> }
+@if (Pending != null)
+{
+    <div class="alert alert-info" role="status">@L["EducationReport:Pending"]
+        <button class="btn btn-sm btn-outline-primary" disabled="@Busy" @onclick="RecoverCommandAsync">@L["EducationGrading:Recover"]</button>
+        <button class="btn btn-sm btn-outline-primary" disabled="@Busy" @onclick="(() => RunAsync(SendAsync))">@L["EducationReport:RetryCommand"]</button><button class="btn btn-sm btn-outline-secondary" disabled="@Busy" @onclick="AbandonAsync">@L["EducationReport:Abandon"]</button>
+    </div>
+}
+<fieldset disabled="@(Busy || Pending != null || !StorageReady)" class="card card-body mb-3">
+    <label for="report-selection" class="form-label">@L["EducationGeneration:Selection"]</label>
+    <select id="report-selection" class="form-select" @bind="SelectionText" @bind:after="SelectionChangedAsync"><option value="">@L["EducationCurriculum:Choose"]</option>@foreach (var choice in Choices) { <option value="@choice.Selection.Id">@choice.Label</option> }</select>
+    @if (Book != null)
+    {
+        <div class="d-flex flex-wrap gap-3 my-3" role="group" aria-label="@L["EducationGeneration:Mappings"]">
+            @foreach (var mapping in Book.Mappings)
+            { <label><input class="form-check-input" type="checkbox" checked="@Mappings.Contains(mapping.Id)" @onchange="e => Toggle(mapping.Id, e)" /> @mapping.KnowledgePointCode · @mapping.KnowledgePointName</label> }
+        </div>
+    }
+    <div class="d-flex flex-wrap gap-3 align-items-end">
+        <label>@L["EducationReport:From"]<input class="form-control" type="datetime-local" @bind="From" /></label>
+        <label>@L["EducationReport:To"]<input class="form-control" type="datetime-local" @bind="To" /></label>
+        <button class="btn btn-primary" disabled="@(Choice == null || Mappings.Count == 0)" @onclick="CreateAsync">@L["EducationReport:Generate"]</button>
+    </div>
+    <p class="small text-muted mb-0 mt-2">@L["EducationReport:WindowHint"]</p>
+</fieldset>
+@if (Saved.Count > 0)
+{
+    <div class="d-flex flex-wrap gap-2 mb-3">@foreach (var saved in Saved) { <button class="btn btn-sm btn-outline-secondary" disabled="@(Busy || Pending != null || !StorageReady)" @onclick="(() => OpenAsync(saved.Id))">@Local(saved.WindowStartsAtUtc) – @Local(saved.WindowEndsAtUtc) · @L["EducationReport:Generation", saved.Generation]</button> }</div>
+}
+@if (Choice != null && SavedTotal > PageSize)
+{ <div class="d-flex gap-2 mb-3"><button class="btn btn-sm btn-outline-secondary" disabled="@(Busy || Pending != null || SavedOffset == 0)" @onclick="(() => SavedPageAsync(-1))">@L["EducationPaper:Previous"]</button><button class="btn btn-sm btn-outline-secondary" disabled="@(Busy || Pending != null || SavedOffset + PageSize >= SavedTotal)" @onclick="(() => SavedPageAsync(1))">@L["EducationPaper:Next"]</button></div> }
+@if (Report is { } report)
+{
+    <div class="card card-body mb-3">
+        <div class="d-flex flex-wrap gap-2 align-items-center"><strong>@L["EducationReport:Generation", report.Generation]</strong><button class="btn btn-sm btn-outline-secondary" disabled="@Busy" @onclick="(() => OpenAsync(report.Id))">@L["EducationReport:Reload"]</button>
+            <button class="btn btn-sm btn-outline-primary" disabled="@(Busy || Pending != null || Choice == null || Mappings.Count == 0)" @onclick="RefreshAsync">@L["EducationReport:Recompute"]</button>
+            @if (report.CurrentJob is { Status: EducationLearningReportJobStatus.Failed, CapacityExceeded: false }) { <button class="btn btn-sm btn-outline-primary" disabled="@(Busy || Pending != null || !StorageReady)" @onclick="RetryJobAsync">@L["EducationReport:RecoverJob"]</button> }
+        </div>
+        @if (report.CurrentJob is { } job) { <p class="small mt-2 mb-0" role="status">@L[$"EducationReport:Job:{(int)job.Status}"] · @job.CompletedStudentCount / @job.StudentCount · @L["EducationReport:Attempts", job.AttemptCount] @if (job.Status == EducationLearningReportJobStatus.Failed) { <span> · @L[$"EducationReport:Stage:{(int)job.FailureStage}"]</span> } @if (job.CapacityExceeded) { <span> · @L["EducationReport:Capacity"]</span> }</p> }
+        @if (!report.SourceIsCurrent) { <p class="text-warning mt-2 mb-0" role="status">@L[report.ScopeNeedsUpdate ? "EducationReport:ScopeChanged" : "EducationReport:Stale"]</p> }
+    </div>
+    @if (report.Summary is { } summary && report.CurrentSnapshotId is Guid snapshot)
+    {
+        <h2 class="h5">@summary.SchoolClassName · @summary.SubjectName · @summary.TextbookTitle</h2>
+        <p><a href="@TrendUrl(report, snapshot)">@L["EducationTrend:ClassLink"]</a></p>
+        <p class="small">@L["EducationReport:From"] @Local(report.WindowStartsAtUtc) → @L["EducationReport:To"] @Local(report.WindowEndsAtUtc)</p>
+        <p class="small text-muted">@L["EducationReport:Snapshot", report.SnapshotGeneration!, Local(summary.CalculatedAtUtc)] · @summary.CalculationVersion</p>
+        @if (summary.RuleMissing) { <p class="alert alert-info">@L["EducationReport:NoRule"]</p> }
+        else if (report.Rule is { } rule) { <p class="small">@L["EducationReport:Rule", rule.RevisionNumber, rule.MinimumIndependentQuestionCount, rule.MinimumAssessmentCount, rule.MaximumLatestEvidenceAgeDays, Ratio(rule.TargetRatio)]</p> }
+        <div class="table-responsive"><table class="table table-sm"><caption>@L["EducationReport:Points"]</caption><thead><tr><th>@L["EducationGeneration:Mappings"]</th><th>@L["EducationReport:Ratio"]</th><th>@L["EducationReport:Unassessed"]</th><th>@L["EducationReport:Insufficient"]</th><th>@L["EducationReport:Consolidate"]</th><th>@L["EducationReport:Met"]</th></tr></thead><tbody>@foreach (var point in summary.Points) { <tr><td>@point.Point.Code · @point.Point.Name</td><td>@Ratio(point.Ratio) (@point.ObtainedScore / @point.MaxScore)</td><td>@point.UnassessedCount</td><td>@point.InsufficientEvidenceCount</td><td>@point.NeedsConsolidationCount</td><td>@point.CurrentTargetMetCount</td></tr> }</tbody></table></div>
+        <div class="table-responsive"><table class="table table-sm"><caption>@L["EducationReport:Students", StudentTotal]</caption><thead><tr><th>@L["EducationReport:Student"]</th><th>@L["EducationReport:Scored"]</th><th>@L["EducationReport:PendingGrade"]</th><th>@L["EducationReport:Absent"]</th><th>@L["EducationReport:NotStarted"]</th><th>@L["EducationReport:Consolidate"] / @L["EducationReport:Insufficient"]</th></tr></thead><tbody>@foreach (var person in People) { <tr><td><button class="btn btn-link btn-sm p-0" disabled="@Busy" @onclick="(() => StudentAsync(person.Student.StudentUserId))">@person.Student.StudentName (@person.Student.AccountName)</button></td><td>@person.ScoredCount</td><td>@person.PendingGradingCount</td><td>@person.AbsentCount</td><td>@person.NotStartedCount</td><td>@person.NeedsConsolidationCount / @person.InsufficientEvidenceCount</td></tr> }</tbody></table></div>
+        <div class="d-flex gap-2 mb-3"><button class="btn btn-sm btn-outline-secondary" disabled="@(Busy || StudentOffset == 0)" @onclick="(() => StudentPageAsync(-1))">@L["EducationPaper:Previous"]</button><button class="btn btn-sm btn-outline-secondary" disabled="@(Busy || StudentOffset + PageSize >= StudentTotal)" @onclick="(() => StudentPageAsync(1))">@L["EducationPaper:Next"]</button></div>
+        @if (Student is { } detail)
+        {
+            <h3 class="h5">@detail.Student.StudentName</h3>
+            <p><a href="@TrendUrl(report, snapshot, detail.Student.StudentUserId)">@L["EducationTrend:StudentLink"]</a></p>
+            <AuthorizeView Policy="@EducationPermissions.TeachingPlanGenerate"><Authorized><p><a href="@($"/education/teaching-plan-generation?reportId={report.Id}&snapshotId={snapshot}&studentId={detail.Student.StudentUserId}")">@L["EducationPlanGeneration:FromReport"]</a></p></Authorized></AuthorizeView>
+            <AuthorizeView Policy="@EducationPermissions.TeachingPlanManage"><Authorized><p><a href="@($"/education/teaching-plans?reportId={report.Id}&snapshotId={snapshot}&studentId={detail.Student.StudentUserId}")">@L["EducationPlan:DraftFromStudent"]</a></p></Authorized></AuthorizeView>
+            <p class="small text-muted">@L["EducationReport:TeacherOnly"]</p>
+            <div class="table-responsive"><table class="table table-sm"><caption>@L["EducationReport:Assessments"]</caption><thead><tr><th>@L["EducationReport:Task"]</th><th>@L["EducationReport:State"]</th><th>@L["EducationReport:Score"]</th><th>@L["EducationReport:Confirmed"]</th></tr></thead><tbody>@foreach (var result in detail.Assessments) { <tr><td><a href="@($"/education/assessment-grading/{result.TaskId}")">@summary.Assessments.FirstOrDefault(x => x.TaskId == result.TaskId)?.Title</a></td><td>@L[$"EducationReport:Assessment:{(int)result.State}"]</td><td>@(result.TotalScore?.ToString() ?? "—") / @result.MaxScore</td><td>@result.ConfirmedQuestionCount / @result.QuestionCount</td></tr> }</tbody></table></div>
+            <p class="small text-muted">@L["EducationReport:ComparisonHint"]</p>
+            @foreach (var point in detail.Analysis.Points)
+            {
+                <div class="border rounded p-2 mb-2"><strong>@point.Point.Code · @point.Point.Name</strong> · @L[$"EducationReport:Mastery:{(int)point.State}"] · @Ratio(point.Ratio) (@point.ObtainedScore / @point.MaxScore)
+                    <p class="small mb-1">@L["EducationReport:EvidenceCounts", point.IndependentQuestionCount, point.AssessmentCount, point.UnverifiedQuestionCount, point.PracticeQuestionCount, point.InvalidQuestionCount]</p>
+                    <button class="btn btn-sm btn-outline-secondary" disabled="@Busy" @onclick="(() => RunAsync(() => BasisAsync(point.Point.KnowledgePointRevisionId, 0)))">@L["EducationReport:Basis"]</button>
+                </div>
+            }
+            @if (BasisPoint != Guid.Empty)
+            {
+                <h4 class="h6">@L["EducationReport:Basis"]</h4>
+                <ul>@foreach (var basis in Basis) { <li><a href="@($"/education/evidence/{basis.QuestionGradeId}")">@Local(basis.EffectiveAtUtc) · @basis.ObtainedScore / @basis.MaxScore</a> · @L[$"EducationReport:Exclusion:{(int)basis.ExclusionReason}"]</li> }</ul>
+                <div class="d-flex gap-2"><button class="btn btn-sm btn-outline-secondary" disabled="@(Busy || BasisOffset == 0)" @onclick="(() => RunAsync(() => BasisAsync(BasisPoint, BasisOffset - PageSize)))">@L["EducationPaper:Previous"]</button><button class="btn btn-sm btn-outline-secondary" disabled="@(Busy || BasisOffset + PageSize >= BasisTotal)" @onclick="(() => RunAsync(() => BasisAsync(BasisPoint, BasisOffset + PageSize)))">@L["EducationPaper:Next"]</button></div>
+            }
+        }
+    }
+}
+
+@code {
+    private const int PageSize = 20;
+    private static string TrendUrl(EducationLearningReportDto report, Guid snapshot, Guid? student = null) => $"/education/learning-trends?reportId={report.Id}&snapshotId={snapshot}&schoolId={report.SchoolId}&teachingAssignmentId={report.TeachingAssignmentId}" + (student.HasValue ? $"&studentUserId={student}" : "");
+    private bool Busy, StorageAttempted, StorageReady; private string? Error; private string SelectionText = ""; private TextbookVersionDto? Book;
+    private DateTime From = DateTime.Now.AddDays(-30), To = DateTime.Now;
+    private List<ChoiceItem> Choices = []; private HashSet<Guid> Mappings = []; private List<EducationLearningReportListDto> Saved = [];
+    private long SavedTotal, StudentTotal, BasisTotal; private int SavedOffset, StudentOffset, BasisOffset;
+    private EducationLearningReportDto? Report; private EducationLearningReportStudentResult? Student;
+    private List<EducationLearningReportStudentSummary> People = []; private List<EducationLearningReportBasisDto> Basis = []; private Guid BasisPoint;
+    private Command? Pending;
+    private ChoiceItem? Choice => Choices.FirstOrDefault(x => x.Selection.Id.ToString() == SelectionText);
+    private string StorageKey => $"knowpulse-report-v1:{Tenant.Id}:{Account.Id}";
+    private EducationCurriculumScopeDto Scope() => new() { TeacherTextbookSelectionId = Choice!.Selection.Id, TextbookKnowledgePointMappingIds = Mappings.Order().ToList() };
+    protected override Task OnInitializedAsync() => RunAsync(async () => {
+        foreach (var school in (await Schools.GetMySchoolsAsync()).Items.Where(x => x.Roles.Contains(SchoolMemberRole.Teacher))) {
+            var context = await Curriculum.GetContextAsync(school.Id);
+            foreach (var selection in (await Curriculum.GetMySelectionsAsync(school.Id)).Items.Where(x => x.EndedAtUtc == null && x.TextbookStatus == TextbookVersionStatus.Published))
+                if (context.TeachingContexts.FirstOrDefault(x => x.Id == selection.TeachingAssignmentId) is { } assignment)
+                    Choices.Add(new(selection, $"{school.Name} · {assignment.TermName} · {assignment.ClassName} · {assignment.SubjectName} · {selection.TextbookTitle}"));
+        }
+    });
+    protected override async Task OnAfterRenderAsync(bool firstRender) {
+        if (StorageAttempted || Busy) return; StorageAttempted = true;
+        await RunAsync(async () => { var saved = await JS.InvokeAsync<string?>("sessionStorage.getItem", StorageKey); if (saved != null) {
+            var command = JsonSerializer.Deserialize<Command>(saved); if (command == null || !Matches(command)) throw new InvalidOperationException(L["EducationGrading:NoReceipt"]);
+            Pending = command;
+        } StorageReady = true; }); StateHasChanged();
+    }
+    private Task SelectionChangedAsync() => RunAsync(async () => { Report = null; Student = null; People.Clear(); Mappings.Clear(); Book = null; Saved.Clear(); SavedOffset = 0; if (Choice is { } choice) { Book = await Curriculum.GetTextbookAsync(choice.Selection.TextbookVersionId); await LoadSavedAsync(); } });
+    private async Task LoadSavedAsync() { if (Choice == null) return; var page = await Reports.GetListAsync(Choice.Selection.TeachingAssignmentId, new() { SkipCount = SavedOffset, MaxResultCount = PageSize }); Saved = page.Items.ToList(); SavedTotal = page.TotalCount; }
+    private Task SavedPageAsync(int step) => RunAsync(async () => { SavedOffset += step * PageSize; await LoadSavedAsync(); });
+    private void Toggle(Guid id, ChangeEventArgs args) { if (args.Value is true) Mappings.Add(id); else Mappings.Remove(id); }
+    private Task OpenAsync(Guid id) => RunAsync(() => LoadAsync(id));
+    private async Task LoadAsync(Guid id) { Report = null; Student = null; People.Clear(); Basis.Clear(); BasisPoint = Guid.Empty; var report = await Reports.GetAsync(id); Report = report; StudentOffset = 0; if (report.CurrentSnapshotId.HasValue) await LoadPeopleAsync(); }
+    private async Task LoadPeopleAsync() { var page = await Reports.GetStudentsAsync(Report!.Id, Report.CurrentSnapshotId!.Value, new() { SkipCount = StudentOffset, MaxResultCount = PageSize }); People = page.Items.ToList(); StudentTotal = page.TotalCount; }
+    private Task StudentPageAsync(int step) => RunAsync(async () => { People.Clear(); StudentOffset += step * PageSize; await LoadPeopleAsync(); });
+    private Task StudentAsync(Guid id) => RunAsync(async () => { Student = null; Basis.Clear(); BasisPoint = Guid.Empty; Student = await Reports.GetStudentAsync(Report!.Id, Report.CurrentSnapshotId!.Value, id); });
+    private async Task BasisAsync(Guid point, int offset) {
+        Basis.Clear(); BasisPoint = point; BasisOffset = offset;
+        var page = await Reports.GetPointEvidenceAsync(Report!.Id, Report.CurrentSnapshotId!.Value, Student!.Student.StudentUserId, point, new() { SkipCount = offset, MaxResultCount = PageSize }); Basis = page.Items.ToList(); BasisTotal = page.TotalCount;
+    }
+    private Task CreateAsync() => RunAsync(async () => {
+        var op = Guid.NewGuid(); await StartAsync(new() { Kind = "create", ReportId = op, Request = new() { OperationId = op, Scope = Scope(), WindowStartsAtUtc = DateTime.SpecifyKind(From, DateTimeKind.Local).ToUniversalTime(), WindowEndsAtUtc = DateTime.SpecifyKind(To, DateTimeKind.Local).ToUniversalTime() } });
+    });
+    private Task RefreshAsync() => RunAsync(() => StartAsync(new() { Kind = "refresh", ReportId = Report!.Id, Refresh = new() { OperationId = Guid.NewGuid(), Scope = Scope(), ConcurrencyStamp = Report.ConcurrencyStamp, ExpectedCurrentJobId = Report.CurrentJob!.Id } }));
+    private Task RetryJobAsync() => RunAsync(() => StartAsync(new() { Kind = "recover", ReportId = Report!.Id, Recovery = new() { OperationId = Guid.NewGuid(), ConcurrencyStamp = Report.ConcurrencyStamp, ExpectedCurrentJobId = Report.CurrentJob!.Id } }));
+    private async Task StartAsync(Command command) { if (Pending != null || !StorageReady) return; command.TenantId = Tenant.Id; command.AccountId = Account.Id; await JS.InvokeVoidAsync("sessionStorage.setItem", StorageKey, JsonSerializer.Serialize(command)); Pending = command; await SendAsync(); }
+    private bool Matches(Command command) => command.ReportId != Guid.Empty && command.OperationId != Guid.Empty && command.TenantId == Tenant.Id && command.AccountId == Account.Id &&
+        (command.Kind == "create" && command.Request != null && command.Refresh == null && command.Recovery == null && command.ReportId == command.Request.OperationId ||
+         command.Kind == "refresh" && command.Refresh != null && command.Request == null && command.Recovery == null || command.Kind == "recover" && command.Recovery != null && command.Request == null && command.Refresh == null);
+    private async Task SendAsync() {
+        if (Pending is not { } op || !Matches(op)) throw new InvalidOperationException(L["EducationGrading:NoReceipt"]);
+        var result = op.Kind switch { "create" => await Reports.RequestAsync(op.Request!), "refresh" => await Reports.RefreshAsync(op.ReportId, op.Refresh!), _ => await Reports.RecoverAsync(op.ReportId, op.Recovery!) }; await CompleteAsync(result);
+    }
+    private Task RecoverCommandAsync() => RunAsync(async () => { if (Pending is not { } op || !Matches(op)) return; var receipt = await Reports.GetOperationAsync(op.ReportId, op.OperationId); if (receipt == null) Error = L["EducationReport:NoReceipt"]; else await CompleteAsync(receipt); });
+    private async Task CompleteAsync(EducationLearningReportJobDto receipt) { if (Pending == null || receipt.Id != Pending.OperationId || receipt.ReportId != Pending.ReportId) throw new InvalidOperationException(L["EducationGrading:NoReceipt"]); await JS.InvokeVoidAsync("sessionStorage.removeItem", StorageKey); Pending = null; await LoadAsync(receipt.ReportId); await LoadSavedAsync(); }
+    private Task AbandonAsync() => RunAsync(async () => { if (await JS.InvokeAsync<bool>("confirm", L["EducationReport:AbandonHint"].Value)) { await JS.InvokeVoidAsync("sessionStorage.removeItem", StorageKey); Pending = null; StorageReady = true; Report = null; Student = null; People.Clear(); await LoadSavedAsync(); } });
+    private async Task RunAsync(Func<Task> action) { if (Busy) return; Busy = true; Error = null; try { await action(); } catch (Exception ex) { Report = null; Student = null; People.Clear(); Basis.Clear(); Error = GetUserFriendlyErrorMessage(ex); } finally { Busy = false; } }
+    private async Task LeaveAsync(Microsoft.AspNetCore.Components.Routing.LocationChangingContext context) { if (Pending != null && !await JS.InvokeAsync<bool>("confirm", L["EducationGrading:Discard"].Value)) context.PreventNavigation(); }
+    private static string Local(DateTime value) => value.ToLocalTime().ToString("yyyy-MM-dd HH:mm");
+    private static string Ratio(decimal? value) => value?.ToString("P1") ?? "—";
+    private sealed record ChoiceItem(TeacherTextbookSelectionDto Selection, string Label);
+    private sealed class Command { public string Kind { get; set; } = ""; public Guid ReportId { get; set; } public Guid? TenantId { get; set; } public Guid? AccountId { get; set; } public RequestEducationLearningReportDto? Request { get; set; } public RefreshEducationLearningReportDto? Refresh { get; set; } public RecoverEducationLearningReportDto? Recovery { get; set; } public Guid OperationId => Request?.OperationId ?? Refresh?.OperationId ?? Recovery?.OperationId ?? Guid.Empty; }
+}

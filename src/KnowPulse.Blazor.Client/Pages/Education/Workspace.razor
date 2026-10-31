@@ -1,0 +1,176 @@
+@page "/education/workspace"
+@attribute [Authorize]
+@inherits KnowPulseComponentBase
+@implements IDisposable
+@using KnowPulse.Education
+@using System.Security.Claims
+@using Volo.Abp.Security.Claims
+@inject IEducationSchoolAppService Schools
+@inject AuthenticationStateProvider Authentication
+
+<PageTitle>@L["EducationWorkspace:Title"]</PageTitle>
+<p><a href="/account/assistance">@L["AccountHelp:Title"]</a></p>
+<p><a href="/education/invitations">@L["SchoolInvites:Mine"]</a></p>
+<section class="education-workspace" aria-busy="@Busy.ToString().ToLowerInvariant()">
+    <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+        <div><h1 class="h4">@L["EducationWorkspace:Title"]</h1><p class="text-muted">@L["EducationWorkspace:Introduction"]</p></div>
+        <button class="btn btn-outline-primary" disabled="@Busy" @onclick="ReloadAsync">@L["EducationWorkspace:Refresh"]</button>
+    </div>
+    @if (Busy) { <p role="status">@L["EducationWorkspace:Loading"]</p> }
+    @if (Error != null) { <p class="alert alert-danger" role="alert">@Error</p> }
+    @if (Snapshot != null)
+    {
+        @if (HasPermission(KnowPulsePermissions.KnowledgeBase.PersonalLibrary))
+        {
+            <div class="card mb-3"><div class="card-body">
+                <h2 class="h5">@L["EducationWorkspace:PersonalLibrary"]</h2><p>@L["EducationWorkspace:PersonalLibraryHint"]</p>
+                <a class="btn btn-outline-primary" href="/my-knowledge">@L["EducationWorkspace:OpenPersonalLibrary"]</a>
+            </div></div>
+        }
+        @if (Snapshot.ManagedSchoolIds.Count > 0 && HasPermission(EducationPermissions.SchoolManage))
+        {
+            <p><a href="/education/schools">@L["EducationWorkspace:ManageSchools"]</a></p>
+        }
+        @if (Snapshot.Workspaces.Count == 0)
+        {
+            <p class="alert alert-info" role="status">@L["EducationWorkspace:NoIdentity"]</p>
+        }
+        else
+        {
+            <fieldset class="mb-3">
+                <legend class="h5">@L["EducationWorkspace:ChooseRole"]</legend>
+                <div class="d-flex flex-wrap gap-2">
+                    @foreach (var role in Snapshot.Workspaces.Select(x => x.Role).Distinct().Order())
+                    {
+                        <button type="button" class="btn @(SelectedRole == role ? "btn-primary" : "btn-outline-primary")" disabled="@Busy"
+                                aria-pressed="@((SelectedRole == role).ToString().ToLowerInvariant())" @onclick="(() => LoadAsync(role))">@RoleName(role)</button>
+                    }
+                </div>
+            </fieldset>
+            @if (SelectedRole.HasValue)
+            {
+                <h2 class="h5">@RoleName(SelectedRole.Value)</h2>
+                <div class="workspace-schools mb-3">
+                    @foreach (var workspace in Snapshot.Workspaces.Where(x => x.Role == SelectedRole))
+                    {
+                        @if (workspace.Role == SchoolMemberRole.Teacher) { <p><a href="@($"/education/schools/{workspace.SchoolId}/relation-requests")">@L["RelationRequests:Title"]</a></p> }
+                        <section class="card" aria-labelledby="@($"workspace-{workspace.SchoolId:N}")"><div class="card-body">
+                            <h3 id="@($"workspace-{workspace.SchoolId:N}")" class="h6">@workspace.SchoolName</h3>
+                            @if (SelectedRole == SchoolMemberRole.Student && (HasPermission(EducationPermissions.AssessmentParticipate) || HasPermission(EducationPermissions.FeedbackView) || HasPermission(EducationPermissions.TeachingPlanView))) { <a class="btn btn-sm btn-outline-primary" href="@($"/education/inbox/{workspace.SchoolId}")">@L["EducationInbox:Title"]</a> }
+                            @if (workspace.Classes.Count == 0) { <p class="mb-0">@L[SelectedRole == SchoolMemberRole.Teacher ? "EducationWorkspace:NoTeaching" : "EducationWorkspace:NoEnrollment"]</p> }
+                            else
+                            {
+                                <ul class="workspace-classes">
+                                    @foreach (var schoolClass in workspace.Classes)
+                                    {
+                                        <li><strong>@schoolClass.ClassName</strong><span>@schoolClass.AcademicTermName</span>
+                                            @if (schoolClass.SubjectName != null) { <span>@schoolClass.SubjectName</span> }
+                                        </li>
+                                    }
+                                </ul>
+                            }
+                        </div></section>
+                    }
+                </div>
+                @if (ActiveClasses)
+                {
+                    <nav class="workspace-actions" aria-label="@L["EducationWorkspace:Actions"]">
+                        @if (SelectedRole == SchoolMemberRole.Teacher)
+                        {
+                            @if (HasPermission(EducationPermissions.AssessmentManage)) { <a class="btn btn-outline-primary" href="/education/assessment-tasks">@L["EducationWorkspace:Assessments"]</a> }
+                            @if (HasPermission(EducationPermissions.LearningManage)) { <a class="btn btn-outline-primary" href="/education/study-tasks">@L["EducationWorkspace:StudyTasks"]</a> }
+                            @if (HasPermission(EducationPermissions.FeedbackManage)) { <a class="btn btn-outline-primary" href="/education/feedback">@L["EducationWorkspace:Feedback"]</a> }
+                            @if (HasPermission(EducationPermissions.AnalysisManage)) { <a class="btn btn-outline-primary" href="/education/learning-reports">@L["EducationWorkspace:Reports"]</a> }
+                            @if (HasPermission(EducationPermissions.TeachingPlanManage, EducationPermissions.AnalysisManage)) { <a class="btn btn-outline-primary" href="/education/teaching-plans">@L["EducationWorkspace:Plans"]</a> }
+                            @if (HasPermission(EducationPermissions.AssessmentManage, EducationPermissions.LearningManage)) { <a class="btn btn-outline-primary" href="/education/corrections">@L["EducationWorkspace:Corrections"]</a> }
+                        }
+                        else
+                        {
+                            @if (HasPermission(EducationPermissions.AssessmentParticipate)) { <a class="btn btn-outline-primary" href="/education/assessment-results">@L["EducationWorkspace:MyAssessments"]</a> <a class="btn btn-outline-primary" href="/education/growth">@L["EducationWorkspace:MyGrowth"]</a> }
+                            @if (HasPermission(EducationPermissions.LearningParticipate)) { <a class="btn btn-outline-primary" href="/education/workload">@L["EducationWorkspace:MySchedule"]</a> <a class="btn btn-outline-primary" href="/education/study-tasks/my">@L["EducationWorkspace:MyStudyTasks"]</a> }
+                            @if (HasPermission(EducationPermissions.FeedbackView)) { <a class="btn btn-outline-primary" href="/education/feedback/my">@L["EducationWorkspace:MyFeedback"]</a> }
+                            @if (HasPermission(EducationPermissions.TeachingPlanView)) { <a class="btn btn-outline-primary" href="/education/teaching-plans/my">@L["EducationWorkspace:MyPlans"]</a> }
+                            @if (HasPermission(EducationPermissions.AssessmentParticipate, EducationPermissions.LearningParticipate)) { <a class="btn btn-outline-primary" href="/education/corrections/my">@L["EducationWorkspace:MyCorrections"]</a> <a class="btn btn-outline-primary" href="/education/practice">@L["EducationWorkspace:MyPractice"]</a> }
+                            @if (HasPermission(EducationPermissions.AssessmentParticipate, EducationPermissions.LearningParticipate)) { <a class="btn btn-outline-primary" href="/education/question-collections">@L["EducationCollection:Title"]</a> }
+                        }
+                    </nav>
+                    @if (!HasRoleActions) { <p class="alert alert-info">@L["EducationWorkspace:NoPermissions"]</p> }
+                }
+                @if (SelectedRole == SchoolMemberRole.Student && HasPermission(KnowPulsePermissions.KnowledgeBase.PersonalLibrary))
+                {
+                    <p class="mt-3"><a href="/education/notebook">@L["EducationWorkspace:MyNotebook"]</a></p>
+                }
+            }
+        }
+        <p class="small text-muted mt-3">@L["EducationWorkspace:ObservedAt", Snapshot.ObservedAtUtc.ToString("yyyy-MM-dd HH:mm:ss")]</p>
+    }
+</section>
+
+@code {
+    private EducationWorkspaceDto? Snapshot;
+    private SchoolMemberRole? SelectedRole;
+    private bool Busy, Disposed;
+    private string? Error;
+    private int Generation;
+    private bool ActiveClasses => Snapshot?.Workspaces.Any(x => x.Role == SelectedRole && x.Classes.Count > 0) == true;
+    private bool HasRoleActions => SelectedRole == SchoolMemberRole.Teacher
+        ? HasPermission(EducationPermissions.AssessmentManage) || HasPermission(EducationPermissions.LearningManage) || HasPermission(EducationPermissions.FeedbackManage) || HasPermission(EducationPermissions.AnalysisManage)
+        : HasPermission(EducationPermissions.AssessmentParticipate) || HasPermission(EducationPermissions.LearningParticipate) || HasPermission(EducationPermissions.FeedbackView) || HasPermission(EducationPermissions.TeachingPlanView);
+    private bool HasPermission(params string[] permissions) => Snapshot != null && permissions.All(Snapshot.GrantedPermissions.Contains);
+    private string RoleName(SchoolMemberRole role) => L[role == SchoolMemberRole.Teacher ? "EducationWorkspace:Teacher" : "EducationWorkspace:Student"];
+    protected override async Task OnInitializedAsync()
+    {
+        Authentication.AuthenticationStateChanged += AccountChanged;
+        await LoadAsync(null);
+    }
+    private Task ReloadAsync() => LoadAsync(SelectedRole);
+    private async Task LoadAsync(SchoolMemberRole? preferredRole)
+    {
+        var generation = ++Generation;
+        Busy = true; Error = null; Snapshot = null; SelectedRole = null;
+        try
+        {
+            var principal = (await Authentication.GetAuthenticationStateAsync()).User;
+            var identity = IdentityKey(principal);
+            if (identity == null) return;
+            var result = await Schools.GetMyWorkspaceAsync();
+            var current = (await Authentication.GetAuthenticationStateAsync()).User;
+            if (Disposed || generation != Generation) return;
+            if (identity != IdentityKey(current) || identity != $"{result.TenantId?.ToString("N") ?? "host"}:{result.AccountUserId:N}")
+            {
+                Error = L["EducationWorkspace:AccountChanged"]; return;
+            }
+            Snapshot = result;
+            var roles = result.Workspaces.Select(x => x.Role).Distinct().ToList();
+            SelectedRole = preferredRole.HasValue && roles.Contains(preferredRole.Value) ? preferredRole : roles.Count == 1 ? roles[0] : null;
+        }
+        catch (Exception ex)
+        {
+            if (!Disposed && generation == Generation) Error = GetUserFriendlyErrorMessage(ex);
+        }
+        finally { if (!Disposed && generation == Generation) Busy = false; }
+    }
+    private static string? IdentityKey(ClaimsPrincipal principal)
+    {
+        if (principal.Identity?.IsAuthenticated != true || !Guid.TryParse(principal.FindFirst(AbpClaimTypes.UserId)?.Value, out var userId)) return null;
+        var tenant = principal.FindFirst(AbpClaimTypes.TenantId)?.Value;
+        if (tenant != null && !Guid.TryParse(tenant, out _)) return null;
+        return $"{(tenant == null ? "host" : Guid.Parse(tenant).ToString("N"))}:{userId:N}";
+    }
+    private void AccountChanged(Task<AuthenticationState> state)
+    {
+        if (!Disposed) _ = InvokeAsync(async () =>
+        {
+            if (Disposed) return;
+            var load = LoadAsync(null);
+            StateHasChanged();
+            await load;
+            if (!Disposed) StateHasChanged();
+        });
+    }
+    public void Dispose()
+    {
+        Disposed = true; Generation++; Snapshot = null;
+        Authentication.AuthenticationStateChanged -= AccountChanged;
+    }
+}

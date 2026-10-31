@@ -22,6 +22,17 @@ public class QuestionSource : FullAuditedEntity<Guid>, IMultiTenant
 
     public Guid? ChunkId { get; private set; }
 
+    public Guid? SchoolKnowledgeShareId { get; private set; }
+    public string CurriculumBindingIdsJson { get; private set; } = "[]";
+    public string TextbookKnowledgePointMappingIdsJson { get; private set; } = "[]";
+
+    public void SetCurriculumReferences(string bindingIdsJson, string mappingIdsJson, Guid? schoolKnowledgeShareId)
+    {
+        CurriculumBindingIdsJson = Check.NotNullOrWhiteSpace(bindingIdsJson, nameof(bindingIdsJson), Question.MaxCurriculumJsonLength);
+        TextbookKnowledgePointMappingIdsJson = Check.NotNullOrWhiteSpace(mappingIdsJson, nameof(mappingIdsJson), Question.MaxCurriculumJsonLength);
+        SchoolKnowledgeShareId = schoolKnowledgeShareId;
+    }
+
     public string? SourceTitle { get; private set; }
 
     public string? SourceExcerpt { get; private set; }

@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -9,6 +10,25 @@ namespace KnowPulse.KnowledgeBase;
 /// </summary>
 public static class KnowledgeAccessEvaluator
 {
+    /// <summary>
+    /// 个人资料始终受所有者边界约束，空范围或全员范围不能扩大其访问人群。
+    /// 租户与库归属一致性由调用方根据主库事实另行验证。
+    /// </summary>
+    public static bool CanAccess(
+        KnowledgeItem item,
+        IEnumerable<KnowledgePermissionScope> scopes,
+        KnowledgeAccessContext context)
+    {
+        if (item.LibraryId.HasValue || item.OwnerUserId.HasValue)
+        {
+            return item.LibraryId.HasValue && item.LibraryId != Guid.Empty &&
+                   item.OwnerUserId.HasValue && item.OwnerUserId != Guid.Empty &&
+                   item.OwnerUserId == context.UserId;
+        }
+
+        return CanAccess(scopes, context);
+    }
+
     /// <summary>
     /// 判断当前上下文是否可以访问某个知识文档。
     /// 没有任何启用范围时按 MVP-0 规则视为默认可见；一旦配置了启用范围，则至少命中一条规则才可见。

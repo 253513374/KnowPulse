@@ -1,0 +1,579 @@
+@page "/education/schools"
+@attribute [Authorize]
+@inherits KnowPulseComponentBase
+@using KnowPulse.Education
+@using System.Globalization
+@inject IEducationSchoolAppService SchoolAppService
+@inject IPermissionChecker PermissionChecker
+@inject IJSRuntime JSRuntime
+
+<PageTitle>@L["EducationSchools:Title"]</PageTitle>
+<div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
+    <div><h1>@L["EducationSchools:Title"]</h1><p class="text-muted">@L["EducationSchools:Description"]</p></div>
+    <button class="btn btn-outline-secondary" @onclick="RefreshAsync" disabled="@IsBusy">@L["EducationSchools:Refresh"]</button>
+</div>
+@if (ErrorMessage != null)
+{
+    <div class="alert alert-danger" role="alert">@ErrorMessage<div class="small mt-1">@L["EducationSchools:FailureHint"]</div></div>
+}
+@if (SuccessMessage != null)
+{
+    <div class="alert alert-success" role="status">@SuccessMessage</div>
+}
+<div class="row g-3">
+    <aside class="col-lg-3">
+        <div class="card mb-3"><div class="card-body">
+            <h2 class="h5">@L["EducationSchools:MySchools"]</h2>
+            @if (MySchools.Count == 0)
+            {
+                <p class="text-muted">@L["EducationSchools:NoSchools"]</p>
+            }
+            <div class="list-group">
+                @foreach (var school in MySchools)
+                {
+                    <button class="list-group-item list-group-item-action @(SelectedSchool?.Id == school.Id ? "active" : "")"
+                            @onclick="() => SelectSchoolAsync(school)" disabled="@IsBusy" aria-current="@(SelectedSchool?.Id == school.Id ? "true" : null)">
+                        <strong>@school.Name</strong><br /><small>@school.Code · @string.Join(" / ", school.Roles.Select(RoleName))</small>
+                    </button>
+                }
+            </div>
+        </div></div>
+        @if (CanCreate)
+        {
+            <div class="card"><div class="card-body">
+                <h2 class="h5">@L["EducationSchools:CreateSchool"]</h2>
+                <form @onsubmit="CreateSchoolAsync" @onsubmit:preventDefault="true" @oninput="MarkChanged">
+                    <fieldset disabled="@IsBusy">
+                        <label for="school-code" class="form-label">@L["EducationSchools:Code"]</label>
+                        <input id="school-code" class="form-control mb-2" @bind="SchoolForm.Code" required maxlength="64" />
+                        <label for="school-name" class="form-label">@L["EducationSchools:Name"]</label>
+                        <input id="school-name" class="form-control mb-3" @bind="SchoolForm.Name" required maxlength="128" />
+                        <button class="btn btn-primary" type="submit">@L["EducationSchools:CreateSchool"]</button>
+                    </fieldset>
+                </form>
+            </div></div>
+        }
+    </aside>
+    <main class="col-lg-9">
+        @if (SelectedSchool == null)
+        {
+            <div class="card"><div class="card-body text-muted">@L["EducationSchools:SelectSchool"]</div></div>
+        }
+        else if (!CanManageSelected)
+        {
+            <div class="card"><div class="card-body"><h2 class="h4">@SelectedSchool.Name</h2><p class="mb-0">@L["EducationSchools:ManagerRequired"]</p></div></div>
+        }
+        else if (Configuration != null)
+        {
+            <h2 class="h4">@Configuration.School.Name</h2>
+            <p><a href="@($"/education/schools/{Configuration.School.Id}/invitations")">@L["SchoolInvites:Manage"]</a></p>
+            <p><a href="@($"/education/schools/{Configuration.School.Id}/relation-requests?manage=true")">@L["RelationRequests:Manage"]</a></p>
+            <p class="small text-muted">@L["EducationSchools:LocalTimeHint"]</p>
+            <div class="nav nav-pills gap-2 mb-3" aria-label="@L["EducationSchools:Sections"]">
+                @foreach (var tab in new[] { "Configuration", "Memberships", "Teaching", "Enrollments" })
+                {
+                    <button class="nav-link @(Tab == tab ? "active" : "")" type="button" @onclick="() => ChangeTab(tab)" disabled="@IsBusy" aria-current="@(Tab == tab ? "page" : null)">@L[$"EducationSchools:{tab}"]</button>
+                }
+            </div>
+            @if (EndKind != null)
+            {
+                <div class="card border-warning mb-3"><div class="card-body">
+                    <h3 class="h5">@L["EducationSchools:EndRelation"] · @EndDescription</h3>
+                    <p class="small">@L["EducationSchools:EndHint"]</p>
+                    <form @onsubmit="EndRelationAsync" @onsubmit:preventDefault="true" @oninput="MarkChanged">
+                        <fieldset disabled="@IsBusy">
+                            <label for="relation-end" class="form-label">@L["EducationSchools:EndTime"]</label>
+                            <input id="relation-end" class="form-control mb-2" type="datetime-local" value="@EndTime" @onchange="args => EndTime = args.Value?.ToString() ?? string.Empty" required />
+                            <button class="btn btn-warning" type="submit">@L["EducationSchools:ConfirmEnd"]</button>
+                            <button class="btn btn-outline-secondary ms-2" type="button" @onclick="ClearEnd">@L["EducationSchools:Cancel"]</button>
+                        </fieldset>
+                    </form>
+                </div></div>
+            }
+            @if (Tab == "Configuration")
+            {
+                <div class="row g-3">
+                    <div class="col-md-6"><div class="card h-100"><div class="card-body">
+                        <h3 class="h5">@L["EducationSchools:RenameSchool"]</h3>
+                        <form @onsubmit="RenameSchoolAsync" @onsubmit:preventDefault="true" @oninput="MarkChanged"><fieldset disabled="@IsBusy">
+                            <label for="school-rename" class="form-label">@L["EducationSchools:Name"]</label>
+                            <input id="school-rename" class="form-control mb-2" @bind="RenameForm.Name" required maxlength="128" />
+                            <button type="submit" class="btn btn-outline-primary">@L["EducationSchools:Save"]</button>
+                        </fieldset></form>
+                    </div></div></div>
+                    <div class="col-md-6"><div class="card h-100"><div class="card-body">
+                        <h3 class="h5">@L["EducationSchools:Subjects"]</h3>
+                        <p class="small text-muted">@L["EducationSchools:SubjectsHint"]</p>
+                        <p>@string.Join(" / ", Configuration.Subjects.Select(x => $"{x.Name} ({x.Code})"))</p>
+                        <form @onsubmit="CreateSubjectAsync" @onsubmit:preventDefault="true" @oninput="MarkChanged"><fieldset disabled="@IsBusy">
+                            <label for="subject-code" class="form-label">@L["EducationSchools:Code"]</label>
+                            <input id="subject-code" class="form-control mb-2" @bind="SubjectForm.Code" required maxlength="64" />
+                            <label for="subject-name" class="form-label">@L["EducationSchools:Name"]</label>
+                            <input id="subject-name" class="form-control mb-2" @bind="SubjectForm.Name" required maxlength="128" />
+                            <button type="submit" class="btn btn-outline-primary">@L["EducationSchools:AddSubject"]</button>
+                        </fieldset></form>
+                    </div></div></div>
+                    <div class="col-md-6"><div class="card h-100"><div class="card-body">
+                        <h3 class="h5">@L["EducationSchools:Terms"]</h3>
+                        <ul class="list-unstyled small">@foreach (var term in Configuration.AcademicTerms) { <li class="mb-2"><strong>@term.Name (@term.Code)</strong><br />@Period(term.StartsAtUtc, term.EndsAtUtc)</li> }</ul>
+                        <form @onsubmit="CreateTermAsync" @onsubmit:preventDefault="true" @oninput="MarkChanged"><fieldset disabled="@IsBusy">
+                            <label for="term-code" class="form-label">@L["EducationSchools:Code"]</label>
+                            <input id="term-code" class="form-control mb-2" @bind="TermForm.Code" required maxlength="64" />
+                            <label for="term-name" class="form-label">@L["EducationSchools:Name"]</label>
+                            <input id="term-name" class="form-control mb-2" @bind="TermForm.Name" required maxlength="128" />
+                            <label for="term-start" class="form-label">@L["EducationSchools:StartTime"]</label>
+                            <input id="term-start" class="form-control mb-2" type="datetime-local" value="@TermFrom" @onchange="args => TermFrom = args.Value?.ToString() ?? string.Empty" required />
+                            <label for="term-end" class="form-label">@L["EducationSchools:EndTime"]</label>
+                            <input id="term-end" class="form-control mb-2" type="datetime-local" value="@TermTo" @onchange="args => TermTo = args.Value?.ToString() ?? string.Empty" required />
+                            <button type="submit" class="btn btn-outline-primary">@L["EducationSchools:AddTerm"]</button>
+                        </fieldset></form>
+                    </div></div></div>
+                    <div class="col-md-6"><div class="card h-100"><div class="card-body">
+                        <h3 class="h5">@L["EducationSchools:Classes"]</h3>
+                        <ul class="list-unstyled small">@foreach (var schoolClass in Configuration.Classes) { <li>@ClassName(schoolClass.Id)</li> }</ul>
+                        <form @onsubmit="CreateClassAsync" @onsubmit:preventDefault="true" @oninput="MarkChanged"><fieldset disabled="@IsBusy">
+                            <label for="class-term" class="form-label">@L["EducationSchools:Term"]</label>
+                            <select id="class-term" class="form-select mb-2" @bind="ClassTermId" required><option value="">@L["EducationSchools:Choose"]</option>@foreach (var term in Configuration.AcademicTerms) { <option value="@term.Id">@term.Name (@term.Code)</option> }</select>
+                            <label for="class-grade" class="form-label">@L["EducationSchools:Grade"]</label>
+                            <select id="class-grade" class="form-select mb-2" @bind="ClassForm.Grade">@foreach (var grade in new[] { 7, 8, 9 }) { <option value="@grade">@L["EducationSchools:GradeNumber", grade]</option> }</select>
+                            <label for="class-code" class="form-label">@L["EducationSchools:Code"]</label>
+                            <input id="class-code" class="form-control mb-2" @bind="ClassForm.Code" required maxlength="64" />
+                            <label for="class-name" class="form-label">@L["EducationSchools:Name"]</label>
+                            <input id="class-name" class="form-control mb-2" @bind="ClassForm.Name" required maxlength="128" />
+                            <button type="submit" class="btn btn-outline-primary">@L["EducationSchools:AddClass"]</button>
+                        </fieldset></form>
+                    </div></div></div>
+                </div>
+            }
+            else
+            {
+                <div class="card mb-3"><div class="card-body">
+                    <h3 class="h5">@L["EducationSchools:FindAccount"]</h3>
+                    <p class="small text-muted">@L[Tab == "Memberships" ? "EducationSchools:AccountSearchHint" : "EducationSchools:MemberSearchHint"]</p>
+                    @if (SelectedAccount != null) { <p class="mb-2">@L["EducationSchools:SelectedAccount"]：<strong>@SelectedAccount.DisplayName</strong></p> }
+                    <form class="d-flex gap-2 mb-2" @onsubmit="SearchAccountsAsync" @onsubmit:preventDefault="true">
+                        <label for="account-keyword" class="visually-hidden">@L["EducationSchools:AccountKeyword"]</label>
+                        <input id="account-keyword" class="form-control" @bind="AccountKeyword" required minlength="2" maxlength="64" disabled="@IsBusy" placeholder="@L["EducationSchools:AccountKeyword"]" />
+                        <button type="submit" class="btn btn-outline-primary" disabled="@IsBusy">@L["EducationSchools:Search"]</button>
+                    </form>
+                    @if (HasSearchedAccounts && Accounts.Count == 0) { <p class="text-muted">@L["EducationSchools:NoAccounts"]</p> }
+                    @foreach (var account in Accounts)
+                    {
+                        <button type="button" class="btn btn-sm btn-outline-secondary me-2 mb-2" @onclick="() => ChooseAccount(account)" disabled="@IsBusy">@account.DisplayName</button>
+                    }
+                    @if (HasSearchedAccounts)
+                    {
+                        <div class="d-flex align-items-center gap-2">
+                            <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="() => PageAccountsAsync(-1)" disabled="@(IsBusy || AccountSkip == 0)">@L["EducationSchools:Previous"]</button>
+                            <span class="small">@L["EducationSchools:Count", AccountCount]</span>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="() => PageAccountsAsync(1)" disabled="@(IsBusy || AccountSkip + PageSize >= AccountCount)">@L["EducationSchools:Next"]</button>
+                        </div>
+                    }
+                </div></div>
+                <div class="card mb-3"><div class="card-body">
+                    <h3 class="h5">@L[$"EducationSchools:Add{Tab}"]</h3>
+                    @if (Tab == "Memberships")
+                    {
+                        <form @onsubmit="AddMembershipAsync" @onsubmit:preventDefault="true" @oninput="MarkChanged"><fieldset disabled="@IsBusy">
+                            <label for="member-role" class="form-label">@L["EducationSchools:Role"]</label>
+                            <select id="member-role" class="form-select mb-2" @bind="MemberForm.Role">@foreach (var role in Enum.GetValues<SchoolMemberRole>()) { <option value="@role">@RoleName(role)</option> }</select>
+                            <label for="member-from" class="form-label">@L["EducationSchools:StartTime"]</label>
+                            <input id="member-from" class="form-control mb-2" type="datetime-local" value="@MemberFrom" @onchange="args => MemberFrom = args.Value?.ToString() ?? string.Empty" required />
+                            <label for="member-to" class="form-label">@L["EducationSchools:OptionalEnd"]</label>
+                            <input id="member-to" class="form-control mb-2" type="datetime-local" value="@MemberTo" @onchange="args => MemberTo = args.Value?.ToString() ?? string.Empty" />
+                            <button type="submit" class="btn btn-primary" disabled="@(MemberAccount == null)">@L["EducationSchools:AddMemberships"]</button>
+                        </fieldset></form>
+                    }
+                    else if (Tab == "Teaching")
+                    {
+                        <form @onsubmit="AssignTeacherAsync" @onsubmit:preventDefault="true" @oninput="MarkChanged"><fieldset disabled="@IsBusy">
+                            <label for="teaching-class" class="form-label">@L["EducationSchools:Class"]</label>
+                            <select id="teaching-class" class="form-select mb-2" @bind="TeachingClassId" required><option value="">@L["EducationSchools:Choose"]</option>@foreach (var schoolClass in Configuration.Classes) { <option value="@schoolClass.Id">@ClassName(schoolClass.Id)</option> }</select>
+                            <label for="teaching-subject" class="form-label">@L["EducationSchools:Subject"]</label>
+                            <select id="teaching-subject" class="form-select mb-2" @bind="TeachingSubjectId" required><option value="">@L["EducationSchools:Choose"]</option>@foreach (var subject in Configuration.Subjects) { <option value="@subject.Id">@subject.Name (@subject.Code)</option> }</select>
+                            <label for="teaching-from" class="form-label">@L["EducationSchools:StartTime"]</label>
+                            <input id="teaching-from" class="form-control mb-2" type="datetime-local" value="@TeachingFrom" @onchange="args => TeachingFrom = args.Value?.ToString() ?? string.Empty" required />
+                            <label for="teaching-to" class="form-label">@L["EducationSchools:TermEndDefault"]</label>
+                            <input id="teaching-to" class="form-control mb-2" type="datetime-local" value="@TeachingTo" @onchange="args => TeachingTo = args.Value?.ToString() ?? string.Empty" />
+                            <button type="submit" class="btn btn-primary" disabled="@(TeacherAccount == null)">@L["EducationSchools:AddTeaching"]</button>
+                        </fieldset></form>
+                    }
+                    else
+                    {
+                        <form @onsubmit="EnrollStudentAsync" @onsubmit:preventDefault="true" @oninput="MarkChanged"><fieldset disabled="@IsBusy">
+                            <label for="enrollment-class" class="form-label">@L["EducationSchools:Class"]</label>
+                            <select id="enrollment-class" class="form-select mb-2" @bind="EnrollmentClassId" required><option value="">@L["EducationSchools:Choose"]</option>@foreach (var schoolClass in Configuration.Classes) { <option value="@schoolClass.Id">@ClassName(schoolClass.Id)</option> }</select>
+                            <label for="enrollment-from" class="form-label">@L["EducationSchools:StartTime"]</label>
+                            <input id="enrollment-from" class="form-control mb-2" type="datetime-local" value="@EnrollmentFrom" @onchange="args => EnrollmentFrom = args.Value?.ToString() ?? string.Empty" required />
+                            <label for="enrollment-to" class="form-label">@L["EducationSchools:TermEndDefault"]</label>
+                            <input id="enrollment-to" class="form-control mb-2" type="datetime-local" value="@EnrollmentTo" @onchange="args => EnrollmentTo = args.Value?.ToString() ?? string.Empty" />
+                            <button type="submit" class="btn btn-primary" disabled="@(StudentAccount == null)">@L["EducationSchools:AddEnrollments"]</button>
+                        </fieldset></form>
+                    }
+                </div></div>
+                @if (Tab == "Memberships")
+                {
+                    <div class="card mb-3"><div class="card-body">
+                        <h3 class="h5">@L["EducationMemberImport:Title"]</h3>
+                        <p class="small text-muted">@L["EducationMemberImport:Hint"]</p>
+                        <form @onsubmit="PreviewMemberImportAsync" @onsubmit:preventDefault="true" @oninput="MarkMemberImportChanged">
+                            <fieldset disabled="@(IsBusy || MemberImportPreview != null)">
+                                <label for="import-members" class="form-label">@L["EducationMemberImport:Accounts"]</label>
+                                <textarea id="import-members" class="form-control mb-2" rows="5" @bind="MemberImportText" maxlength="25700" required></textarea>
+                                <label for="import-role" class="form-label">@L["EducationSchools:Role"]</label>
+                                <select id="import-role" class="form-select mb-2" @bind="MemberImportRole">
+                                    <option value="@SchoolMemberRole.Teacher">@RoleName(SchoolMemberRole.Teacher)</option>
+                                    <option value="@SchoolMemberRole.Student">@RoleName(SchoolMemberRole.Student)</option>
+                                </select>
+                                <label for="import-from" class="form-label">@L["EducationSchools:StartTime"]</label>
+                                <input id="import-from" class="form-control mb-2" type="datetime-local" value="@MemberImportFrom" @onchange="args => MemberImportFrom = args.Value?.ToString() ?? string.Empty" required />
+                                <label for="import-to" class="form-label">@L["EducationSchools:OptionalEnd"]</label>
+                                <input id="import-to" class="form-control mb-2" type="datetime-local" value="@MemberImportTo" @onchange="args => MemberImportTo = args.Value?.ToString() ?? string.Empty" />
+                                <button type="submit" class="btn btn-outline-primary">@L["EducationMemberImport:Preview"]</button>
+                            </fieldset>
+                        </form>
+                        @if (MemberImportPreview != null)
+                        {
+                            <p class="mt-3">@L["EducationMemberImport:Review", SelectedSchool.Name, Period(MemberImportInput!.EffectiveFromUtc, MemberImportInput.EffectiveToUtc)]</p>
+                            <div class="table-responsive"><table class="table align-middle">
+                                <thead><tr><th>@L["EducationMemberImport:Row"]</th><th>@L["EducationSchools:Account"]</th><th>@L["EducationSchools:Role"]</th><th>@L["EducationMemberImport:Status"]</th></tr></thead>
+                                <tbody>@foreach (var row in MemberImportPreview.Rows)
+                                {
+                                    <tr><td>@row.RowNumber</td><td>@(string.IsNullOrEmpty(row.UserDisplayName) ? row.UserName : row.UserDisplayName)</td><td>@RoleName(row.Role)</td><td>@MemberImportStatus(row)</td></tr>
+                                }</tbody>
+                            </table></div>
+                            <p class="small">@L["EducationMemberImport:ConfirmationHint"]</p>
+                            <button type="button" class="btn btn-primary" @onclick="ImportMembersAsync" disabled="@(IsBusy || MemberImportPreview.Rows.Any(x => x.ErrorCode != null))">@L["EducationMemberImport:Confirm"]</button>
+                            <button type="button" class="btn btn-outline-secondary ms-2" @onclick="ClearMemberImportPreview" disabled="@IsBusy">@L["EducationMemberImport:Edit"]</button>
+                        }
+                    </div></div>
+                }
+                <div class="card"><div class="card-body">
+                    <h3 class="h5">@L[$"EducationSchools:{Tab}"]</h3>
+                    <p class="small text-muted">@L["EducationSchools:HistoryHint"]</p>
+                    <div class="table-responsive"><table class="table align-middle">
+                        <thead><tr><th>@L["EducationSchools:Account"]</th><th>@L[Tab == "Memberships" ? "EducationSchools:Role" : "EducationSchools:Class"]</th>@if (Tab == "Teaching") { <th>@L["EducationSchools:Subject"]</th> }<th>@L["EducationSchools:Period"]</th><th>@L["EducationSchools:Actions"]</th></tr></thead>
+                        <tbody>
+                        @if (Tab == "Memberships")
+                        {
+                            @foreach (var member in Memberships)
+                            {
+                                <tr><td>@AccountName(member.UserDisplayName)</td><td>@RoleName(member.Role)</td><td>@Period(member.EffectiveFromUtc, member.EffectiveToUtc)</td><td>@if (CanEnd(member.EffectiveToUtc)) { <button type="button" class="btn btn-sm btn-outline-warning" @onclick='() => BeginEnd("Memberships", member.Id, AccountName(member.UserDisplayName) + " · " + RoleName(member.Role))' disabled="@IsBusy">@L["EducationSchools:EndRelation"]</button> }</td></tr>
+                            }
+                        }
+                        else if (Tab == "Teaching")
+                        {
+                            @foreach (var assignment in Assignments)
+                            {
+                                <tr><td>@AccountName(assignment.TeacherDisplayName)</td><td>@ClassName(assignment.SchoolClassId)</td><td>@SubjectName(assignment.EducationSubjectId)</td><td>@Period(assignment.EffectiveFromUtc, assignment.EffectiveToUtc)</td><td>@if (CanEnd(assignment.EffectiveToUtc)) { <button type="button" class="btn btn-sm btn-outline-warning" @onclick='() => BeginEnd("Teaching", assignment.Id, AccountName(assignment.TeacherDisplayName) + " · " + ClassName(assignment.SchoolClassId))' disabled="@IsBusy">@L["EducationSchools:EndRelation"]</button> }</td></tr>
+                            }
+                        }
+                        else
+                        {
+                            @foreach (var enrollment in Enrollments)
+                            {
+                                <tr><td>@AccountName(enrollment.StudentDisplayName)</td><td>@ClassName(enrollment.SchoolClassId)</td><td>@Period(enrollment.EffectiveFromUtc, enrollment.EffectiveToUtc)</td><td>@if (CanEnd(enrollment.EffectiveToUtc)) { <button type="button" class="btn btn-sm btn-outline-warning" @onclick='() => BeginEnd("Enrollments", enrollment.Id, AccountName(enrollment.StudentDisplayName) + " · " + ClassName(enrollment.SchoolClassId))' disabled="@IsBusy">@L["EducationSchools:EndRelation"]</button> }</td></tr>
+                            }
+                        }
+                        </tbody>
+                    </table></div>
+                    <div class="d-flex align-items-center gap-2">
+                        <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="() => PageRelationsAsync(-1)" disabled="@(IsBusy || RelationSkip == 0)">@L["EducationSchools:Previous"]</button>
+                        <span class="small">@L["EducationSchools:Count", RelationCount]</span>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="() => PageRelationsAsync(1)" disabled="@(IsBusy || RelationSkip + PageSize >= RelationCount)">@L["EducationSchools:Next"]</button>
+                    </div>
+                </div></div>
+            }
+        }
+    </main>
+</div>
+
+@code {
+    private const int PageSize = 20;
+    private readonly List<MySchoolDto> MySchools = [];
+    private readonly List<SchoolMembershipDto> Memberships = [];
+    private readonly List<TeachingAssignmentDto> Assignments = [];
+    private readonly List<StudentEnrollmentDto> Enrollments = [];
+    private readonly List<SchoolAccountDto> Accounts = [];
+    private MySchoolDto? SelectedSchool;
+    private SchoolConfigurationDto? Configuration;
+    private CreateSchoolDto SchoolForm = new();
+    private RenameSchoolDto RenameForm = new();
+    private CreateAcademicTermDto TermForm = new();
+    private CreateSchoolClassDto ClassForm = new() { Grade = 7 };
+    private CreateEducationSubjectDto SubjectForm = new();
+    private AddSchoolMembershipDto MemberForm = new() { Role = SchoolMemberRole.Teacher };
+    private SchoolAccountDto? MemberAccount, TeacherAccount, StudentAccount;
+    private SchoolAccountDto? SelectedAccount => Tab switch { "Memberships" => MemberAccount, "Teaching" => TeacherAccount, _ => StudentAccount };
+    private string Tab = "Configuration";
+    private string TermFrom = string.Empty, TermTo = string.Empty, ClassTermId = string.Empty;
+    private string MemberFrom = LocalNow(), MemberTo = string.Empty;
+    private string TeachingClassId = string.Empty, TeachingSubjectId = string.Empty, TeachingFrom = LocalNow(), TeachingTo = string.Empty;
+    private string EnrollmentClassId = string.Empty, EnrollmentFrom = LocalNow(), EnrollmentTo = string.Empty;
+    private string AccountKeyword = string.Empty;
+    private string SearchedAccountKeyword = string.Empty;
+    private string MemberImportText = string.Empty, MemberImportFrom = LocalNow(), MemberImportTo = string.Empty;
+    private SchoolMemberRole MemberImportRole = SchoolMemberRole.Teacher;
+    private SchoolMemberImportInput? MemberImportInput;
+    private SchoolMemberImportPreviewDto? MemberImportPreview;
+    private string? EndKind, EndDescription, ErrorMessage, SuccessMessage;
+    private Guid EndId;
+    private string EndTime = string.Empty;
+    private int AccountSkip, RelationSkip;
+    private long AccountCount, RelationCount;
+    private bool CanCreate, CanManage, IsBusy, HasChanges, HasSearchedAccounts;
+    private bool HasMemberImportChanges;
+    private bool CanManageSelected => CanManage && SelectedSchool?.Roles.Contains(SchoolMemberRole.Manager) == true;
+
+    protected override Task OnInitializedAsync() => RunAsync(async () =>
+    {
+        CanCreate = await PermissionChecker.IsGrantedAsync(EducationPermissions.SchoolCreate);
+        CanManage = await PermissionChecker.IsGrantedAsync(EducationPermissions.SchoolManage);
+        await LoadSchoolsAsync();
+    });
+
+    private async Task LoadSchoolsAsync()
+    {
+        var result = await SchoolAppService.GetMySchoolsAsync();
+        MySchools.Clear();
+        MySchools.AddRange(result.Items);
+        if (SelectedSchool != null) SelectedSchool = MySchools.FirstOrDefault(x => x.Id == SelectedSchool.Id);
+    }
+
+    private Task RefreshAsync() => RunAsync(async () =>
+    {
+        await LoadSchoolsAsync();
+        if (CanManageSelected) await LoadConfigurationAsync();
+        else ClearManagementData();
+    });
+
+    private async Task SelectSchoolAsync(MySchoolDto school)
+    {
+        if (IsBusy || SelectedSchool?.Id == school.Id) return;
+        if ((HasChanges || HasMemberImportChanges) && !await JSRuntime.InvokeAsync<bool>("confirm", L["EducationSchools:ConfirmLeave"].Value)) return;
+        await RunAsync(async () =>
+        {
+            var configuration = CanManage && school.Roles.Contains(SchoolMemberRole.Manager)
+                ? await SchoolAppService.GetSchoolConfigurationAsync(school.Id) : null;
+            SelectedSchool = school;
+            ClearManagementData();
+            ResetForms();
+            Configuration = configuration;
+            RenameForm.Name = school.Name;
+            Tab = "Configuration";
+        });
+    }
+
+    private async Task LoadConfigurationAsync()
+    {
+        var configuration = await SchoolAppService.GetSchoolConfigurationAsync(SelectedSchool!.Id);
+        Configuration = configuration;
+        SelectedSchool.Name = configuration.School.Name;
+        if (Tab != "Configuration") await LoadRelationsAsync();
+    }
+
+    private Task CreateSchoolAsync() => RunAsync(async () =>
+    {
+        var school = await SchoolAppService.CreateSchoolAsync(SchoolForm);
+        SchoolForm = new();
+        await LoadSchoolsAsync();
+        SuccessMessage = L["EducationSchools:SchoolCreated", school.Name];
+    });
+    private Task RenameSchoolAsync() => SaveAsync(async () => { await SchoolAppService.RenameSchoolAsync(SelectedSchool!.Id, RenameForm); });
+    private Task CreateSubjectAsync() => SaveAsync(async () =>
+    {
+        await SchoolAppService.CreateSubjectAsync(SelectedSchool!.Id, SubjectForm);
+        SubjectForm = new();
+    });
+    private Task CreateTermAsync() => SaveAsync(async () =>
+    {
+        TermForm.StartsAtUtc = ToUtc(TermFrom);
+        TermForm.EndsAtUtc = ToUtc(TermTo);
+        await SchoolAppService.CreateAcademicTermAsync(SelectedSchool!.Id, TermForm);
+        TermForm = new(); TermFrom = TermTo = string.Empty;
+    });
+    private Task CreateClassAsync() => SaveAsync(async () =>
+    {
+        ClassForm.AcademicTermId = ParseSelection(ClassTermId);
+        await SchoolAppService.CreateClassAsync(SelectedSchool!.Id, ClassForm);
+        ClassForm = new() { Grade = 7 };
+    });
+    private Task AddMembershipAsync() => SaveAsync(async () =>
+    {
+        MemberForm.UserId = MemberAccount!.Id;
+        MemberForm.EffectiveFromUtc = ToUtc(MemberFrom);
+        MemberForm.EffectiveToUtc = OptionalUtc(MemberTo);
+        await SchoolAppService.AddMembershipAsync(SelectedSchool!.Id, MemberForm);
+        MemberAccount = null;
+    });
+    private Task PreviewMemberImportAsync() => RunAsync(async () =>
+    {
+        var names = MemberImportText.Split('\n').Select(x => x.Trim()).Where(x => x.Length > 0).ToList();
+        if (names.Count is < 1 or > 100)
+            throw new InvalidOperationException(L["EducationMemberImport:RowLimit"]);
+        var input = new SchoolMemberImportInput
+        {
+            Rows = names.Select(x => new SchoolMemberImportRowInput { UserName = x, Role = MemberImportRole }).ToList(),
+            EffectiveFromUtc = ToUtc(MemberImportFrom), EffectiveToUtc = OptionalUtc(MemberImportTo)
+        };
+        var preview = await SchoolAppService.PreviewMemberImportAsync(SelectedSchool!.Id, input);
+        input.ConfigurationRevision = preview.ConfigurationRevision;
+        foreach (var row in preview.Rows) input.Rows[row.RowNumber - 1].ConfirmedUserId = row.UserId;
+        MemberImportInput = input;
+        MemberImportPreview = preview;
+        HasMemberImportChanges = true;
+    });
+    private Task ImportMembersAsync() => RunAsync(async () =>
+    {
+        var result = await SchoolAppService.ImportMembersAsync(SelectedSchool!.Id, MemberImportInput!);
+        ClearMemberImportPreview();
+        MemberImportText = string.Empty;
+        HasMemberImportChanges = false;
+        SuccessMessage = L["EducationMemberImport:Completed", result.CreatedCount, result.ExistingCount];
+        await LoadSchoolsAsync();
+        await LoadConfigurationAsync();
+    });
+    private void ClearMemberImportPreview() { MemberImportInput = null; MemberImportPreview = null; }
+    private string MemberImportStatus(SchoolMemberImportRowDto row) => row.ErrorCode switch
+    {
+        EducationErrorCodes.ImportAccountUnavailable => L["EducationMemberImport:Unavailable"],
+        EducationErrorCodes.MembershipOverlap => L["EducationMemberImport:Overlap"],
+        EducationErrorCodes.InvalidRole => L["EducationMemberImport:InvalidRole"],
+        _ => L[row.DuplicateInInput ? "EducationMemberImport:Duplicate" : row.AlreadyExists ? "EducationMemberImport:Existing" : "EducationMemberImport:New"]
+    };
+    private Task AssignTeacherAsync() => SaveAsync(async () =>
+    {
+        var schoolClass = Configuration!.Classes.Single(x => x.Id == ParseSelection(TeachingClassId));
+        await SchoolAppService.AssignTeacherAsync(SelectedSchool!.Id, new AssignTeacherDto
+        {
+            TeacherUserId = TeacherAccount!.Id, SchoolClassId = schoolClass.Id, AcademicTermId = schoolClass.AcademicTermId,
+            EducationSubjectId = ParseSelection(TeachingSubjectId), EffectiveFromUtc = ToUtc(TeachingFrom), EffectiveToUtc = OptionalUtc(TeachingTo)
+        });
+        TeacherAccount = null;
+    });
+    private Task EnrollStudentAsync() => SaveAsync(async () =>
+    {
+        await SchoolAppService.EnrollStudentAsync(SelectedSchool!.Id, new EnrollStudentDto
+        {
+            StudentUserId = StudentAccount!.Id, SchoolClassId = ParseSelection(EnrollmentClassId),
+            EffectiveFromUtc = ToUtc(EnrollmentFrom), EffectiveToUtc = OptionalUtc(EnrollmentTo)
+        });
+        StudentAccount = null;
+    });
+
+    private Task SaveAsync(Func<Task> save) => RunAsync(async () =>
+    {
+        await save();
+        SuccessMessage = L["EducationSchools:Saved"];
+        if (CanManageSelected) await LoadConfigurationAsync();
+    });
+
+    private async Task ChangeTab(string tab)
+    {
+        if (IsBusy) return;
+        await RunAsync(async () =>
+        {
+            Tab = tab;
+            RelationSkip = AccountSkip = 0;
+            Accounts.Clear(); HasSearchedAccounts = false;
+            if (Tab != "Configuration") await LoadRelationsAsync();
+        });
+    }
+
+    private Task SearchAccountsAsync() => RunAsync(async () => { AccountSkip = 0; SearchedAccountKeyword = AccountKeyword; await LoadAccountsAsync(); });
+    private Task PageAccountsAsync(int direction) => RunAsync(async () => { AccountSkip = Math.Max(0, AccountSkip + direction * PageSize); await LoadAccountsAsync(); });
+    private async Task LoadAccountsAsync()
+    {
+        var result = await SchoolAppService.GetAccountsAsync(SelectedSchool!.Id, new GetSchoolAccountListInput
+        {
+            Keyword = SearchedAccountKeyword, Role = Tab switch { "Teaching" => SchoolMemberRole.Teacher, "Enrollments" => SchoolMemberRole.Student, _ => null },
+            SkipCount = AccountSkip, MaxResultCount = PageSize
+        });
+        Accounts.Clear(); Accounts.AddRange(result.Items); AccountCount = result.TotalCount; HasSearchedAccounts = true;
+    }
+    private void ChooseAccount(SchoolAccountDto account)
+    {
+        if (Tab == "Memberships") MemberAccount = account;
+        else if (Tab == "Teaching") TeacherAccount = account;
+        else StudentAccount = account;
+        HasChanges = true;
+    }
+    private Task PageRelationsAsync(int direction) => RunAsync(async () => { RelationSkip = Math.Max(0, RelationSkip + direction * PageSize); await LoadRelationsAsync(); });
+    private async Task LoadRelationsAsync()
+    {
+        if (Tab == "Memberships")
+        {
+            var result = await SchoolAppService.GetMembershipsAsync(SelectedSchool!.Id, new GetSchoolMembershipListInput { SkipCount = RelationSkip, MaxResultCount = PageSize });
+            Memberships.Clear(); Memberships.AddRange(result.Items); RelationCount = result.TotalCount;
+        }
+        else if (Tab == "Teaching")
+        {
+            var result = await SchoolAppService.GetTeachingAssignmentsAsync(SelectedSchool!.Id, new GetSchoolRelationListInput { SkipCount = RelationSkip, MaxResultCount = PageSize });
+            Assignments.Clear(); Assignments.AddRange(result.Items); RelationCount = result.TotalCount;
+        }
+        else
+        {
+            var result = await SchoolAppService.GetStudentEnrollmentsAsync(SelectedSchool!.Id, new GetSchoolRelationListInput { SkipCount = RelationSkip, MaxResultCount = PageSize });
+            Enrollments.Clear(); Enrollments.AddRange(result.Items); RelationCount = result.TotalCount;
+        }
+    }
+
+    private void BeginEnd(string kind, Guid id, string description) { EndKind = kind; EndId = id; EndDescription = description; EndTime = LocalNow(); HasChanges = true; }
+    private void ClearEnd() { EndKind = null; EndDescription = null; EndTime = string.Empty; }
+    private Task EndRelationAsync() => SaveAsync(async () =>
+    {
+        var input = new EndEducationRelationDto { EffectiveToUtc = ToUtc(EndTime) };
+        if (EndKind == "Memberships") await SchoolAppService.EndMembershipAsync(SelectedSchool!.Id, EndId, input);
+        else if (EndKind == "Teaching") await SchoolAppService.EndTeachingAssignmentAsync(SelectedSchool!.Id, EndId, input);
+        else if (EndKind == "Enrollments") await SchoolAppService.EndStudentEnrollmentAsync(SelectedSchool!.Id, EndId, input);
+        ClearEnd();
+        await LoadSchoolsAsync();
+        if (!CanManageSelected) ClearManagementData();
+    });
+
+    private void ClearManagementData()
+    {
+        Configuration = null; Memberships.Clear(); Assignments.Clear(); Enrollments.Clear(); Accounts.Clear();
+        HasSearchedAccounts = false; AccountSkip = RelationSkip = 0; AccountCount = RelationCount = 0; ClearEnd();
+        ClearMemberImportPreview();
+        MemberImportText = string.Empty; HasMemberImportChanges = false;
+    }
+    private void ResetForms()
+    {
+        RenameForm = new(); TermForm = new(); ClassForm = new() { Grade = 7 }; SubjectForm = new(); MemberForm = new() { Role = SchoolMemberRole.Teacher };
+        MemberAccount = TeacherAccount = StudentAccount = null;
+        TermFrom = TermTo = ClassTermId = MemberTo = TeachingTo = TeachingClassId = TeachingSubjectId = EnrollmentClassId = EnrollmentTo = AccountKeyword = string.Empty;
+        MemberFrom = TeachingFrom = EnrollmentFrom = LocalNow(); HasChanges = false;
+        MemberImportText = MemberImportTo = string.Empty; MemberImportFrom = LocalNow(); MemberImportRole = SchoolMemberRole.Teacher; ClearMemberImportPreview();
+    }
+    private void MarkChanged() => HasChanges = true;
+    private void MarkMemberImportChanged() => HasMemberImportChanges = true;
+    private string RoleName(SchoolMemberRole role) => L[$"EducationSchools:Role:{role}"];
+    private string AccountName(string name) => string.IsNullOrWhiteSpace(name) ? L["EducationSchools:UnavailableAccount"] : name;
+    private string ClassName(Guid id)
+    {
+        var schoolClass = Configuration?.Classes.FirstOrDefault(x => x.Id == id);
+        var term = Configuration?.AcademicTerms.FirstOrDefault(x => x.Id == schoolClass?.AcademicTermId);
+        return schoolClass == null ? L["EducationSchools:UnavailableClass"] : $"{term?.Name} · {schoolClass.Name} ({schoolClass.Code})";
+    }
+    private string SubjectName(Guid id) => Configuration?.Subjects.FirstOrDefault(x => x.Id == id)?.Name ?? L["EducationSchools:UnavailableSubject"];
+    private string Period(DateTime fromUtc, DateTime? toUtc) => $"{fromUtc.ToLocalTime():yyyy-MM-dd HH:mm} → {(toUtc.HasValue ? toUtc.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm") : L["EducationSchools:OpenEnded"].Value)}";
+    private static bool CanEnd(DateTime? toUtc) => !toUtc.HasValue || toUtc.Value > DateTime.UtcNow;
+    private static string LocalNow() => DateTime.Now.ToString("yyyy-MM-ddTHH:mm", CultureInfo.InvariantCulture);
+    private DateTime ToUtc(string text)
+    {
+        if (!DateTime.TryParseExact(text, "yyyy-MM-ddTHH:mm", CultureInfo.InvariantCulture, DateTimeStyles.None, out var local))
+            throw new InvalidOperationException(L["EducationSchools:InvalidTime"]);
+        return DateTime.SpecifyKind(local, DateTimeKind.Local).ToUniversalTime();
+    }
+    private DateTime? OptionalUtc(string text) => string.IsNullOrWhiteSpace(text) ? null : ToUtc(text);
+    private Guid ParseSelection(string value) => Guid.TryParse(value, out var id) && id != Guid.Empty ? id : throw new InvalidOperationException(L["EducationSchools:ChooseRequired"]);
+    private async Task RunAsync(Func<Task> action)
+    {
+        if (IsBusy) return;
+        IsBusy = true; ErrorMessage = SuccessMessage = null;
+        try { await action(); }
+        catch (Exception exception) { ErrorMessage = GetUserFriendlyErrorMessage(exception); }
+        finally { IsBusy = false; }
+    }
+}

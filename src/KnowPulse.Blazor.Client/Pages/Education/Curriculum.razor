@@ -1,0 +1,506 @@
+@page "/education/curriculum"
+@attribute [Authorize]
+@inherits KnowPulseComponentBase
+@using KnowPulse.Education
+@inject IEducationSchoolAppService SchoolAppService
+@inject IEducationCurriculumAppService CurriculumAppService
+@inject IJSRuntime JSRuntime
+
+<PageTitle>@L["EducationCurriculum:Title"]</PageTitle>
+<NavigationLock OnBeforeInternalNavigation="ConfirmNavigationAsync" ConfirmExternalNavigation="@HasChanges" />
+<div class="d-flex flex-wrap justify-content-between gap-3 mb-3">
+    <div><h1>@L["EducationCurriculum:Title"]</h1><p class="text-muted">@L["EducationCurriculum:Description"]</p></div>
+    <button type="button" class="btn btn-outline-secondary" @onclick="RefreshAsync" disabled="@IsBusy">@L["EducationCurriculum:Refresh"]</button>
+</div>
+@if (ErrorMessage != null)
+{
+    <div class="alert alert-danger" role="alert">@ErrorMessage<div class="small mt-1">@L["EducationCurriculum:FailureHint"]</div></div>
+}
+@if (SuccessMessage != null)
+{
+    <div class="alert alert-success" role="status">@SuccessMessage</div>
+}
+<div class="row g-3">
+    <aside class="col-lg-3"><div class="card"><div class="card-body">
+        <h2 class="h5">@L["EducationCurriculum:School"]</h2>
+        @if (Schools.Count == 0) { <p class="text-muted">@L["EducationCurriculum:NoSchools"]</p> }
+        <div class="list-group">
+            @foreach (var school in Schools)
+            {
+                <button type="button" class="list-group-item list-group-item-action @(SelectedSchool?.Id == school.Id ? "active" : "")"
+                        @onclick="() => SelectSchoolAsync(school)" disabled="@IsBusy" aria-current="@(SelectedSchool?.Id == school.Id ? "true" : null)">@school.Name <small>(@school.Code)</small></button>
+            }
+        </div>
+    </div></div></aside>
+    <main class="col-lg-9">
+        @if (Context == null)
+        {
+            <p class="text-muted">@L["EducationCurriculum:SelectSchool"]</p>
+        }
+        else
+        {
+            <h2 class="h4">@(SelectedSchool!.Name)</h2>
+            <p class="small text-muted">@L[Context.CanManage ? "EducationCurriculum:ManageHint" : "EducationCurriculum:ReadHint"]</p>
+            <nav class="nav nav-pills gap-2 mb-3" aria-label="@L["EducationCurriculum:Sections"]">
+                @foreach (var tab in new[] { "Textbooks", "KnowledgePoints", "MySelections" })
+                {
+                    @if (tab != "MySelections" || IsTeacher)
+                    {
+                        <button type="button" class="nav-link @(Tab == tab ? "active" : "")" @onclick="() => Tab = tab" disabled="@IsBusy" aria-current="@(Tab == tab ? "page" : null)">@L[$"EducationCurriculum:{tab}"]</button>
+                    }
+                }
+            </nav>
+            @if (Tab == "Textbooks")
+            {
+                <div class="card mb-3"><div class="card-body">
+                    <h3 class="h5">@L["EducationCurriculum:Textbooks"]</h3>
+                    <form class="row g-2 mb-3" @onsubmit="FilterBooksAsync" @onsubmit:preventDefault="true"><fieldset disabled="@IsBusy" class="d-flex flex-wrap align-items-end gap-2">
+                        <div><label for="curriculum-filter-subject" class="form-label">@L["EducationCurriculum:Subject"]</label>
+                            <select id="curriculum-filter-subject" class="form-select" @bind="FilterSubjectId"><option value="">@L["EducationCurriculum:AllSubjects"]</option>@foreach (var subject in Context.Subjects) { <option value="@subject.Id">@subject.Name (@subject.Code)</option> }</select></div>
+                        @if (Context.CanManage)
+                        {
+                            <div class="form-check mb-2"><input id="curriculum-unpublished" type="checkbox" class="form-check-input" @bind="IncludeUnpublished" /><label class="form-check-label" for="curriculum-unpublished">@L["EducationCurriculum:IncludeUnpublished"]</label></div>
+                        }
+                        <button type="submit" class="btn btn-outline-primary">@L["EducationCurriculum:Filter"]</button>
+                    </fieldset></form>
+                    @if (Books.Count == 0) { <p class="text-muted">@L["EducationCurriculum:NoTextbooks"]</p> }
+                    <div class="list-group mb-2">
+                        @foreach (var book in Books)
+                        {
+                            <button type="button" class="list-group-item list-group-item-action @(SelectedBook?.Id == book.Id ? "active" : "")" @onclick="() => OpenBookAsync(book.Id)" disabled="@IsBusy" aria-current="@(SelectedBook?.Id == book.Id ? "true" : null)">
+                                <strong>@book.Title</strong> · @SubjectName(book.EducationSubjectId) · @L["EducationCurriculum:GradeNumber", book.Grade]<br />
+                                <small>@book.Publisher · @book.Edition · @book.Volume · @L["EducationCurriculum:RevisionNumber", book.CatalogRevision] · @StatusName(book.Status)</small>
+                            </button>
+                        }
+                    </div>
+                    <div class="d-flex align-items-center gap-2"><button type="button" class="btn btn-sm btn-outline-secondary" @onclick="() => PageBooksAsync(-1)" disabled="@(IsBusy || BookSkip == 0)">@L["EducationCurriculum:Previous"]</button><span class="small">@L["EducationCurriculum:Count", BookCount]</span><button type="button" class="btn btn-sm btn-outline-secondary" @onclick="() => PageBooksAsync(1)" disabled="@(IsBusy || BookSkip + PageSize >= BookCount)">@L["EducationCurriculum:Next"]</button></div>
+                </div></div>
+                @if (Context.CanManage)
+                {
+                    <details class="card mb-3"><summary class="card-header">@L["EducationCurriculum:CreateTextbook"]</summary><div class="card-body">
+                        <form @onsubmit="CreateBookAsync" @onsubmit:preventDefault="true" @oninput="MarkNewBook"><fieldset disabled="@IsBusy">
+                            <div class="row g-2">
+                                <div class="col-md-6"><label for="new-book-subject" class="form-label">@L["EducationCurriculum:Subject"]</label><select id="new-book-subject" class="form-select" @bind="NewBookSubjectId" required><option value="">@L["EducationCurriculum:Choose"]</option>@foreach (var subject in Context.Subjects) { <option value="@subject.Id">@subject.Name (@subject.Code)</option> }</select></div>
+                                <div class="col-md-6"><label for="new-book-code" class="form-label">@L["EducationCurriculum:CatalogCode"]</label><input id="new-book-code" class="form-control" @bind="NewBook.CatalogCode" required maxlength="64" /></div>
+                                <div class="col-md-6"><label for="new-book-title" class="form-label">@L["EducationCurriculum:BookTitle"]</label><input id="new-book-title" class="form-control" @bind="NewBook.Title" required maxlength="256" /></div>
+                                <div class="col-md-6"><label for="new-book-grade" class="form-label">@L["EducationCurriculum:Grade"]</label><select id="new-book-grade" class="form-select" @bind="NewBook.Grade">@foreach (var grade in new[] { 7, 8, 9 }) { <option value="@grade">@L["EducationCurriculum:GradeNumber", grade]</option> }</select></div>
+                                <div class="col-md-4"><label for="new-book-publisher" class="form-label">@L["EducationCurriculum:Publisher"]</label><input id="new-book-publisher" class="form-control" @bind="NewBook.Publisher" required maxlength="128" /></div>
+                                <div class="col-md-4"><label for="new-book-edition" class="form-label">@L["EducationCurriculum:Edition"]</label><input id="new-book-edition" class="form-control" @bind="NewBook.Edition" required maxlength="128" /></div>
+                                <div class="col-md-4"><label for="new-book-volume" class="form-label">@L["EducationCurriculum:Volume"]</label><input id="new-book-volume" class="form-control" @bind="NewBook.Volume" required maxlength="64" /></div>
+                            </div>
+                            <p class="small text-muted mt-2">@L["EducationCurriculum:EditionHint"]</p>
+                            <button type="submit" class="btn btn-primary">@L["EducationCurriculum:CreateTextbook"]</button>
+                        </fieldset></form>
+                    </div></details>
+                }
+                @if (SelectedBook != null && Draft != null)
+                {
+                    <div class="card"><div class="card-body">
+                        <h3 class="h5">@SelectedBook.Title · @L["EducationCurriculum:RevisionNumber", SelectedBook.CatalogRevision] · @StatusName(SelectedBook.Status)</h3>
+                        <p class="small text-muted">@SubjectName(SelectedBook.EducationSubjectId) · @SelectedBook.CatalogCode · @L["EducationCurriculum:ImmutableHint"]</p>
+                        <form @onsubmit="SaveBookAsync" @onsubmit:preventDefault="true" @oninput="MarkDraft">
+                            <fieldset disabled="@(IsBusy || !CanEditBook)">
+                                <div class="row g-2 mb-3">
+                                    <div class="col-md-8"><label for="draft-book-title" class="form-label">@L["EducationCurriculum:BookTitle"]</label><input id="draft-book-title" class="form-control" @bind="Draft.Title" required maxlength="256" /></div>
+                                    <div class="col-md-4"><label for="draft-book-grade" class="form-label">@L["EducationCurriculum:Grade"]</label><select id="draft-book-grade" class="form-select" @bind="Draft.Grade">@foreach (var grade in new[] { 7, 8, 9 }) { <option value="@grade">@L["EducationCurriculum:GradeNumber", grade]</option> }</select></div>
+                                    <div class="col-md-4"><label for="draft-book-publisher" class="form-label">@L["EducationCurriculum:Publisher"]</label><input id="draft-book-publisher" class="form-control" @bind="Draft.Publisher" required maxlength="128" /></div>
+                                    <div class="col-md-4"><label for="draft-book-edition" class="form-label">@L["EducationCurriculum:Edition"]</label><input id="draft-book-edition" class="form-control" @bind="Draft.Edition" required maxlength="128" /></div>
+                                    <div class="col-md-4"><label for="draft-book-volume" class="form-label">@L["EducationCurriculum:Volume"]</label><input id="draft-book-volume" class="form-control" @bind="Draft.Volume" required maxlength="64" /></div>
+                                </div>
+                                <h4 class="h6">@L["EducationCurriculum:Chapters"]</h4>
+                                @if (Draft.Chapters.Count == 0) { <p class="text-muted">@L["EducationCurriculum:NoChapters"]</p> }
+                                @foreach (var chapter in Draft.Chapters)
+                                {
+                                    <div class="border rounded p-2 mb-2" @key="chapter.Id">
+                                        <div class="row g-2">
+                                            <div class="col-md-3"><label for="@($"chapter-code-{chapter.Id}")" class="form-label">@L["EducationCurriculum:Code"]</label><input id="@($"chapter-code-{chapter.Id}")" class="form-control" @bind="chapter.Code" required maxlength="64" /></div>
+                                            <div class="col-md-5"><label for="@($"chapter-title-{chapter.Id}")" class="form-label">@L["EducationCurriculum:ChapterTitle"]</label><input id="@($"chapter-title-{chapter.Id}")" class="form-control" @bind="chapter.Title" required maxlength="256" /></div>
+                                            <div class="col-md-4"><label for="@($"chapter-order-{chapter.Id}")" class="form-label">@L["EducationCurriculum:Order"]</label><input id="@($"chapter-order-{chapter.Id}")" type="number" min="0" class="form-control" @bind="chapter.DisplayOrder" required /></div>
+                                            <div class="col-md-8"><label for="@($"chapter-parent-{chapter.Id}")" class="form-label">@L["EducationCurriculum:ParentChapter"]</label><select id="@($"chapter-parent-{chapter.Id}")" class="form-select" @bind="chapter.ParentChapterId"><option value="">@L["EducationCurriculum:NoParent"]</option>@foreach (var parent in Draft.Chapters.Where(x => x.Id != chapter.Id)) { <option value="@parent.Id">@ChapterName(parent.Id)</option> }</select></div>
+                                            <div class="col-md-4 d-flex align-items-end"><button type="button" class="btn btn-outline-danger" @onclick="() => RemoveChapter(chapter.Id)">@L["EducationCurriculum:Remove"]</button></div>
+                                        </div>
+                                        <div class="small mt-2">@L[Draft.Mappings.Any(x => x.ChapterId == chapter.Id) ? "EducationCurriculum:Mapped" : "EducationCurriculum:Unmapped"]</div>
+                                    </div>
+                                }
+                                <button type="button" class="btn btn-sm btn-outline-primary mb-3" @onclick="AddChapter" disabled="@(Draft.Chapters.Count >= 300)">@L["EducationCurriculum:AddChapter"]</button>
+                                <h4 class="h6">@L["EducationCurriculum:Mappings"]</h4>
+                                <p class="small text-muted">@L["EducationCurriculum:MappingHint"]</p>
+                                <ul class="list-unstyled">
+                                    @foreach (var mapping in Draft.Mappings)
+                                    {
+                                        <li class="d-flex align-items-center gap-2 mb-2"><span>@ChapterName(mapping.ChapterId) → @RevisionName(mapping.KnowledgePointRevisionId)</span><button type="button" class="btn btn-sm btn-outline-danger" @onclick="() => RemoveMapping(mapping)">@L["EducationCurriculum:Remove"]</button></li>
+                                    }
+                                </ul>
+                                @if (CanEditBook)
+                                {
+                                    <button type="button" class="btn btn-sm btn-outline-secondary mb-2" @onclick="LoadBookPointsAsync">@L["EducationCurriculum:LoadBookPoints"]</button>
+                                    <div class="row g-2 mb-2">
+                                        <div class="col-md-5"><label for="mapping-chapter" class="form-label">@L["EducationCurriculum:ChapterTitle"]</label><select id="mapping-chapter" class="form-select" @bind="MappingChapterId"><option value="">@L["EducationCurriculum:Choose"]</option>@foreach (var chapter in Draft.Chapters) { <option value="@chapter.Id">@ChapterName(chapter.Id)</option> }</select></div>
+                                        <div class="col-md-7"><label for="mapping-point" class="form-label">@L["EducationCurriculum:KnowledgePointRevision"]</label><select id="mapping-point" class="form-select" @bind="MappingRevisionId"><option value="">@L["EducationCurriculum:Choose"]</option>@foreach (var point in Points.Where(x => x.EducationSubjectId == SelectedBook.EducationSubjectId)) { foreach (var revision in point.Revisions.OrderByDescending(x => x.RevisionNumber)) { <option value="@revision.Id">@RevisionLabel(point, revision)</option> } }</select></div>
+                                    </div>
+                                    <div class="d-flex flex-wrap align-items-center gap-2 mb-3"><button type="button" class="btn btn-sm btn-outline-primary" @onclick="AddMapping" disabled="@(Draft.Mappings.Count >= 3000)">@L["EducationCurriculum:AddMapping"]</button><button type="button" class="btn btn-sm btn-outline-secondary" @onclick="() => PagePointsAsync(-1)" disabled="@(PointsSubjectId != SelectedBook.EducationSubjectId.ToString() || PointSkip == 0)">@L["EducationCurriculum:Previous"]</button><span class="small">@L["EducationCurriculum:PointPageHint", PointCount]</span><button type="button" class="btn btn-sm btn-outline-secondary" @onclick="() => PagePointsAsync(1)" disabled="@(PointsSubjectId != SelectedBook.EducationSubjectId.ToString() || PointSkip + PointPageSize >= PointCount)">@L["EducationCurriculum:Next"]</button></div>
+                                    <button type="submit" class="btn btn-primary">@L["EducationCurriculum:SaveDraft"]</button>
+                                }
+                            </fieldset>
+                        </form>
+                        @if (Context.CanManage)
+                        {
+                            <div class="d-flex flex-wrap gap-2 mt-3">
+                                @if (SelectedBook.Status == TextbookVersionStatus.Draft)
+                                {
+                                    <button type="button" class="btn btn-success" @onclick="PublishBookAsync" disabled="@(IsBusy || DraftDirty)">@L["EducationCurriculum:Publish"]</button>
+                                    @if (DraftDirty) { <span class="small align-self-center">@L["EducationCurriculum:SaveBeforePublish"]</span> }
+                                }
+                                else
+                                {
+                                    <button type="button" class="btn btn-outline-primary" @onclick="ReviseBookAsync" disabled="@IsBusy">@L["EducationCurriculum:NewRevision"]</button>
+                                    @if (SelectedBook.Status == TextbookVersionStatus.Published) { <button type="button" class="btn btn-outline-warning" @onclick="RetireBookAsync" disabled="@IsBusy">@L["EducationCurriculum:Retire"]</button> }
+                                }
+                            </div>
+                        }
+                    </div></div>
+                }
+            }
+            else if (Tab == "KnowledgePoints")
+            {
+                <div class="card mb-3"><div class="card-body">
+                    <h3 class="h5">@L["EducationCurriculum:KnowledgePoints"]</h3>
+                    <p class="small text-muted">@L["EducationCurriculum:PointHint"]</p>
+                    <label for="points-subject" class="form-label">@L["EducationCurriculum:Subject"]</label><select id="points-subject" class="form-select mb-3" @bind:get="PointsSubjectId" @bind:set="ChangePointSubjectAsync" disabled="@IsBusy"><option value="">@L["EducationCurriculum:Choose"]</option>@foreach (var subject in Context.Subjects) { <option value="@subject.Id">@subject.Name (@subject.Code)</option> }</select>
+                    @if (Points.Count == 0) { <p class="text-muted">@L["EducationCurriculum:NoPoints"]</p> }
+                    @foreach (var point in Points)
+                    {
+                        <details class="border rounded p-2 mb-2"><summary><strong>@point.Code · @point.Revisions.OrderByDescending(x => x.RevisionNumber).FirstOrDefault()?.Name</strong> · @L["EducationCurriculum:RevisionNumber", point.CurrentRevisionNumber]</summary>
+                            <ul class="small mt-2">@foreach (var revision in point.Revisions.OrderByDescending(x => x.RevisionNumber)) { <li>@RevisionLabel(point, revision) · @L["EducationCurriculum:ParentPoint"]: @(revision.ParentRevisionId.HasValue ? RevisionName(revision.ParentRevisionId.Value) : L["EducationCurriculum:NoParent"].Value)</li> }</ul>
+                            @if (Context.CanManage) { <button type="button" class="btn btn-sm btn-outline-primary" @onclick="() => ChoosePointAsync(point)" disabled="@IsBusy">@L["EducationCurriculum:RevisePoint"]</button> }
+                        </details>
+                    }
+                    <div class="d-flex align-items-center gap-2"><button type="button" class="btn btn-sm btn-outline-secondary" @onclick="() => PagePointsAsync(-1)" disabled="@(IsBusy || PointSkip == 0)">@L["EducationCurriculum:Previous"]</button><span class="small">@L["EducationCurriculum:PointPageHint", PointCount]</span><button type="button" class="btn btn-sm btn-outline-secondary" @onclick="() => PagePointsAsync(1)" disabled="@(IsBusy || PointSkip + PointPageSize >= PointCount)">@L["EducationCurriculum:Next"]</button></div>
+                </div></div>
+                @if (Context.CanManage && !string.IsNullOrEmpty(PointsSubjectId))
+                {
+                    <div class="row g-3">
+                        <div class="col-md-6"><div class="card h-100"><div class="card-body">
+                            <h3 class="h5">@L["EducationCurriculum:CreatePoint"]</h3>
+                            <form @onsubmit="CreatePointAsync" @onsubmit:preventDefault="true" @oninput="MarkNewPoint"><fieldset disabled="@IsBusy">
+                                <label for="new-point-code" class="form-label">@L["EducationCurriculum:Code"]</label><input id="new-point-code" class="form-control mb-2" @bind="NewPoint.Code" required maxlength="64" />
+                                <label for="new-point-name" class="form-label">@L["EducationCurriculum:PointName"]</label><input id="new-point-name" class="form-control mb-2" @bind="NewPoint.Name" required maxlength="128" />
+                                <label for="new-point-parent" class="form-label">@L["EducationCurriculum:ParentPoint"]</label><select id="new-point-parent" class="form-select mb-3" @bind="NewPoint.ParentRevisionId"><option value="">@L["EducationCurriculum:NoParent"]</option>@if (NewPoint.ParentRevisionId.HasValue && !LoadedRevision(NewPoint.ParentRevisionId.Value)) { <option value="@NewPoint.ParentRevisionId">@RevisionName(NewPoint.ParentRevisionId.Value)</option> }@foreach (var point in Points) { foreach (var revision in point.Revisions.OrderByDescending(x => x.RevisionNumber)) { <option value="@revision.Id">@RevisionLabel(point, revision)</option> } }</select>
+                                <button type="submit" class="btn btn-primary">@L["EducationCurriculum:CreatePoint"]</button>
+                            </fieldset></form>
+                        </div></div></div>
+                        @if (SelectedPoint != null)
+                        {
+                            <div class="col-md-6"><div class="card h-100"><div class="card-body">
+                                <h3 class="h5">@L["EducationCurriculum:RevisePoint"] · @SelectedPoint.Code</h3>
+                                <form @onsubmit="RevisePointAsync" @onsubmit:preventDefault="true" @oninput="MarkPointRevision"><fieldset disabled="@IsBusy">
+                                    <label for="revision-point-name" class="form-label">@L["EducationCurriculum:PointName"]</label><input id="revision-point-name" class="form-control mb-2" @bind="PointRevision.Name" required maxlength="128" />
+                                    <label for="revision-point-parent" class="form-label">@L["EducationCurriculum:ParentPoint"]</label><select id="revision-point-parent" class="form-select mb-3" @bind="PointRevision.ParentRevisionId"><option value="">@L["EducationCurriculum:NoParent"]</option>@if (PointRevision.ParentRevisionId.HasValue && !LoadedRevision(PointRevision.ParentRevisionId.Value)) { <option value="@PointRevision.ParentRevisionId">@RevisionName(PointRevision.ParentRevisionId.Value)</option> }@foreach (var point in Points.Where(x => x.Id != SelectedPoint.Id)) { foreach (var revision in point.Revisions.OrderByDescending(x => x.RevisionNumber)) { <option value="@revision.Id">@RevisionLabel(point, revision)</option> } }</select>
+                                    <button type="submit" class="btn btn-primary">@L["EducationCurriculum:NewRevision"]</button>
+                                </fieldset></form>
+                            </div></div></div>
+                        }
+                    </div>
+                }
+            }
+            else if (Tab == "MySelections")
+            {
+                <div class="card mb-3"><div class="card-body">
+                    <h3 class="h5">@L["EducationCurriculum:MySelections"]</h3><p class="small text-muted">@L["EducationCurriculum:SelectionHint"]</p>
+                    @if (Context.TeachingContexts.Count == 0) { <p class="text-muted">@L["EducationCurriculum:NoAssignments"]</p> }
+                    else
+                    {
+                        <form @onsubmit="SelectTextbookAsync" @onsubmit:preventDefault="true" @oninput="MarkSelection"><fieldset disabled="@IsBusy">
+                            <label for="my-teaching-context" class="form-label">@L["EducationCurriculum:TeachingContext"]</label><select id="my-teaching-context" class="form-select mb-2" @bind:get="AssignmentId" @bind:set="ChangeAssignmentAsync" required><option value="">@L["EducationCurriculum:Choose"]</option>@foreach (var assignment in Context.TeachingContexts) { <option value="@assignment.Id">@TeachingContextName(assignment)</option> }</select>
+                            <label for="my-textbook" class="form-label">@L["EducationCurriculum:Textbook"]</label><select id="my-textbook" class="form-select mb-2" @bind="ChoiceBookId" required><option value="">@L["EducationCurriculum:Choose"]</option>@if (!string.IsNullOrEmpty(ChoiceBookId) && !ChoiceBooks.Any(x => x.Id.ToString() == ChoiceBookId)) { <option value="@ChoiceBookId">@ChoiceLabels.GetValueOrDefault(ChoiceBookId)</option> }@foreach (var book in ChoiceBooks) { <option value="@book.Id">@ChoiceLabels.GetValueOrDefault(book.Id.ToString())</option> }</select>
+                            @if (!string.IsNullOrEmpty(AssignmentId) && ChoiceBooks.Count == 0) { <p class="text-muted">@L["EducationCurriculum:NoMatchingTextbooks"]</p> }
+                            <div class="d-flex align-items-center gap-2 mb-3"><button type="button" class="btn btn-sm btn-outline-secondary" @onclick="() => PageChoiceBooksAsync(-1)" disabled="@(ChoiceSkip == 0)">@L["EducationCurriculum:Previous"]</button><span class="small">@L["EducationCurriculum:Count", ChoiceCount]</span><button type="button" class="btn btn-sm btn-outline-secondary" @onclick="() => PageChoiceBooksAsync(1)" disabled="@(ChoiceSkip + PageSize >= ChoiceCount)">@L["EducationCurriculum:Next"]</button></div>
+                            <button type="submit" class="btn btn-primary">@L["EducationCurriculum:ConfirmSelection"]</button>
+                        </fieldset></form>
+                    }
+                </div></div>
+                <div class="card"><div class="card-body"><h3 class="h5">@L["EducationCurriculum:SelectionHistory"]</h3>
+                    @if (Selections.Count == 0) { <p class="text-muted">@L["EducationCurriculum:NoSelections"]</p> }
+                    else
+                    {
+                        <div class="table-responsive"><table class="table align-middle"><thead><tr><th scope="col">@L["EducationCurriculum:TeachingContext"]</th><th scope="col">@L["EducationCurriculum:Textbook"]</th><th scope="col">@L["EducationCurriculum:SelectionPeriod"]</th></tr></thead><tbody>
+                            @foreach (var selection in Selections.OrderByDescending(x => x.SelectedAtUtc))
+                            {
+                                <tr><td>@AssignmentName(selection.TeachingAssignmentId)</td><td>@selection.TextbookTitle · @L["EducationCurriculum:RevisionNumber", selection.CatalogRevision]<br /><small>@StatusName(selection.TextbookStatus)</small><br /><button type="button" class="btn btn-sm btn-link px-0" @onclick="() => ViewSelectionBookAsync(selection.TextbookVersionId)" disabled="@IsBusy">@L["EducationCurriculum:ViewTextbook"]</button></td><td>@selection.SelectedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm") → @(selection.EndedAtUtc.HasValue ? selection.EndedAtUtc.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm") : L["EducationCurriculum:CurrentSelection"].Value)</td></tr>
+                            }
+                        </tbody></table></div>
+                    }
+                </div></div>
+            }
+        }
+    </main>
+</div>
+
+@code {
+    private const int PageSize = 20, PointPageSize = 50;
+    private List<MySchoolDto> Schools = [];
+    private List<TextbookVersionDto> Books = [], ChoiceBooks = [];
+    private List<CourseKnowledgePointDto> Points = [];
+    private List<TeacherTextbookSelectionDto> Selections = [];
+    private readonly Dictionary<Guid, string> RevisionLabels = [];
+    private readonly Dictionary<Guid, Guid> RevisionPointIds = [];
+    private readonly Dictionary<string, string> ChoiceLabels = [];
+    private MySchoolDto? SelectedSchool;
+    private CurriculumContextDto? Context;
+    private TextbookVersionDto? SelectedBook;
+    private CourseKnowledgePointDto? SelectedPoint;
+    private SaveTextbookDraftDto? Draft;
+    private CreateTextbookDraftDto NewBook = new() { IdempotencyKey = Guid.NewGuid() };
+    private CreateCourseKnowledgePointDto NewPoint = new() { IdempotencyKey = Guid.NewGuid() };
+    private CreateKnowledgePointRevisionDto PointRevision = new() { IdempotencyKey = Guid.NewGuid() };
+    private Guid ReviseBookOperation = Guid.NewGuid(), SelectionOperation = Guid.NewGuid();
+    private string Tab = "Textbooks", FilterSubjectId = string.Empty, PointsSubjectId = string.Empty, NewBookSubjectId = string.Empty;
+    private string MappingChapterId = string.Empty, MappingRevisionId = string.Empty, AssignmentId = string.Empty, ChoiceBookId = string.Empty;
+    private int BookSkip, PointSkip, ChoiceSkip;
+    private long BookCount, PointCount, ChoiceCount;
+    private bool IncludeUnpublished, IsBusy, NewBookDirty, DraftDirty, NewPointDirty, PointRevisionDirty, SelectionDirty;
+    private string? ErrorMessage, SuccessMessage;
+    private bool IsTeacher => SelectedSchool?.Roles.Contains(SchoolMemberRole.Teacher) == true;
+    private bool CanEditBook => Context?.CanManage == true && SelectedBook?.Status == TextbookVersionStatus.Draft;
+    private bool HasChanges => NewBookDirty || DraftDirty || NewPointDirty || PointRevisionDirty || SelectionDirty;
+
+    protected override Task OnInitializedAsync() => RunAsync(LoadSchoolsAsync);
+
+    private async Task LoadSchoolsAsync()
+    {
+        var result = await SchoolAppService.GetMySchoolsAsync();
+        Schools = result.Items.Where(x => x.Roles.Contains(SchoolMemberRole.Teacher) || x.Roles.Contains(SchoolMemberRole.Manager)).ToList();
+    }
+
+    private async Task SelectSchoolAsync(MySchoolDto school)
+    {
+        if (IsBusy || school.Id == SelectedSchool?.Id || !await ConfirmDiscardAsync(HasChanges)) return;
+        await RunAsync(async () =>
+        {
+            var context = await CurriculumAppService.GetContextAsync(school.Id);
+            SelectedSchool = school; Context = context; ResetSchoolState();
+            IncludeUnpublished = context.CanManage;
+            PointsSubjectId = context.Subjects.FirstOrDefault()?.Id.ToString() ?? string.Empty;
+            await LoadBooksAsync(); await LoadPointsAsync();
+            if (IsTeacher) await LoadSelectionsAsync();
+        });
+    }
+
+    private async Task RefreshAsync()
+    {
+        if (IsBusy || !await ConfirmDiscardAsync(HasChanges)) return;
+        await RunAsync(async () =>
+        {
+            await LoadSchoolsAsync();
+            var school = Schools.FirstOrDefault(x => x.Id == SelectedSchool?.Id);
+            if (school == null) { SelectedSchool = null; Context = null; ResetSchoolState(); return; }
+            var context = await CurriculumAppService.GetContextAsync(school.Id);
+            SelectedSchool = school; Context = context; ResetSchoolState(); IncludeUnpublished = context.CanManage;
+            PointsSubjectId = context.Subjects.FirstOrDefault()?.Id.ToString() ?? string.Empty;
+            await LoadBooksAsync(); await LoadPointsAsync(); if (IsTeacher) await LoadSelectionsAsync();
+        });
+    }
+
+    private Task FilterBooksAsync() => RunAsync(() => LoadBooksAsync(0));
+    private Task PageBooksAsync(int direction) => RunAsync(() => LoadBooksAsync(Math.Max(0, BookSkip + direction * PageSize)));
+    private async Task LoadBooksAsync(int? skip = null)
+    {
+        var result = await CurriculumAppService.GetTextbooksAsync(SelectedSchool!.Id, new GetTextbookListInput { EducationSubjectId = OptionalSelection(FilterSubjectId), IncludeUnpublished = IncludeUnpublished, SkipCount = skip ?? BookSkip, MaxResultCount = PageSize });
+        Books = result.Items.ToList(); BookCount = result.TotalCount; BookSkip = skip ?? BookSkip;
+    }
+
+    private async Task OpenBookAsync(Guid id)
+    {
+        if (IsBusy || id == SelectedBook?.Id || !await ConfirmDiscardAsync(DraftDirty)) return;
+        await RunAsync(async () => { SetBook(await CurriculumAppService.GetTextbookAsync(id)); });
+    }
+    private async Task ViewSelectionBookAsync(Guid id)
+    {
+        if (IsBusy || !await ConfirmDiscardAsync(DraftDirty)) return;
+        await RunAsync(async () => { SetBook(await CurriculumAppService.GetTextbookAsync(id)); Tab = "Textbooks"; });
+    }
+
+    private void SetBook(TextbookVersionDto book)
+    {
+        SelectedBook = book;
+        Draft = new SaveTextbookDraftDto
+        {
+            ConcurrencyStamp = book.ConcurrencyStamp, Grade = book.Grade, Title = book.Title, Publisher = book.Publisher, Edition = book.Edition, Volume = book.Volume,
+            Chapters = book.Chapters.OrderBy(x => x.DisplayOrder).Select(x => new SaveTextbookChapterDto { Id = x.Id, ParentChapterId = x.ParentChapterId, Code = x.Code, Title = x.Title, DisplayOrder = x.DisplayOrder }).ToList(),
+            Mappings = book.Mappings.Select(x => new SaveTextbookMappingDto { ChapterId = x.ChapterId, KnowledgePointRevisionId = x.KnowledgePointRevisionId }).ToList()
+        };
+        foreach (var mapping in book.Mappings)
+        {
+            RevisionLabels[mapping.KnowledgePointRevisionId] = $"{mapping.KnowledgePointCode} · {mapping.KnowledgePointName} · {L["EducationCurriculum:RevisionNumber", mapping.RevisionNumber]}";
+            RevisionPointIds[mapping.KnowledgePointRevisionId] = mapping.KnowledgePointId;
+        }
+        DraftDirty = false; MappingChapterId = MappingRevisionId = string.Empty; ReviseBookOperation = Guid.NewGuid();
+    }
+
+    private Task CreateBookAsync() => RunAsync(async () =>
+    {
+        if (DraftDirty && !await ConfirmDiscardAsync(true)) return;
+        NewBook.SchoolId = SelectedSchool!.Id; NewBook.EducationSubjectId = RequiredSelection(NewBookSubjectId);
+        var book = await CurriculumAppService.CreateDraftAsync(NewBook);
+        NewBook = new() { IdempotencyKey = Guid.NewGuid() }; NewBookSubjectId = string.Empty; NewBookDirty = false;
+        SetBook(book); SuccessMessage = L["EducationCurriculum:Created"]; await LoadBooksAsync();
+    });
+
+    private Task SaveBookAsync() => RunAsync(async () =>
+    {
+        var book = await CurriculumAppService.SaveDraftAsync(SelectedBook!.Id, Draft!);
+        SetBook(book); SuccessMessage = L["EducationCurriculum:Saved"]; await LoadBooksAsync();
+    });
+
+    private async Task PublishBookAsync()
+    {
+        if (IsBusy || DraftDirty || !await JSRuntime.InvokeAsync<bool>("confirm", L["EducationCurriculum:ConfirmPublish"].Value)) return;
+        await RunAsync(async () => { SetBook(await CurriculumAppService.PublishAsync(SelectedBook!.Id, SelectedBook.ConcurrencyStamp)); SuccessMessage = L["EducationCurriculum:Published"]; await LoadBooksAsync(); });
+    }
+
+    private Task ReviseBookAsync() => RunAsync(async () =>
+    {
+        SetBook(await CurriculumAppService.ReviseAsync(SelectedBook!.Id, new ReviseTextbookDto { IdempotencyKey = ReviseBookOperation }));
+        SuccessMessage = L["EducationCurriculum:RevisionCreated"]; await LoadBooksAsync();
+    });
+
+    private async Task RetireBookAsync()
+    {
+        if (IsBusy || !await JSRuntime.InvokeAsync<bool>("confirm", L["EducationCurriculum:ConfirmRetire"].Value)) return;
+        await RunAsync(async () => { SetBook(await CurriculumAppService.RetireAsync(SelectedBook!.Id, SelectedBook.ConcurrencyStamp)); SuccessMessage = L["EducationCurriculum:Retired"]; await LoadBooksAsync(); if (IsTeacher) await LoadSelectionsAsync(); });
+    }
+
+    private void AddChapter()
+    {
+        Draft!.Chapters.Add(new SaveTextbookChapterDto { Id = Guid.NewGuid(), DisplayOrder = Draft.Chapters.Count }); MarkDraft();
+    }
+    private void RemoveChapter(Guid id)
+    {
+        Draft!.Chapters.RemoveAll(x => x.Id == id); Draft.Mappings.RemoveAll(x => x.ChapterId == id);
+        foreach (var child in Draft.Chapters.Where(x => x.ParentChapterId == id)) child.ParentChapterId = null;
+        if (MappingChapterId == id.ToString()) MappingChapterId = string.Empty;
+        MarkDraft();
+    }
+    private void AddMapping()
+    {
+        ErrorMessage = null;
+        if (!Guid.TryParse(MappingChapterId, out var chapter) || !Guid.TryParse(MappingRevisionId, out var revision)) { ErrorMessage = L["EducationCurriculum:ChooseRequired"]; return; }
+        if (Draft!.Mappings.Any(x => x.ChapterId == chapter && RevisionPointIds.GetValueOrDefault(x.KnowledgePointRevisionId) == RevisionPointIds.GetValueOrDefault(revision)))
+        {
+            ErrorMessage = L["EducationCurriculum:DuplicatePointMapping"]; return;
+        }
+        Draft.Mappings.Add(new SaveTextbookMappingDto { ChapterId = chapter, KnowledgePointRevisionId = revision });
+        MappingChapterId = MappingRevisionId = string.Empty; MarkDraft();
+    }
+    private void RemoveMapping(SaveTextbookMappingDto mapping) { Draft!.Mappings.Remove(mapping); MarkDraft(); }
+
+    private async Task ChangePointSubjectAsync(string value)
+    {
+        if (IsBusy || value == PointsSubjectId || !await ConfirmDiscardAsync(NewPointDirty || PointRevisionDirty)) return;
+        await RunAsync(async () => { PointsSubjectId = value; PointSkip = 0; MappingRevisionId = string.Empty; ResetPointForms(); await LoadPointsAsync(); });
+    }
+    private Task PagePointsAsync(int direction) => RunAsync(async () => { await LoadPointsAsync(Math.Max(0, PointSkip + direction * PointPageSize)); MappingRevisionId = string.Empty; });
+    private Task LoadBookPointsAsync() => RunAsync(async () =>
+    {
+        if (PointsSubjectId != SelectedBook!.EducationSubjectId.ToString())
+        {
+            if (!await ConfirmDiscardAsync(NewPointDirty || PointRevisionDirty)) return;
+            PointsSubjectId = SelectedBook.EducationSubjectId.ToString(); PointSkip = 0; MappingRevisionId = string.Empty; ResetPointForms();
+        }
+        await LoadPointsAsync();
+    });
+    private async Task LoadPointsAsync(int? skip = null)
+    {
+        if (!Guid.TryParse(PointsSubjectId, out var subjectId)) { Points = []; PointCount = 0; return; }
+        var result = await CurriculumAppService.GetKnowledgePointsAsync(SelectedSchool!.Id, subjectId, new PagedResultRequestDto { SkipCount = skip ?? PointSkip, MaxResultCount = PointPageSize });
+        Points = result.Items.ToList(); PointCount = result.TotalCount; PointSkip = skip ?? PointSkip;
+        foreach (var point in Points) foreach (var revision in point.Revisions)
+        {
+            RevisionLabels[revision.Id] = RevisionLabel(point, revision); RevisionPointIds[revision.Id] = point.Id;
+        }
+    }
+    private Task CreatePointAsync() => RunAsync(async () =>
+    {
+        NewPoint.SchoolId = SelectedSchool!.Id; NewPoint.EducationSubjectId = RequiredSelection(PointsSubjectId);
+        await CurriculumAppService.CreateKnowledgePointAsync(NewPoint);
+        NewPoint = new() { IdempotencyKey = Guid.NewGuid() }; NewPointDirty = false; SuccessMessage = L["EducationCurriculum:Created"]; await LoadPointsAsync();
+    });
+    private async Task ChoosePointAsync(CourseKnowledgePointDto point)
+    {
+        if (IsBusy || !await ConfirmDiscardAsync(PointRevisionDirty)) return;
+        SelectedPoint = point; var latest = point.Revisions.OrderByDescending(x => x.RevisionNumber).First();
+        PointRevision = new() { IdempotencyKey = Guid.NewGuid(), ConcurrencyStamp = point.ConcurrencyStamp, Name = latest.Name, ParentRevisionId = latest.ParentRevisionId }; PointRevisionDirty = false;
+    }
+    private Task RevisePointAsync() => RunAsync(async () =>
+    {
+        var point = await CurriculumAppService.CreateKnowledgePointRevisionAsync(SelectedPoint!.Id, PointRevision);
+        SelectedPoint = point; var latest = point.Revisions.OrderByDescending(x => x.RevisionNumber).First();
+        PointRevision = new() { IdempotencyKey = Guid.NewGuid(), ConcurrencyStamp = point.ConcurrencyStamp, Name = latest.Name, ParentRevisionId = latest.ParentRevisionId };
+        PointRevisionDirty = false; SuccessMessage = L["EducationCurriculum:RevisionCreated"]; await LoadPointsAsync();
+    });
+
+    private async Task ChangeAssignmentAsync(string value)
+    {
+        if (IsBusy) return;
+        await RunAsync(async () =>
+        {
+            AssignmentId = value; ChoiceBookId = string.Empty; ChoiceSkip = 0; ChoiceLabels.Clear(); SelectionOperation = Guid.NewGuid(); SelectionDirty = !string.IsNullOrEmpty(AssignmentId);
+            await LoadChoiceBooksAsync();
+        });
+    }
+    private Task PageChoiceBooksAsync(int direction) => RunAsync(() => LoadChoiceBooksAsync(Math.Max(0, ChoiceSkip + direction * PageSize)));
+    private async Task LoadChoiceBooksAsync(int? skip = null)
+    {
+        var assignment = Context?.TeachingContexts.FirstOrDefault(x => x.Id.ToString() == AssignmentId);
+        if (assignment == null) { ChoiceBooks = []; ChoiceCount = 0; return; }
+        var result = await CurriculumAppService.GetTextbooksAsync(SelectedSchool!.Id, new GetTextbookListInput { EducationSubjectId = assignment.EducationSubjectId, Grade = assignment.Grade, IncludeUnpublished = false, SkipCount = skip ?? ChoiceSkip, MaxResultCount = PageSize });
+        ChoiceBooks = result.Items.ToList(); ChoiceCount = result.TotalCount; ChoiceSkip = skip ?? ChoiceSkip;
+        foreach (var book in ChoiceBooks) ChoiceLabels[book.Id.ToString()] = $"{book.Title} · {book.Publisher} · {book.Edition} · {book.Volume} · {L["EducationCurriculum:RevisionNumber", book.CatalogRevision]}";
+    }
+    private async Task SelectTextbookAsync()
+    {
+        if (IsBusy || !await JSRuntime.InvokeAsync<bool>("confirm", L["EducationCurriculum:ConfirmSelectionHint"].Value)) return;
+        await RunAsync(async () =>
+        {
+            await CurriculumAppService.SelectTextbookAsync(RequiredSelection(AssignmentId), new SelectTeacherTextbookDto { IdempotencyKey = SelectionOperation, TextbookVersionId = RequiredSelection(ChoiceBookId) });
+            SelectionDirty = false; SelectionOperation = Guid.NewGuid(); SuccessMessage = L["EducationCurriculum:SelectionSaved"]; await LoadSelectionsAsync();
+        });
+    }
+    private async Task LoadSelectionsAsync() { Selections = (await CurriculumAppService.GetMySelectionsAsync(SelectedSchool!.Id)).Items.ToList(); }
+
+    private void ResetSchoolState()
+    {
+        Books = []; ChoiceBooks = []; Points = []; Selections = []; RevisionLabels.Clear(); RevisionPointIds.Clear(); ChoiceLabels.Clear(); SelectedBook = null; Draft = null;
+        NewBook = new() { IdempotencyKey = Guid.NewGuid() }; NewBookSubjectId = FilterSubjectId = PointsSubjectId = AssignmentId = ChoiceBookId = MappingChapterId = MappingRevisionId = string.Empty;
+        BookSkip = PointSkip = ChoiceSkip = 0; BookCount = PointCount = ChoiceCount = 0;
+        NewBookDirty = DraftDirty = SelectionDirty = false; SelectionOperation = Guid.NewGuid(); ResetPointForms(); Tab = "Textbooks";
+    }
+    private void ResetPointForms()
+    {
+        SelectedPoint = null; NewPoint = new() { IdempotencyKey = Guid.NewGuid() }; PointRevision = new() { IdempotencyKey = Guid.NewGuid() }; NewPointDirty = PointRevisionDirty = false;
+    }
+    private void MarkNewBook() { NewBookDirty = true; NewBook.IdempotencyKey = Guid.NewGuid(); }
+    private void MarkDraft() { if (CanEditBook) DraftDirty = true; }
+    private void MarkNewPoint() { NewPointDirty = true; NewPoint.IdempotencyKey = Guid.NewGuid(); }
+    private void MarkPointRevision() { PointRevisionDirty = true; PointRevision.IdempotencyKey = Guid.NewGuid(); }
+    private void MarkSelection() { SelectionDirty = true; SelectionOperation = Guid.NewGuid(); }
+    private string StatusName(TextbookVersionStatus status) => L[$"EducationCurriculum:Status:{status}"];
+    private string SubjectName(Guid id) => Context?.Subjects.FirstOrDefault(x => x.Id == id)?.Name ?? L["EducationCurriculum:UnavailableSubject"].Value;
+    private string ChapterName(Guid id) { var chapter = Draft?.Chapters.FirstOrDefault(x => x.Id == id); return chapter == null ? L["EducationCurriculum:UnavailableChapter"].Value : $"{chapter.Code} · {chapter.Title}"; }
+    private string RevisionName(Guid id) => RevisionLabels.GetValueOrDefault(id) ?? L["EducationCurriculum:HistoricalRevision"].Value;
+    private bool LoadedRevision(Guid id) => Points.Any(x => x.Revisions.Any(r => r.Id == id));
+    private string RevisionLabel(CourseKnowledgePointDto point, CourseKnowledgePointRevisionDto revision) => $"{point.Code} · {revision.Name} · {L["EducationCurriculum:RevisionNumber", revision.RevisionNumber]}";
+    private string TeachingContextName(MyTeachingContextDto assignment) => $"{assignment.TermName} · {assignment.ClassName} · {L["EducationCurriculum:GradeNumber", assignment.Grade]} · {assignment.SubjectName}";
+    private string AssignmentName(Guid id) { var assignment = Context?.TeachingContexts.FirstOrDefault(x => x.Id == id); return assignment == null ? L["EducationCurriculum:HistoricalAssignment"].Value : TeachingContextName(assignment); }
+    private Guid RequiredSelection(string value) => Guid.TryParse(value, out var id) && id != Guid.Empty ? id : throw new InvalidOperationException(L["EducationCurriculum:ChooseRequired"]);
+    private static Guid? OptionalSelection(string value) => Guid.TryParse(value, out var id) && id != Guid.Empty ? id : null;
+    private Task<bool> ConfirmDiscardAsync(bool dirty) => dirty ? JSRuntime.InvokeAsync<bool>("confirm", L["EducationCurriculum:ConfirmLeave"].Value).AsTask() : Task.FromResult(true);
+    private async Task ConfirmNavigationAsync(LocationChangingContext context) { if (!await ConfirmDiscardAsync(HasChanges)) context.PreventNavigation(); }
+    private async Task RunAsync(Func<Task> action)
+    {
+        if (IsBusy) return; IsBusy = true; ErrorMessage = SuccessMessage = null;
+        try { await action(); }
+        catch (Exception exception) { ErrorMessage = GetUserFriendlyErrorMessage(exception); }
+        finally { IsBusy = false; }
+    }
+}

@@ -25,6 +25,22 @@ public class QuestionReview : CreationAuditedEntity<Guid>, IMultiTenant
 
     public DateTime ReviewTime { get; private set; }
 
+    public string? OperationRequestHash { get; private set; }
+    public string? ExpectedConcurrencyStamp { get; private set; }
+    public Guid? PersonalOwnerUserId { get; private set; }
+    public Guid? DefinitionRevisionId { get; private set; }
+
+    public void RecordOperation(string requestHash, string expectedConcurrencyStamp, Guid? personalOwnerUserId, Guid? definitionRevisionId)
+    {
+        if (OperationRequestHash != null || personalOwnerUserId == Guid.Empty || definitionRevisionId == Guid.Empty)
+            throw new InvalidOperationException("A review operation is immutable.");
+        OperationRequestHash = Check.NotNullOrWhiteSpace(requestHash, nameof(requestHash), 64);
+        if (OperationRequestHash.Length != 64) throw new ArgumentException("A SHA-256 request hash is required.", nameof(requestHash));
+        ExpectedConcurrencyStamp = Check.NotNullOrWhiteSpace(expectedConcurrencyStamp, nameof(expectedConcurrencyStamp), 40);
+        PersonalOwnerUserId = personalOwnerUserId;
+        DefinitionRevisionId = definitionRevisionId;
+    }
+
     protected QuestionReview()
     {
     }

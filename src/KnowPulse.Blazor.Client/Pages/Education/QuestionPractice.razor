@@ -1,0 +1,240 @@
+@page "/education/practice"
+@attribute [Authorize(EducationPermissions.AssessmentParticipate)]
+@attribute [Authorize(EducationPermissions.LearningParticipate)]
+@inherits KnowPulseComponentBase
+@using KnowPulse.Education
+@using System.Text.Json
+@using System.IO
+@using System.Security.Cryptography
+@inject IEducationQuestionPracticeAppService Practices
+@inject IJSRuntime JS
+@inject Volo.Abp.Users.ICurrentUser Account
+@inject Volo.Abp.MultiTenancy.ICurrentTenant Tenant
+
+<PageTitle>@L["EducationPractice:Title"]</PageTitle>
+<h1 class="h4">@L["EducationPractice:Title"]</h1>
+<p>@L["EducationPractice:PracticeOnly"]</p><p class="small text-muted">@L["EducationPractice:LocalHint"]</p>
+<NavigationLock ConfirmExternalNavigation="@(Busy || State.Dirty || HasPending)" OnBeforeInternalNavigation="LeaveAsync" />
+@if (Error != null) { <p class="alert alert-danger" role="alert">@Error</p> }
+@if (Receipt != null) { <p class="alert alert-success" role="status">@L["EducationGrading:Receipt", Receipt]</p> }
+@if (StorageBroken) {
+    <button class="btn btn-outline-primary mb-2" disabled="@Busy" @onclick="RetryStorageAsync">@L["EducationPractice:RetryStorage"]</button>
+    <button class="btn btn-outline-secondary mb-2" disabled="@Busy" @onclick="ResetLocalAsync">@L["EducationPractice:ResetLocal"]</button>
+}
+@if (State.PendingStart != null || State.PendingSubmit != null) {
+    <div class="alert alert-info" role="status">@L["EducationGrading:Unknown"]
+        <button class="btn btn-sm btn-outline-primary" disabled="@Busy" @onclick="RecoverAsync">@L["EducationGrading:Recover"]</button>
+        <button class="btn btn-sm btn-outline-primary" disabled="@Busy" @onclick="RetryAsync">@L["EducationReport:RetryCommand"]</button>
+        <button class="btn btn-sm btn-outline-secondary" disabled="@Busy" @onclick="AbandonAsync">@L["EducationReport:Abandon"]</button>
+    </div>
+}
+@if (RecipientId.HasValue && QuestionId.HasValue && ResultReleaseId.HasValue) {
+    <button class="btn btn-primary mb-3" disabled="@Locked" @onclick="StartAsync">@L["EducationPractice:Start"]</button>
+    <a class="ms-2" href="@($"/education/assessment-results?recipientId={RecipientId:D}")">@L["EducationAttempt:Results"]</a>
+}
+<button class="btn btn-outline-secondary mb-3" disabled="@Locked" @onclick="ReloadAsync">@L["EducationReport:Reload"]</button>
+<div class="row g-3"><aside class="col-lg-4"><div class="list-group">
+    @foreach (var item in Items) { <button class="list-group-item list-group-item-action" disabled="@Locked" @onclick="(() => SelectAsync(item.Id))">
+        @item.StartedAtUtc.ToLocalTime().ToString("g")<br />@L[item.SubmittedAtUtc.HasValue ? "EducationPractice:SubmittedCopy" : "EducationPractice:NotSubmitted"]
+    </button> }
+</div><p class="small mt-2">@L["EducationPractice:RecordCount", Total]</p>
+<button class="btn btn-sm btn-outline-secondary" disabled="@(Locked || Offset == 0)" @onclick="(() => PageAsync(-1))">@L["EducationPaper:Previous"]</button>
+<button class="btn btn-sm btn-outline-secondary" disabled="@(Locked || Offset + 20 >= Total)" @onclick="(() => PageAsync(1))">@L["EducationPaper:Next"]</button></aside>
+<main class="col-lg-8">@if (Selected is { } row) {
+    <a href="@($"/education/assessment-results?recipientId={row.RecipientId:D}")">@L["EducationPractice:OriginalResult"]</a>
+    @if (row.SubmittedAtUtc.HasValue) { <EducationPracticeReview @key="(BoundAccount, row.Id)" Model="row" ReadImage="ReadImageAsync" /> }
+    else if (!row.SourceAvailable || row.Question == null) {
+        <p class="alert alert-warning" role="status">@L["EducationPractice:SourceUnavailable"]</p>
+        @if (State.Response != null) { <EducationPracticeReview Model="PreviewModel()" Preview="true" ReadImage="ReadImageAsync" /> }
+    }
+    else if (State.Response is { } response) {
+        var question = row.Question;
+        <section class="card card-body my-3"><h2 class="h5">@question.Title</h2><p class="text-break" style="white-space:pre-wrap">@question.Stem</p>
+        <fieldset disabled="@Locked">
+            @if (question.Type is QuestionType.SingleChoice or QuestionType.MultipleChoice) {
+                @foreach (var option in question.Options) { <label class="d-block mb-2"><input type="@(question.Type == QuestionType.MultipleChoice ? "checkbox" : "radio")" name="@($"practice-{row.Id}")" checked="@response.SelectedOptionKeys.Contains(option.OptionKey)" @onchange="(e => ChoiceAsync(option.OptionKey, question.Type, e))" /> @option.OptionKey. @option.Content</label> }
+            } else if (question.Type == QuestionType.TrueFalse) {
+                @foreach (var key in new[] { "true", "false" }) { <label class="d-block mb-2"><input type="radio" name="@($"practice-{row.Id}")" checked="@response.SelectedOptionKeys.Contains(key)" @onchange="(e => ChoiceAsync(key, question.Type, e))" />@L[key == "true" ? "EducationPractice:True" : "EducationPractice:False"]</label> }
+            } else if (question.Type == QuestionType.FillBlank) {
+                @foreach (var blank in question.ResponseFields) { <label class="d-block mb-2" for="@($"practice-blank-{blank.Id}")">@blank.StemMarker</label><input id="@($"practice-blank-{blank.Id}")" class="form-control mb-2" maxlength="20000" value="@(response.Blanks.FirstOrDefault(x => x.BlankId == blank.Id)?.Text ?? "")" @oninput="(e => BlankAsync(blank.Id, e))" /> }
+            } else if (question.Type == QuestionType.Subjective) {
+                <label for="practice-response" class="form-label">@L["EducationAttempt:Response"]</label><textarea id="practice-response" class="form-control mb-3" rows="6" maxlength="20000" value="@response.Text" @oninput="TextAsync"></textarea>
+            }
+        </fieldset>
+        @if (question.Type == QuestionType.Subjective) {
+            <p class="small">@L["EducationPractice:ImageLimits"]</p><label for="practice-image" class="form-label">@L["EducationAttempt:AddImage"]</label>
+            <InputFile id="practice-image" class="form-control mb-3" accept="image/jpeg,image/png,image/webp" capture="environment" disabled="@(Busy || !StorageReady || StorageBroken || State.PendingStart != null || State.PendingSubmit != null || response.Images.Count >= 5 && State.ImageOperationId == null)" OnChange="UploadAsync" />
+        }
+        @if (State.ImageOperationId is Guid imageOperation) {
+            <p class="alert alert-info" role="status">@L["EducationPractice:RetryImage"]
+            <button class="btn btn-sm btn-outline-primary" disabled="@Busy" @onclick="RecoverImageAsync">@L["EducationGrading:Recover"]</button>
+            <button class="btn btn-sm btn-outline-secondary" disabled="@Busy" @onclick="AbandonAsync">@L["EducationReport:Abandon"]</button></p>
+        }
+        @foreach (var image in response.Images) { var index = response.Images.IndexOf(image);
+            <div class="d-flex flex-wrap gap-2 border rounded p-2 mb-2"><span>@L["EducationAttempt:ImagePosition", index + 1, image.RotationDegrees]</span>
+                <button class="btn btn-sm btn-outline-secondary" disabled="@Locked" @onclick="(() => EditImageAsync(index, ImageEdit.Rotate))">@L["EducationAttempt:RotateImage"]</button>
+                <button class="btn btn-sm btn-outline-secondary" disabled="@(Locked || index == 0)" @onclick="(() => EditImageAsync(index, ImageEdit.Up))">@L["EducationAttempt:MoveUp"]</button>
+                <button class="btn btn-sm btn-outline-secondary" disabled="@(Locked || index + 1 == response.Images.Count)" @onclick="(() => EditImageAsync(index, ImageEdit.Down))">@L["EducationAttempt:MoveDown"]</button>
+                <button class="btn btn-sm btn-outline-secondary" disabled="@Locked" @onclick="(() => EditImageAsync(index, ImageEdit.Remove))">@L["EducationAttempt:RemoveImage"]</button>
+            </div>
+        }
+        <button class="btn btn-outline-primary" disabled="@Locked" @onclick="PrepareAsync">@L["EducationPractice:Prepare"]</button>
+        @if (Preparation != null) {
+            <EducationPracticeReview @key="(BoundAccount, row.Id, Preparation.Fingerprint)" Model="PreviewModel()" Preview="true" ReadImage="ReadImageAsync" />
+            <label class="d-block my-2"><input type="checkbox" @bind="Share" disabled="@Locked" /> @L["EducationPractice:ConfirmSharing"]</label>
+            <label class="d-block my-2"><input type="checkbox" @bind="PracticeOnly" disabled="@Locked" /> @L["EducationPractice:ConfirmPracticeOnly"]</label>
+            <button class="btn btn-primary" disabled="@(Locked || !Share || !PracticeOnly)" @onclick="SubmitAsync">@L["EducationPractice:Submit"]</button>
+        }
+        </section>
+    }
+}</main></div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "recipientId")] public Guid? RecipientId { get; set; }
+    [SupplyParameterFromQuery(Name = "questionId")] public Guid? QuestionId { get; set; }
+    [SupplyParameterFromQuery(Name = "resultReleaseId")] public Guid? ResultReleaseId { get; set; }
+    [SupplyParameterFromQuery(Name = "practiceId")] public Guid? RequestedPracticeId { get; set; }
+    private string AccountKey => $"{Tenant.Id}:{Account.Id}";
+    private string? BoundAccount, RunningAccount, Error; private bool Busy, StorageReady, StorageBroken, Share, PracticeOnly; private Guid? Receipt;
+    private int Offset; private long Total; private List<EducationPracticeListDto> Items = []; private EducationPracticeDto? Selected; private EducationPracticePreparationDto? Preparation;
+    private LocalState State = new(); private bool HasPending => State.PendingStart != null || State.PendingSubmit != null || State.ImageOperationId.HasValue;
+    private bool Locked => Busy || !StorageReady || StorageBroken || HasPending;
+    private string StorageKey => $"education-practice-v1:{BoundAccount}";
+    private sealed class LocalState {
+        public LocalState() { }
+        public Guid? PracticeId { get; set; }
+        public EducationAssessmentResponseValue? Response { get; set; }
+        public bool Dirty { get; set; }
+        public Guid? PendingRecipientId { get; set; }
+        public StartEducationPracticeDto? PendingStart { get; set; }
+        public SubmitEducationPracticeDto? PendingSubmit { get; set; }
+        public string? Fingerprint { get; set; }
+        public Guid? ImageOperationId { get; set; }
+        public string? ImageHash { get; set; }
+        public string? ImageName { get; set; }
+    }
+    protected override async Task OnParametersSetAsync() {
+        if (BoundAccount != AccountKey) { BoundAccount = AccountKey; State = new(); Selected = null; Items = []; Preparation = null; StorageReady = false; StorageBroken = false; Receipt = null; }
+        if (StorageReady && RequestedPracticeId is Guid requested && requested != State.PracticeId && !HasPending && !State.Dirty) await RunAsync(() => LoadSelectedAsync(requested));
+    }
+    protected override async Task OnAfterRenderAsync(bool firstRender) {
+        if (Busy || StorageReady || StorageBroken) return;
+        await RunAsync(async () => {
+            var raw = await JS.InvokeAsync<string?>("sessionStorage.getItem", StorageKey); EnsureAccount();
+            State = raw == null ? new() : JsonSerializer.Deserialize<LocalState>(raw) ?? throw new InvalidOperationException(L["EducationPractice:InvalidReceipt"]);
+            ValidateLocal(); StorageReady = true; await LoadListAsync();
+            if (State.PracticeId is Guid saved) await LoadSelectedAsync(saved);
+            else if (RequestedPracticeId is Guid requested && !HasPending) await LoadSelectedAsync(requested);
+        });
+        if (!StorageReady) StorageBroken = true; StateHasChanged();
+    }
+    private void EnsureAccount() { if (BoundAccount != AccountKey || RunningAccount != null && RunningAccount != AccountKey) throw new InvalidOperationException(L["EducationPractice:AccountChanged"]); }
+    private void ValidateLocal() {
+        if (State.PendingStart != null && (State.PendingRecipientId == null || State.PendingStart.OperationId == Guid.Empty || State.PendingSubmit != null) ||
+            State.PendingSubmit != null && (!State.PracticeId.HasValue || State.PendingSubmit.OperationId == Guid.Empty) || State.ImageOperationId.HasValue && (!State.PracticeId.HasValue || State.ImageHash == null || State.ImageName == null))
+            throw new InvalidOperationException(L["EducationPractice:InvalidReceipt"]);
+        if (State.PendingStart != null && State.Fingerprint != EducationPracticeFingerprint.Start(State.PendingRecipientId!.Value, State.PendingStart) ||
+            State.PendingSubmit != null && State.Fingerprint != EducationPracticeFingerprint.Submit(State.PracticeId!.Value, State.PendingSubmit))
+            throw new InvalidOperationException(L["EducationPractice:InvalidReceipt"]);
+        State.Response?.ToCanonicalJson();
+    }
+    private async Task StoreAsync() { EnsureAccount(); await JS.InvokeVoidAsync("sessionStorage.setItem", StorageKey, JsonSerializer.Serialize(State)); }
+    private async Task LoadListAsync() { var page = await Practices.GetMyPracticeListAsync(new() { SkipCount = Offset, MaxResultCount = 20, RecipientId = RecipientId, PaperQuestionId = QuestionId }); EnsureAccount(); Items = page.Items.ToList(); Total = page.TotalCount; }
+    private async Task LoadSelectedAsync(Guid id) {
+        Selected = null; Preparation = null; var row = await Practices.GetMyPracticeAsync(id); EnsureAccount(); Selected = row;
+        if (State.PracticeId != id) { State.PracticeId = id; State.Response = null; State.Dirty = false; }
+        State.Response ??= row.Question == null ? null : new() { Type = row.Question.Type };
+        Share = false; PracticeOnly = false; await StoreAsync();
+    }
+    private async Task<bool> DiscardAsync() => !State.Dirty || await JS.InvokeAsync<bool>("confirm", L["EducationPractice:DiscardLocal"].Value);
+    private async Task LeaveAsync(LocationChangingContext context) {
+        if (Busy || HasPending || !await DiscardAsync()) { context.PreventNavigation(); return; }
+        if (State.Dirty) { State.Response = null; State.Dirty = false; await StoreAsync(); }
+    }
+    private Task SelectAsync(Guid id) => RunAsync(async () => { if (!HasPending && await DiscardAsync()) { State = new(); await LoadSelectedAsync(id); } });
+    private Task ReloadAsync() => RunAsync(async () => { await LoadListAsync(); if (State.PracticeId is Guid id) await LoadSelectedAsync(id); });
+    private Task PageAsync(int direction) => RunAsync(async () => { Offset = Math.Max(0, Offset + direction * 20); await LoadListAsync(); });
+    private Task StartAsync() => RunAsync(async () => {
+        if (HasPending || !await DiscardAsync() || RecipientId is not Guid recipient || QuestionId is not Guid question || ResultReleaseId is not Guid release) return;
+        State = new() { PendingRecipientId = recipient, PendingStart = new() { OperationId = Guid.NewGuid(), PaperQuestionId = question, ExpectedResultReleaseId = release } };
+        State.Fingerprint = EducationPracticeFingerprint.Start(recipient, State.PendingStart); Selected = null; Preparation = null; await StoreAsync(); await SendAsync();
+    });
+    private async Task ChangedAsync() { State.Dirty = true; Preparation = null; Share = false; PracticeOnly = false; await StoreAsync(); }
+    private async Task EditAsync(Action change) {
+        if (Locked || State.Response == null) return;
+        try { EnsureAccount(); change(); await ChangedAsync(); } catch (Exception ex) { StorageBroken = true; Error = GetUserFriendlyErrorMessage(ex); }
+    }
+    private Task TextAsync(ChangeEventArgs args) => EditAsync(() => State.Response!.Text = args.Value?.ToString());
+    private Task BlankAsync(Guid id, ChangeEventArgs args) => EditAsync(() => {
+        var blank = State.Response!.Blanks.FirstOrDefault(x => x.BlankId == id); if (blank == null) { blank = new() { BlankId = id }; State.Response.Blanks.Add(blank); } blank.Text = args.Value?.ToString() ?? ""; });
+    private Task ChoiceAsync(string key, QuestionType type, ChangeEventArgs args) => EditAsync(() => {
+        if (type != QuestionType.MultipleChoice) State.Response!.SelectedOptionKeys = [key];
+        else if (args.Value is true) { if (!State.Response!.SelectedOptionKeys.Contains(key)) State.Response.SelectedOptionKeys.Add(key); } else State.Response!.SelectedOptionKeys.Remove(key);
+    });
+    private Task PrepareAsync() => RunAsync(async () => { if (HasPending || Selected == null || State.Response == null) return;
+        Preparation = null; Preparation = await Practices.PreviewMyPracticeAsync(Selected.Id, new() { Response = Clone(State.Response) }); EnsureAccount(); Share = false; PracticeOnly = false; });
+    private static EducationAssessmentResponseValue Clone(EducationAssessmentResponseValue value) => EducationAssessmentResponseValue.Parse(value.ToCanonicalJson());
+    private EducationPracticeDto PreviewModel() => new() { Id = Selected!.Id, Question = Selected.Question, SourceAvailable = Selected.SourceAvailable, SubmittedResponse = State.Response == null ? null : Clone(State.Response) };
+    private Task SubmitAsync() => RunAsync(async () => {
+        if (HasPending || Preparation == null || State.PracticeId == null || State.Response == null || !Share || !PracticeOnly) return;
+        State.PendingSubmit = new() { OperationId = Guid.NewGuid(), Response = Clone(State.Response), PreparationFingerprint = Preparation.Fingerprint, ConfirmSharingWithTeacher = Share, ConfirmPracticeOnly = PracticeOnly };
+        State.Fingerprint = EducationPracticeFingerprint.Submit(State.PracticeId.Value, State.PendingSubmit); await StoreAsync(); await SendAsync();
+    });
+    private async Task SendAsync() {
+        ValidateLocal(); EducationPracticeOperationDto receipt;
+        if (State.PendingStart is { } start) receipt = await Practices.StartMyPracticeAsync(State.PendingRecipientId!.Value, start);
+        else if (State.PendingSubmit is { } submit) receipt = await Practices.SubmitMyPracticeAsync(State.PracticeId!.Value, submit);
+        else throw new InvalidOperationException(L["EducationPractice:InvalidReceipt"]);
+        EnsureAccount(); await AcceptReceiptAsync(receipt);
+    }
+    private async Task AcceptReceiptAsync(EducationPracticeOperationDto receipt) {
+        var start = State.PendingStart; var submit = State.PendingSubmit;
+        if (receipt.RequestFingerprint != State.Fingerprint || (start != null ? receipt.IsSubmission || receipt.PracticeId != start.OperationId || receipt.OperationId != start.OperationId :
+            submit == null || !receipt.IsSubmission || receipt.PracticeId != State.PracticeId || receipt.OperationId != submit.OperationId)) throw new InvalidOperationException(L["EducationPractice:InvalidReceipt"]);
+        State.PracticeId = receipt.PracticeId; State.PendingStart = null; State.PendingSubmit = null; State.PendingRecipientId = null; State.Fingerprint = null;
+        if (receipt.IsSubmission) State.Dirty = false; Receipt = receipt.OperationId; await StoreAsync(); await LoadSelectedAsync(receipt.PracticeId); await LoadListAsync();
+    }
+    private Task RetryAsync() => RunAsync(SendAsync);
+    private Task RecoverAsync() => RunAsync(async () => {
+        var id = State.PendingStart?.OperationId ?? State.PracticeId; var operation = State.PendingStart?.OperationId ?? State.PendingSubmit?.OperationId;
+        if (id == null || operation == null) return; var receipt = await Practices.GetMyPracticeOperationAsync(id.Value, operation.Value); EnsureAccount(); if (receipt != null) await AcceptReceiptAsync(receipt);
+    });
+    private Task AbandonAsync() => RunAsync(async () => {
+        if (!await JS.InvokeAsync<bool>("confirm", L["EducationPractice:Abandon"].Value)) return;
+        State.PendingStart = null; State.PendingSubmit = null; State.PendingRecipientId = null; State.Fingerprint = null; State.ImageOperationId = null; State.ImageName = null; State.ImageHash = null;
+        Preparation = null; Share = false; PracticeOnly = false; await StoreAsync(); await LoadListAsync(); if (State.PracticeId is Guid id) await LoadSelectedAsync(id);
+    });
+    private Task ResetLocalAsync() => RunAsync(async () => { if (!await JS.InvokeAsync<bool>("confirm", L["EducationPractice:DiscardLocal"].Value)) return;
+        EnsureAccount(); await JS.InvokeVoidAsync("sessionStorage.removeItem", StorageKey); State = new(); Selected = null; Preparation = null; StorageBroken = false; StorageReady = false; });
+    private Task RetryStorageAsync() => RunAsync(async () => { ValidateLocal(); await StoreAsync(); StorageBroken = false; StorageReady = true; });
+    private Task UploadAsync(InputFileChangeEventArgs args) => RunAsync(async () => {
+        if (Selected == null || State.Response == null || State.PendingStart != null || State.PendingSubmit != null || State.Response.Images.Count >= 5 && State.ImageOperationId == null) return;
+        using var source = args.File.OpenReadStream(5 * 1024 * 1024); using var bytes = new MemoryStream(); await source.CopyToAsync(bytes); EnsureAccount();
+        var hash = Convert.ToHexStringLower(SHA256.HashData(bytes.ToArray()));
+        if (State.ImageOperationId.HasValue && (State.ImageHash != hash || State.ImageName != args.File.Name)) throw new InvalidOperationException(L["EducationCorrection:WrongImage"]);
+        if (!State.ImageOperationId.HasValue) { State.ImageOperationId = Guid.NewGuid(); State.ImageHash = hash; State.ImageName = args.File.Name; Preparation = null; Share = false; PracticeOnly = false; await StoreAsync(); }
+        bytes.Position = 0; using var remote = new Volo.Abp.Content.RemoteStreamContent(bytes, args.File.Name, args.File.ContentType);
+        var uploaded = await Practices.UploadMyPracticeImageAsync(Selected.Id, State.ImageOperationId!.Value, remote); EnsureAccount(); await AcceptImageAsync(uploaded);
+    });
+    private async Task AcceptImageAsync(EducationPracticeImageDto image) {
+        if (image.Id != State.ImageOperationId || image.ContentHash != State.ImageHash || !image.IsUploaded || State.Response == null) throw new InvalidOperationException(L["EducationPractice:InvalidReceipt"]);
+        if (!State.Response.Images.Any(x => x.AttachmentId == image.Id)) State.Response.Images.Add(new() { AttachmentId = image.Id });
+        State.ImageOperationId = null; State.ImageHash = null; State.ImageName = null; await ChangedAsync();
+    }
+    private Task RecoverImageAsync() => RunAsync(async () => { if (State.PracticeId is not Guid id || State.ImageOperationId is not Guid operation) return;
+        var image = await Practices.GetMyPracticeImageOperationAsync(id, operation); EnsureAccount(); if (image?.IsUploaded == true) await AcceptImageAsync(image); });
+    private enum ImageEdit { Rotate, Up, Down, Remove }
+    private Task EditImageAsync(int index, ImageEdit action) => RunAsync(async () => {
+        if (HasPending || State.Response == null) return; var images = State.Response.Images;
+        if (action == ImageEdit.Rotate) images[index].RotationDegrees = (images[index].RotationDegrees + 90) % 360;
+        else if (action == ImageEdit.Remove) images.RemoveAt(index);
+        else { var target = action == ImageEdit.Up ? index - 1 : index + 1; (images[index], images[target]) = (images[target], images[index]); }
+        await ChangedAsync();
+    });
+    private Task<Volo.Abp.Content.IRemoteStreamContent> ReadImageAsync(Guid id) => Practices.DownloadMyPracticeImageAsync(Selected!.Id, id);
+    private async Task RunAsync(Func<Task> action) {
+        if (Busy) return; Busy = true; RunningAccount = AccountKey; Error = null;
+        try { EnsureAccount(); await action(); } catch (Exception ex) { Error = GetUserFriendlyErrorMessage(ex); }
+        finally { if (RunningAccount != AccountKey) { State = new(); Selected = null; Items = []; Preparation = null; StorageReady = false; BoundAccount = AccountKey; } RunningAccount = null; Busy = false; }
+    }
+}

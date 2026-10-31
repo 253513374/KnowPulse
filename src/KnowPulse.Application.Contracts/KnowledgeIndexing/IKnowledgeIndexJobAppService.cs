@@ -10,74 +10,75 @@ namespace KnowPulse.KnowledgeIndexing;
 /// <summary>
 /// 知识索引任务应用服务契约。
 /// 该接口是管理端、后台任务和 HTTP API 操作索引任务的统一入口，
-/// 所有方法都要求索引任务权限，避免普通知识库用户手动推进或篡改索引状态。
+/// 应用服务按关联知识检查组织索引权限，或个人知识库权限与本人所有权。
+/// 认证入口本身不授予组织管理或其他用户的索引访问权。
 /// </summary>
 public interface IKnowledgeIndexJobAppService : IApplicationService
 {
     /// <summary>
     /// 按知识条目、知识版本或状态分页查询索引任务。
     /// </summary>
-    [Authorize(KnowPulsePermissions.KnowledgeIndexing.IndexJobs)]
+    [Authorize]
     Task<PagedResultDto<KnowledgeIndexJobDto>> GetListAsync(GetKnowledgeIndexJobListInput input);
 
     /// <summary>
     /// 读取单条索引任务明细，包含失败阶段、失败原因和重试信息。
     /// </summary>
-    [Authorize(KnowPulsePermissions.KnowledgeIndexing.IndexJobs)]
+    [Authorize]
     Task<KnowledgeIndexJobDto> GetAsync(Guid id);
 
     /// <summary>
     /// 读取索引队列运维摘要。
     /// </summary>
-    [Authorize(KnowPulsePermissions.KnowledgeIndexing.IndexJobs)]
+    [Authorize]
     Task<KnowledgeIndexJobOperationalSummaryDto> GetOperationalSummaryAsync();
 
     /// <summary>
     /// 创建一条索引任务。调用方必须提供匹配的知识条目和知识版本编号。
     /// </summary>
-    [Authorize(KnowPulsePermissions.KnowledgeIndexing.IndexJobs)]
+    [Authorize]
     Task<KnowledgeIndexJobDto> CreateAsync(CreateKnowledgeIndexJobDto input);
 
     /// <summary>
     /// 为指定知识版本创建手动重建任务。
     /// 该操作会保留历史任务，不会覆盖旧的失败或成功记录。
     /// </summary>
-    [Authorize(KnowPulsePermissions.KnowledgeIndexing.IndexJobs)]
+    [Authorize]
     Task<KnowledgeIndexJobDto> ReindexVersionAsync(Guid knowledgeVersionId);
 
     /// <summary>
     /// 从失败任务派生新的待处理任务，保留原任务的失败排障信息。
     /// </summary>
-    [Authorize(KnowPulsePermissions.KnowledgeIndexing.IndexJobs)]
+    [Authorize]
     Task<KnowledgeIndexJobDto> RetryAsync(Guid id);
 
     /// <summary>
     /// 立即执行一条待处理或到期可重试任务，真正运行摄取、embedding 和向量写入。
     /// </summary>
-    [Authorize(KnowPulsePermissions.KnowledgeIndexing.IndexJobs)]
+    [Authorize]
     Task<KnowledgeIndexJobDto> ExecuteAsync(Guid id);
 
     /// <summary>
     /// 将卡住的处理中任务终止为失败，并创建一条可重新执行的恢复任务。
     /// </summary>
-    [Authorize(KnowPulsePermissions.KnowledgeIndexing.IndexJobs)]
+    [Authorize]
     Task<KnowledgeIndexJobDto> RecoverAsync(Guid id);
 
     /// <summary>
     /// 将任务标记为处理中。MVP-1 中也用于管理员手动推进状态。
     /// </summary>
-    [Authorize(KnowPulsePermissions.KnowledgeIndexing.IndexJobs)]
+    [Authorize]
     Task<KnowledgeIndexJobDto> StartAsync(Guid id);
 
     /// <summary>
     /// 将任务标记为已完成索引，并清理上一轮失败信息。
     /// </summary>
-    [Authorize(KnowPulsePermissions.KnowledgeIndexing.IndexJobs)]
+    [Authorize]
     Task<KnowledgeIndexJobDto> MarkIndexedAsync(Guid id);
 
     /// <summary>
     /// 将任务标记为失败，并记录失败阶段、原因和可选的下一次重试时间。
     /// </summary>
-    [Authorize(KnowPulsePermissions.KnowledgeIndexing.IndexJobs)]
+    [Authorize]
     Task<KnowledgeIndexJobDto> MarkFailedAsync(Guid id, MarkKnowledgeIndexJobFailedDto input);
 }

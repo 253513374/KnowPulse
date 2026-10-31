@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1029 842" role="img" aria-labelledby="title desc"><title id="title">教育测评生命周期</title><desc id="desc">箭头表示事实推进；结果发布与答卷提交、评分确认分别发生。</desc>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10Z" fill="#63768c"/></marker></defs>
+<rect width="1029" height="842" rx="18" fill="#f6f8fb"/>
+<text x="40" y="35" font-size="22" font-weight="700" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">教育测评生命周期</text>
+<path d="M304,136.0 L330,140 L350,140 L370,136.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M634,136.0 L660,140 L680,140 L700,136.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M832.0,192 L830,210 L830,250 L832.0,275" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M700,331.0 L680,330 L660,330 L634,331.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M370,331.0 L350,330 L330,330 L304,331.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M370,331.0 L350,330 L350,530 L330,530 L304,526.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M304,331.0 L330,330 L330,520 L350,520 L350,530 L370,526.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M304,526.0 L330,530 L350,530 L370,526.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M634,526.0 L660,530 L680,530 L700,526.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M832.0,582 L830,600 L830,640 L832.0,665" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M700,721.0 L680,720 L660,720 L660,530 L634,526.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<rect x="40" y="80" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="40" y="80" width="5" height="112" rx="2" fill="#126b82"/>
+<text x="172.0" y="124.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">草稿 / 试卷快照</text>
+<text x="172.0" y="148.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">确认教材与评分定义</text>
+<rect x="370" y="80" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="370" y="80" width="5" height="112" rx="2" fill="#3654a5"/>
+<text x="502.0" y="124.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">发布任务</text>
+<text x="502.0" y="148.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">固定接收名单及窗口</text>
+<rect x="700" y="80" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="700" y="80" width="5" height="112" rx="2" fill="#80539b"/>
+<text x="832.0" y="124.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">明确开始 / 恢复</text>
+<text x="832.0" y="148.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">同一次 Attempt</text>
+<rect x="700" y="275" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="700" y="275" width="5" height="112" rx="2" fill="#126b82"/>
+<text x="832.0" y="319.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">逐题响应修订</text>
+<text x="832.0" y="343.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">图片引用、版本与操作回执</text>
+<rect x="370" y="275" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="370" y="275" width="5" height="112" rx="2" fill="#3654a5"/>
+<text x="502.0" y="319.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">手动交卷 / 服务端截止</text>
+<text x="502.0" y="343.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">不可变 Submission 清单</text>
+<rect x="40" y="275" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="40" y="275" width="5" height="112" rx="2" fill="#80539b"/>
+<text x="172.0" y="319.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">自动分 + 人工批改</text>
+<text x="172.0" y="343.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">Grade 草稿与确认分离</text>
+<rect x="40" y="470" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="40" y="470" width="5" height="112" rx="2" fill="#126b82"/>
+<text x="172.0" y="514.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">全任务 Closure</text>
+<text x="172.0" y="538.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">提交或缺考，缺考不是零分</text>
+<rect x="370" y="470" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="370" y="470" width="5" height="112" rx="2" fill="#3654a5"/>
+<text x="502.0" y="514.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">统一 ResultRelease</text>
+<text x="502.0" y="538.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">冻结全部确认评分版本</text>
+<rect x="700" y="470" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="700" y="470" width="5" height="112" rx="2" fill="#80539b"/>
+<text x="832.0" y="514.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">学生当前结果</text>
+<text x="832.0" y="538.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">隐藏 / 分数 / 完整讲评</text>
+<rect x="700" y="665" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="700" y="665" width="5" height="112" rx="2" fill="#126b82"/>
+<text x="832.0" y="709.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">确认改分</text>
+<text x="832.0" y="733.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">新评分 + 替代发布</text>
+<rect x="318.0" y="420.0" width="64" height="20" rx="4" fill="#f6f8fb"/><text x="350.0" y="430.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#43526b">自然截止</text>
+<rect x="298.0" y="367.5" width="64" height="20" rx="4" fill="#f6f8fb"/><text x="330.0" y="377.5" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#43526b">全部确认</text>
+<rect x="278.5" y="517.0" width="64" height="20" rx="4" fill="#f6f8fb"/><text x="310.5" y="527.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#43526b">名单封存</text>
+<rect x="811.0" y="600.0" width="38" height="20" rx="4" fill="#f6f8fb"/><text x="830.0" y="610.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#43526b">复核</text>
+<rect x="615.0" y="615.0" width="90" height="20" rx="4" fill="#f6f8fb"/><text x="660.0" y="625.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#43526b">同事务换指针</text>
+</svg>

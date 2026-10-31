@@ -1,0 +1,456 @@
+@page "/education/assessment-tasks"
+@attribute [Authorize(EducationPermissions.AssessmentManage)]
+@inherits KnowPulseComponentBase
+@using KnowPulse.Education
+@using System.Globalization
+@using System.Net
+@using System.Text.Json
+@inject IEducationAssessmentAppService AssessmentAppService
+@inject IEducationSchoolAppService SchoolAppService
+@inject IEducationCurriculumAppService CurriculumAppService
+@inject IPermissionChecker PermissionChecker
+@inject IJSRuntime JSRuntime
+@inject NavigationManager Navigation
+@inject Volo.Abp.Users.ICurrentUser CurrentAccount
+@inject Volo.Abp.MultiTenancy.ICurrentTenant CurrentTenantContext
+
+<PageTitle>@L["EducationAssessment:Title"]</PageTitle>
+<NavigationLock OnBeforeInternalNavigation="ConfirmNavigationAsync" ConfirmExternalNavigation="@HasUnsavedChanges" />
+<div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+    <div><h1 class="h4 mb-1">@L["EducationAssessment:Title"]</h1><p class="text-muted small mb-0">@L["EducationAssessment:Description"]</p></div>
+    @if (CanViewPapers) { <a href="/education/papers" class="btn btn-outline-secondary btn-sm">@L["EducationAssessment:ManagePapers"]</a> }
+</div>
+@if (ErrorMessage != null) { <div class="alert alert-danger" role="alert">@ErrorMessage</div> }
+@if (SuccessMessage != null) { <div class="alert alert-success" role="status">@SuccessMessage</div> }
+@if (StorageNotice != null) { <p class="small text-warning" role="status">@StorageNotice</p> }
+@if (PendingOperation != null)
+{
+    <div class="alert alert-info" role="status"><p class="mb-2">@L["EducationAssessment:PendingOperation"]</p><div class="d-flex flex-wrap gap-2"><button type="button" class="btn btn-sm btn-outline-primary" @onclick="RecoverOperationAsync" disabled="@IsBusy">@L["EducationAssessment:RecoverOperation"]</button><button type="button" class="btn btn-sm btn-outline-secondary" @onclick="RetryOperationAsync" disabled="@IsBusy">@L["EducationAssessment:RetryOperation"]</button></div></div>
+}
+@if (CompletedReceipt is { } receipt)
+{
+    <div class="alert alert-success small" role="status">@L[receipt.PublishedAtUtc.HasValue ? "EducationAssessment:PublishedReceipt" : "EducationAssessment:SavedReceipt", receipt.Title, receipt.RevisionNumber, LocalTime(receipt.RecordedAtUtc)]</div>
+}
+
+<div class="row g-3">
+    <aside class="col-xl-4">
+        <div class="card"><div class="card-body">
+            <div class="d-flex justify-content-between align-items-center gap-2 mb-3"><h2 class="h6 mb-0">@L["EducationAssessment:MyTasks"]</h2><button type="button" class="btn btn-sm btn-primary" @onclick="NewTaskAsync" disabled="@(IsBusy || PendingOperation != null)">@L["EducationAssessment:NewTask"]</button></div>
+            <label class="form-label" for="assessment-search">@L["EducationAssessment:SearchTitle"]</label><input id="assessment-search" class="form-control" @bind="Keyword" @bind:event="oninput" />
+            <div class="d-flex gap-2 mt-2"><select class="form-select" aria-label="@L["EducationAssessment:StatusFilter"]" @bind="PublishedFilter"><option value="">@L["EducationAssessment:AllStatuses"]</option><option value="draft">@L["EducationAssessment:Draft"]</option><option value="published">@L["EducationAssessment:Published"]</option></select><button type="button" class="btn btn-outline-secondary" @onclick="SearchTasksAsync" disabled="@IsBusy">@L["EducationPaper:Search"]</button></div>
+            @if (TaskItems.Count == 0) { <p class="small text-muted mt-3">@L["EducationAssessment:NoTasks"]</p> }
+            <div class="d-flex flex-column gap-2 mt-3">
+                @foreach (var task in TaskItems)
+                {
+                    <button type="button" class="education-assessment-task btn text-start @(CurrentTask?.Id == task.Id ? "btn-outline-primary" : "btn-outline-secondary")" @key="task.Id" @onclick="() => OpenTaskAsync(task.Id)" disabled="@(IsBusy || PendingOperation != null)"><strong class="d-block">@task.CurrentRevision.Title</strong><span class="d-block small">@task.CurrentRevision.SchoolClassName · @task.CurrentRevision.Curriculum.SubjectName · @L[task.PublishedRevisionId.HasValue ? "EducationAssessment:Published" : "EducationAssessment:Draft"]</span><span class="d-block small">@LocalTime(task.CurrentRevision.StartsAtUtc) — @LocalTime(task.CurrentRevision.EndsAtUtc)</span></button>
+                }
+            </div>
+            @if (TaskTotal > TaskPageSize)
+            {
+                <div class="d-flex gap-2 align-items-center mt-3"><button type="button" class="btn btn-sm btn-outline-secondary" disabled="@(IsBusy || TaskOffset == 0)" @onclick="PreviousTasksAsync">@L["EducationPaper:Previous"]</button><span class="small">@L["EducationPaper:Page", TaskOffset / TaskPageSize + 1, (TaskTotal + TaskPageSize - 1) / TaskPageSize]</span><button type="button" class="btn btn-sm btn-outline-secondary" disabled="@(IsBusy || TaskOffset + TaskPageSize >= TaskTotal)" @onclick="NextTasksAsync">@L["EducationPaper:Next"]</button></div>
+            }
+        </div></div>
+    </aside>
+    <div class="col-xl-8">
+        @if (CurrentTask is { PublishedRevisionId: not null } publishedTask)
+        {
+            var revision = publishedTask.CurrentRevision;
+            <div class="card"><div class="card-body">
+                <div class="d-flex flex-wrap justify-content-between gap-2"><h2 class="h5">@revision.Title</h2><button type="button" class="btn btn-sm btn-outline-secondary" @onclick="ReloadTaskAsync" disabled="@(IsBusy || PendingOperation != null)">@L["EducationAssessment:ReloadTask"]</button></div>
+                <p class="small text-muted">@L["EducationAssessment:PublishedAt", LocalTime(revision.PublishedAtUtc!.Value), revision.RevisionNumber]</p><p class="education-assessment-instructions">@revision.Instructions</p>
+                <a href="@($"/education/assessment-grading/{publishedTask.Id}")" class="btn btn-sm btn-primary mb-3">@L["EducationGrading:Title"]</a>
+                <a href="@($"/education/assessment-reminders/{revision.SchoolId}/{publishedTask.Id}")" class="btn btn-sm btn-outline-primary mb-3">@L["EducationReminder:TeacherTitle"]</a>
+                <p>@revision.SchoolClassName · @SnapshotLabel(revision.Curriculum)</p><ul class="small">@foreach (var mapping in revision.Curriculum.Mappings) { <li>@SnapshotMappingLabel(mapping)</li> }</ul>
+                <p>@L["EducationAssessment:WindowSummary", LocalTime(revision.StartsAtUtc), LocalTime(revision.EndsAtUtc), revision.DurationMinutes]</p>
+                @if (CanViewPapers) { <a href="@PaperHref(revision.ExamPaperId)" class="btn btn-sm btn-outline-secondary" target="_blank" rel="noopener">@L["EducationAssessment:ViewSavedPaper"]</a> }
+                <h3 class="h6 mt-4">@L["EducationAssessment:FixedRoster", revision.Recipients.Count]</h3><p class="small text-muted">@L["EducationAssessment:FixedRosterHint"]</p>
+                <div class="table-responsive"><table class="table table-sm"><thead><tr><th scope="col">@L["EducationAssessment:StudentName"]</th><th scope="col">@L["EducationAssessment:Account"]</th><th scope="col">@L["EducationAssessment:StartStatus"]</th></tr></thead><tbody>@foreach (var student in revision.Recipients) { <tr @key="student.Id"><td>@student.StudentName</td><td>@student.AccountName</td><td>@L[student.StartedAttemptCount > 0 ? "EducationAssessment:Started" : "EducationAssessment:NotStarted"]</td></tr> }</tbody></table></div>
+            </div></div>
+        }
+        else
+        {
+            <div class="card"><div class="card-body">
+                <div class="d-flex flex-wrap justify-content-between align-items-center gap-2"><h2 class="h6 mb-0">@L[CurrentTask == null ? "EducationAssessment:NewDraft" : "EducationAssessment:EditDraft"]</h2>@if (CurrentTask != null) { <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="ReloadTaskAsync" disabled="@(IsBusy || PendingOperation != null)">@L["EducationAssessment:ReloadTask"]</button> }</div>
+                @if (CurrentTask != null) { <p class="small text-muted mt-2">@L["EducationAssessment:DraftRevision", CurrentTask.CurrentRevision.RevisionNumber]</p> }
+                <EditForm EditContext="@(EditorContext!)" OnValidSubmit="SaveDraftAsync">
+                    <DataAnnotationsValidator /><Microsoft.AspNetCore.Components.Forms.ValidationSummary />
+                    <fieldset disabled="@(IsBusy || PendingOperation != null)">
+                        <label class="form-label mt-3" for="assessment-title">@L["EducationAssessment:TaskTitle"]</label><InputText id="assessment-title" class="form-control" @bind-Value="Form.Title" />
+                        <label class="form-label mt-3" for="assessment-instructions">@L["EducationAssessment:Instructions"]</label><InputTextArea id="assessment-instructions" class="form-control" rows="3" @bind-Value="Form.Instructions" />
+                        <label class="form-label mt-3" for="assessment-selection">@L["EducationGeneration:Selection"]</label><select id="assessment-selection" class="form-select" @bind="SelectionIdText" @bind:after="SelectionChangedAsync"><option value="">@L["EducationCurriculum:Choose"]</option>@foreach (var choice in Choices) { <option value="@choice.Selection.Id">@SelectionLabel(choice)</option> }</select>
+                        <button type="button" class="btn btn-sm btn-outline-secondary mt-2" @onclick="RefreshSelectionsAsync">@L["EducationGeneration:RefreshSelections"]</button>
+                        @if (CurriculumError != null) { <p class="small text-danger mt-2" role="alert">@CurriculumError</p> }
+                        @if (Choices.Count == 0) { <p class="small text-muted mt-2">@L["EducationGeneration:NoSelections"] <a href="/education/curriculum">@L["EducationGeneration:ManageSelections"]</a></p> }
+                        @if (CurrentTask != null && SelectedChoice == null) { <p class="small text-warning mt-2">@L["EducationAssessment:SelectionUnavailable"] · @SnapshotLabel(CurrentTask.CurrentRevision.Curriculum)</p> }
+                        @if (Textbook is { } book)
+                        {
+                            <label class="form-label mt-3" for="assessment-chapter">@L["EducationGeneration:ChapterFilter"]</label><select id="assessment-chapter" class="form-select" @bind="ChapterIdText"><option value="">@L["EducationGeneration:AllChapters"]</option>@foreach (var chapter in book.Chapters.OrderBy(x => x.DisplayOrder)) { <option value="@chapter.Id">@chapter.Code · @chapter.Title</option> }</select>
+                            <div class="education-assessment-mappings mt-2" role="group" aria-label="@L["EducationGeneration:Mappings"]">@foreach (var mapping in FilteredMappings) { <label class="d-flex align-items-start gap-2"><input type="checkbox" class="form-check-input" checked="@MappingIds.Contains(mapping.Id)" @onchange="args => ToggleMapping(mapping.Id, args)" /><span>@MappingLabel(mapping)</span></label> }</div><p class="small text-muted mt-2">@L["EducationGeneration:SelectedCount", MappingIds.Count]</p>
+                        }
+                        <button type="button" class="btn btn-sm btn-outline-primary mt-2" @onclick="LoadOptionsAsync" disabled="@(!HasValidScope)">@L["EducationAssessment:LoadOptions"]</button>
+                        @if (Options != null)
+                        {
+                            <label class="form-label mt-3" for="assessment-paper">@L["EducationAssessment:SavedPaper"]</label><select id="assessment-paper" class="form-select" @bind="PaperIdText" @bind:after="InvalidatePreview"><option value="">@L["EducationCurriculum:Choose"]</option>@foreach (var paper in PaperOptions) { <option value="@paper.Id">@L["EducationAssessment:PaperOption", paper.Title, paper.QuestionCount, paper.TotalScore]</option> }</select>
+                            @if (PaperOptions.Count == 0) { <p class="small text-muted mt-2">@L["EducationAssessment:NoPapersOnPage"]</p> }
+                            @if (Options.HasMoreSavedPapers) { <button type="button" class="btn btn-sm btn-outline-secondary mt-2" @onclick="MorePapersAsync">@L["EducationAssessment:MorePapers"]</button> }
+                            @if (SelectedPaper is { } selectedPaper && CanViewPapers) { <a href="@PaperHref(selectedPaper.Id)" class="btn btn-sm btn-link mt-2" target="_blank" rel="noopener">@L["EducationAssessment:ViewSavedPaper"]</a> }
+                            @if (CurrentTask != null && SelectedPaper == null && PaperIdText.Length > 0) { <p class="small text-warning mt-2">@L["EducationAssessment:FindSavedPaper"]</p> }
+                            <p class="small text-muted mt-3">@L["EducationAssessment:AllowedWindow", LocalTime(Options.EarliestStartsAtUtc), LocalTime(Options.LatestEndsAtUtc)]</p>
+                            <div class="row g-3"><div class="col-md-6"><label class="form-label" for="assessment-start">@L["EducationAssessment:StartsAt"]</label><input id="assessment-start" type="datetime-local" class="form-control" step="1" min="@DateInput(Options.EarliestStartsAtUtc)" max="@DateInput(Options.LatestEndsAtUtc)" value="@StartsAtText" @onchange="args => SetStartTime(args)" /></div><div class="col-md-6"><label class="form-label" for="assessment-end">@L["EducationAssessment:EndsAt"]</label><input id="assessment-end" type="datetime-local" class="form-control" step="1" min="@DateInput(Options.EarliestStartsAtUtc)" max="@DateInput(Options.LatestEndsAtUtc)" value="@EndsAtText" @onchange="args => SetEndTime(args)" /></div></div>
+                            <label class="form-label mt-3" for="assessment-duration">@L["EducationAssessment:Duration"]</label><InputNumber id="assessment-duration" class="form-control" @bind-Value="Form.DurationMinutes" min="1" max="1440" />
+                            <label class="form-label mt-3" for="assessment-recipient-scope">@L["EducationAssessment:RecipientScope"]</label><select id="assessment-recipient-scope" class="form-select" @bind="Form.RecipientScope" @bind:after="RecipientScopeChanged"><option value="@EducationAssessmentRecipientScope.FullClass">@L["EducationAssessment:FullClass"]</option><option value="@EducationAssessmentRecipientScope.SelectedStudents">@L["EducationAssessment:SelectedStudents"]</option></select>
+                            <p class="small text-muted mt-2">@L["EducationAssessment:AvailableStudents", Options.Students.Count]</p>
+                            @if (Form.RecipientScope == EducationAssessmentRecipientScope.SelectedStudents)
+                            {
+                                <div class="education-assessment-students" role="group" aria-label="@L["EducationAssessment:SelectedStudents"]">@foreach (var student in Options.Students) { <label class="d-flex align-items-start gap-2"><input type="checkbox" class="form-check-input" checked="@StudentIds.Contains(student.StudentUserId)" @onchange="args => ToggleStudent(student.StudentUserId, args)" /><span>@student.StudentName <span class="text-muted">(@student.AccountName)</span></span></label> }</div><div class="d-flex flex-wrap gap-2 align-items-center mt-2"><span class="small text-muted">@L["EducationAssessment:SelectedStudentCount", StudentIds.Count]</span><button type="button" class="btn btn-sm btn-outline-secondary" @onclick="ClearStudents">@L["EducationAssessment:ClearStudents"]</button></div>
+                                @if (StudentIds.Any(id => Options.Students.All(x => x.StudentUserId != id))) { <p class="small text-warning mt-2">@L["EducationAssessment:StudentsUnavailable"]</p> }
+                            }
+                        }
+                        <div class="mt-4"><button type="submit" class="btn btn-primary" disabled="@(!CanSave)">@L["EducationAssessment:SaveDraft"]</button></div>
+                    </fieldset>
+                </EditForm>
+                @if (HasDraftChanges) { <p class="small text-warning mt-3" role="status">@L["EducationAssessment:SaveBeforePreview"]</p> }
+                @if (CurrentTask != null)
+                {
+                    <hr /><h3 class="h6">@L["EducationAssessment:PublishHeading"]</h3><p class="small">@L["EducationAssessment:WindowSummary", LocalTime(CurrentTask.CurrentRevision.StartsAtUtc), LocalTime(CurrentTask.CurrentRevision.EndsAtUtc), CurrentTask.CurrentRevision.DurationMinutes]</p>
+                    @if (CanViewPapers) { <a href="@PaperHref(CurrentTask.CurrentRevision.ExamPaperId)" class="btn btn-sm btn-outline-secondary me-2" target="_blank" rel="noopener">@L["EducationAssessment:ViewSavedPaper"]</a> }
+                    <button type="button" class="btn btn-outline-primary" @onclick="PreviewRosterAsync" disabled="@(!CanPreview)">@L["EducationAssessment:PreviewRoster"]</button>
+                    @if (RosterPreview is { } preview)
+                    {
+                        <h4 class="h6 mt-3">@L["EducationAssessment:RosterSummary", preview.SchoolClassName, preview.Students.Count]</h4><div class="table-responsive education-assessment-roster"><table class="table table-sm"><thead><tr><th scope="col">@L["EducationAssessment:StudentName"]</th><th scope="col">@L["EducationAssessment:Account"]</th></tr></thead><tbody>@foreach (var student in preview.Students) { <tr @key="student.StudentUserId"><td>@student.StudentName</td><td>@student.AccountName</td></tr> }</tbody></table></div><p class="small text-muted">@L["EducationAssessment:PublishHint"]</p><button type="button" class="btn btn-primary" @onclick="PublishAsync" disabled="@(!CanPublish)">@L["EducationAssessment:ConfirmPublish"]</button>
+                    }
+                }
+            </div></div>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter, SupplyParameterFromQuery(Name = "taskId")] public string? TaskIdQuery { get; set; }
+    private string? LoadedTaskQuery;
+    private TaskForm Form = new();
+    private EditContext? EditorContext;
+    private readonly List<CurriculumChoice> Choices = [];
+    private readonly List<EducationAssessmentTaskDto> TaskItems = [];
+    private readonly List<EducationAssessmentSavedPaperOptionDto> PaperOptions = [];
+    private readonly HashSet<Guid> MappingIds = [], StudentIds = [];
+    private TextbookVersionDto? Textbook;
+    private EducationAssessmentTaskDto? CurrentTask;
+    private EducationAssessmentDraftOptionsDto? Options;
+    private EducationAssessmentRosterPreviewDto? RosterPreview;
+    private EducationAssessmentTaskRevisionDto? CompletedReceipt;
+    private TaskOperation? PendingOperation;
+    private string SelectionIdText = string.Empty, ChapterIdText = string.Empty, PaperIdText = string.Empty;
+    private string StartsAtText = string.Empty, EndsAtText = string.Empty, PublishedFilter = string.Empty;
+    private string Baseline = string.Empty, OptionsScope = string.Empty;
+    private string? Keyword, ErrorMessage, SuccessMessage, CurriculumError, StorageNotice;
+    private bool IsBusy, CanViewPapers, OperationStorageLoaded;
+    private const int TaskPageSize = 20;
+    private int TaskOffset;
+    private long TaskTotal;
+    private CurriculumChoice? SelectedChoice => Choices.FirstOrDefault(x => x.Selection.Id.ToString() == SelectionIdText);
+    private EducationAssessmentSavedPaperOptionDto? SelectedPaper => PaperOptions.FirstOrDefault(x => x.Id.ToString() == PaperIdText);
+    private bool HasValidScope => SelectedChoice != null && Textbook is { Status: TextbookVersionStatus.Published } book && MappingIds.Count > 0 && MappingIds.All(id => book.Mappings.Any(x => x.Id == id));
+    private bool HasDraftChanges => Baseline.Length > 0 && FormState() != Baseline;
+    private bool HasUnsavedChanges => HasDraftChanges || PendingOperation != null;
+    private bool CanSave => !IsBusy && OperationStorageLoaded && PendingOperation == null && CurrentTask?.PublishedRevisionId == null && (CurrentTask == null || HasDraftChanges) && HasValidScope && Options != null && OptionsScope == ScopeState() && SelectedPaper != null;
+    private bool CanPreview => !IsBusy && OperationStorageLoaded && PendingOperation == null && CurrentTask is { PublishedRevisionId: null } && !HasDraftChanges;
+    private bool CanPublish => CanPreview && RosterPreview is { } preview && preview.Students.Count > 0 && preview.TaskId == CurrentTask!.Id && preview.DraftRevisionId == CurrentTask.CurrentRevision.Id && preview.ConcurrencyStamp == CurrentTask.ConcurrencyStamp;
+    private IEnumerable<TextbookKnowledgePointMappingDto> FilteredMappings => Textbook is { } book ? book.Mappings.Where(x => ChapterIdText.Length == 0 || x.ChapterId.ToString() == ChapterIdText).OrderBy(x => book.Chapters.FirstOrDefault(c => c.Id == x.ChapterId)?.DisplayOrder).ThenBy(x => x.KnowledgePointCode) : [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        ResetEditContext();
+        CanViewPapers = await PermissionChecker.IsGrantedAsync(KnowPulsePermissions.Exam.Manage);
+        await RunBusyAsync(async () => { await LoadSelectionsCoreAsync(); await LoadTasksCoreAsync(); });
+        Baseline = FormState();
+    }
+    protected override async Task OnParametersSetAsync()
+    {
+        if (TaskIdQuery == LoadedTaskQuery) return;
+        LoadedTaskQuery = TaskIdQuery;
+        if (TaskIdQuery == null) return;
+        await RunBusyAsync(async () =>
+        {
+            if (!Guid.TryParse(TaskIdQuery, out var id) || id == Guid.Empty) throw new InvalidOperationException(L["EducationAssessment:InvalidLink"]);
+            await SetTaskAsync(await AssessmentAppService.GetAsync(id));
+        });
+    }
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        try
+        {
+            var stored = await JSRuntime.InvokeAsync<string?>("sessionStorage.getItem", OperationStorageKey);
+            if (!string.IsNullOrWhiteSpace(stored))
+            {
+                var operation = JsonSerializer.Deserialize<TaskOperation>(stored);
+                if (operation != null && operation.IsValid()) PendingOperation = operation;
+                else StorageNotice = L["EducationAssessment:InvalidStoredOperation"];
+            }
+        }
+        catch (Exception) { StorageNotice = L["EducationGeneration:StorageUnavailable"]; }
+        OperationStorageLoaded = true;
+        StateHasChanged();
+    }
+    private void ResetEditContext()
+    {
+        EditorContext = new EditContext(Form);
+        EditorContext.OnFieldChanged += (_, _) => InvalidatePreview();
+    }
+    private async Task LoadSelectionsCoreAsync()
+    {
+        Choices.Clear(); CurriculumError = null;
+        try
+        {
+            var schools = await SchoolAppService.GetMySchoolsAsync();
+            foreach (var school in schools.Items.Where(x => x.Roles.Contains(SchoolMemberRole.Teacher)))
+            {
+                try
+                {
+                    var context = await CurriculumAppService.GetContextAsync(school.Id);
+                    var selections = await CurriculumAppService.GetMySelectionsAsync(school.Id);
+                    foreach (var selection in selections.Items.Where(x => x.EndedAtUtc == null && x.TextbookStatus == TextbookVersionStatus.Published))
+                        if (context.TeachingContexts.FirstOrDefault(x => x.Id == selection.TeachingAssignmentId) is { } assignment) Choices.Add(new CurriculumChoice(school, assignment, selection));
+                }
+                catch (Exception exception) { CurriculumError = GetUserFriendlyErrorMessage(exception); }
+            }
+        }
+        catch (Exception exception) { CurriculumError = GetUserFriendlyErrorMessage(exception); }
+    }
+    private async Task LoadBookCoreAsync()
+    {
+        Textbook = null; ChapterIdText = string.Empty;
+        if (SelectedChoice is not { } choice) return;
+        var book = await CurriculumAppService.GetTextbookAsync(choice.Selection.TextbookVersionId);
+        if (book.Status != TextbookVersionStatus.Published || book.SchoolId != choice.School.Id || book.EducationSubjectId != choice.Assignment.EducationSubjectId || book.Grade != choice.Assignment.Grade) throw new InvalidOperationException(L["EducationGeneration:InvalidSelection"]);
+        Textbook = book;
+    }
+    private Task SelectionChangedAsync() => RunBusyAsync(async () => { MappingIds.Clear(); StudentIds.Clear(); PaperIdText = string.Empty; ClearOptions(); await LoadBookCoreAsync(); });
+    private Task RefreshSelectionsAsync() => RunBusyAsync(async () => { ClearOptions(); await LoadSelectionsCoreAsync(); await LoadBookCoreAsync(); foreach (var id in MappingIds.Where(id => Textbook?.Mappings.Any(x => x.Id == id) != true).ToList()) MappingIds.Remove(id); });
+    private void ToggleMapping(Guid id, ChangeEventArgs args) { if (args.Value is true) MappingIds.Add(id); else MappingIds.Remove(id); PaperIdText = string.Empty; ClearOptions(); }
+    private void ToggleStudent(Guid id, ChangeEventArgs args) { if (args.Value is true) StudentIds.Add(id); else StudentIds.Remove(id); InvalidatePreview(); }
+    private void ClearStudents() { StudentIds.Clear(); InvalidatePreview(); }
+    private void RecipientScopeChanged() { if (Form.RecipientScope == EducationAssessmentRecipientScope.FullClass) StudentIds.Clear(); InvalidatePreview(); }
+    private void SetStartTime(ChangeEventArgs args) { StartsAtText = args.Value?.ToString() ?? string.Empty; InvalidatePreview(); }
+    private void SetEndTime(ChangeEventArgs args) { EndsAtText = args.Value?.ToString() ?? string.Empty; InvalidatePreview(); }
+    private void InvalidatePreview() => RosterPreview = null;
+    private void ClearOptions() { Options = null; OptionsScope = string.Empty; PaperOptions.Clear(); InvalidatePreview(); }
+    private EducationCurriculumScopeDto BuildScope() => new() { TeacherTextbookSelectionId = SelectedChoice!.Selection.Id, TextbookKnowledgePointMappingIds = MappingIds.OrderBy(x => x).ToList() };
+    private string ScopeState() => JsonSerializer.Serialize(new { SelectionIdText, Mappings = MappingIds.OrderBy(x => x).ToList() });
+    private Task LoadOptionsAsync() => RunBusyAsync(() => LoadOptionsCoreAsync(reset: true));
+    private Task MorePapersAsync() => RunBusyAsync(() => LoadOptionsCoreAsync(reset: false));
+    private async Task LoadOptionsCoreAsync(bool reset)
+    {
+        if (!HasValidScope) throw new InvalidOperationException(L["EducationGeneration:ChooseScopeRequired"]);
+        if (!reset && (Options?.HasMoreSavedPapers != true || OptionsScope != ScopeState())) return;
+        var offset = reset ? 0 : Options!.NextPaperSkipCount;
+        var result = await AssessmentAppService.GetDraftOptionsAsync(new GetEducationAssessmentDraftOptionsInput { Scope = BuildScope(), SkipCount = offset, MaxResultCount = 20 });
+        if (reset) PaperOptions.Clear();
+        PaperOptions.AddRange(result.SavedPapers.Where(paper => PaperOptions.All(existing => existing.Id != paper.Id)));
+        Options = result; OptionsScope = ScopeState(); InvalidatePreview();
+    }
+    private Task SearchTasksAsync() => RunBusyAsync(async () => { TaskOffset = 0; await LoadTasksCoreAsync(); });
+    private Task PreviousTasksAsync() => RunBusyAsync(async () => { TaskOffset = Math.Max(0, TaskOffset - TaskPageSize); await LoadTasksCoreAsync(); });
+    private Task NextTasksAsync() => RunBusyAsync(async () => { if (TaskOffset + TaskPageSize < TaskTotal) TaskOffset += TaskPageSize; await LoadTasksCoreAsync(); });
+    private async Task LoadTasksCoreAsync()
+    {
+        var result = await AssessmentAppService.GetMyListAsync(new GetEducationAssessmentTaskListInput { Keyword = Keyword, IsPublished = PublishedFilter.Length == 0 ? null : PublishedFilter == "published", SkipCount = TaskOffset, MaxResultCount = TaskPageSize });
+        TaskItems.Clear(); TaskItems.AddRange(result.Items); TaskTotal = result.TotalCount;
+    }
+    private async Task<bool> MayReplaceDraftAsync() => OperationStorageLoaded && PendingOperation == null && (!HasDraftChanges || await JSRuntime.InvokeAsync<bool>("confirm", L["EducationGeneration:ConfirmLeave"].Value));
+    private async Task NewTaskAsync()
+    {
+        if (IsBusy || !await MayReplaceDraftAsync()) return;
+        CurrentTask = null; CompletedReceipt = null; Form = new(); ResetEditContext();
+        SelectionIdText = ChapterIdText = PaperIdText = StartsAtText = EndsAtText = string.Empty;
+        MappingIds.Clear(); StudentIds.Clear(); Textbook = null; ClearOptions(); Baseline = FormState();
+        Navigation.NavigateTo("/education/assessment-tasks");
+    }
+    private async Task OpenTaskAsync(Guid id)
+    {
+        if (IsBusy || !await MayReplaceDraftAsync()) return;
+        await RunBusyAsync(async () => { CompletedReceipt = null; await SetTaskAsync(await AssessmentAppService.GetAsync(id)); SetTaskLink(id); });
+    }
+    private async Task ReloadTaskAsync()
+    {
+        if (CurrentTask == null || IsBusy || !await MayReplaceDraftAsync()) return;
+        await RunBusyAsync(async () => { await LoadSelectionsCoreAsync(); await SetTaskAsync(await AssessmentAppService.GetAsync(CurrentTask.Id)); });
+    }
+    private async Task SetTaskAsync(EducationAssessmentTaskDto task)
+    {
+        CurrentTask = task;
+        var revision = task.CurrentRevision;
+        Form = new TaskForm { Title = revision.Title, Instructions = revision.Instructions, DurationMinutes = revision.DurationMinutes, RecipientScope = revision.RecipientScope };
+        ResetEditContext(); SelectionIdText = revision.Curriculum.TeacherTextbookSelectionId.ToString(); PaperIdText = revision.ExamPaperId.ToString();
+        MappingIds.Clear(); MappingIds.UnionWith(revision.Curriculum.Mappings.Select(x => x.MappingId));
+        StudentIds.Clear(); StudentIds.UnionWith(revision.StudentUserIds);
+        StartsAtText = DateInput(revision.StartsAtUtc); EndsAtText = DateInput(revision.EndsAtUtc); Textbook = null; ClearOptions();
+        Baseline = FormState();
+        if (task.PublishedRevisionId.HasValue) return;
+        try { await LoadBookCoreAsync(); if (HasValidScope) await LoadOptionsCoreAsync(reset: true); }
+        catch (Exception exception) { CurriculumError = GetUserFriendlyErrorMessage(exception); }
+    }
+    private CreateEducationAssessmentDraftDto BuildCreateInput(Guid operationId)
+    {
+        if (!HasValidScope || Options == null || OptionsScope != ScopeState() || SelectedPaper == null) throw new InvalidOperationException(L["EducationAssessment:ChooseScopePaper"]);
+        if (!TryUtc(StartsAtText, out var start) || !TryUtc(EndsAtText, out var end) || start < Options.EarliestStartsAtUtc || end > Options.LatestEndsAtUtc || start >= end || end <= DateTime.UtcNow) throw new InvalidOperationException(L["EducationAssessment:InvalidWindow"]);
+        if (Form.RecipientScope == EducationAssessmentRecipientScope.SelectedStudents && (StudentIds.Count == 0 || StudentIds.Any(id => Options.Students.All(x => x.StudentUserId != id)))) throw new InvalidOperationException(L["EducationAssessment:ChooseStudents"]);
+        return new CreateEducationAssessmentDraftDto { OperationId = operationId, Title = Form.Title.Trim(), Instructions = Form.Instructions.Trim(), Scope = BuildScope(), ExamPaperId = SelectedPaper.Id, RecipientScope = Form.RecipientScope, StudentUserIds = Form.RecipientScope == EducationAssessmentRecipientScope.FullClass ? [] : StudentIds.OrderBy(x => x).ToList(), StartsAtUtc = start, EndsAtUtc = end, DurationMinutes = Form.DurationMinutes, MaxAttempts = CurrentTask?.CurrentRevision.MaxAttempts ?? 1, ResultVisibility = CurrentTask?.CurrentRevision.ResultVisibility ?? ExamResultVisibility.Hidden, AllowWrongQuestionCollection = CurrentTask?.CurrentRevision.AllowWrongQuestionCollection ?? false };
+    }
+    private async Task SaveDraftAsync()
+    {
+        if (!CanSave || EditorContext?.Validate() != true) return;
+        await RunBusyAsync(async () =>
+        {
+            var input = BuildCreateInput(Guid.NewGuid());
+            if (CurrentTask == null) PendingOperation = new TaskOperation { Id = input.OperationId, TaskId = input.OperationId, Kind = "create", Create = input };
+            else
+            {
+                var save = JsonSerializer.Deserialize<SaveEducationAssessmentDraftDto>(JsonSerializer.Serialize(input))!;
+                save.ConcurrencyStamp = CurrentTask.ConcurrencyStamp; save.ExpectedDraftRevisionId = CurrentTask.CurrentRevision.Id;
+                PendingOperation = new TaskOperation { Id = save.OperationId, TaskId = CurrentTask.Id, Kind = "save", Save = save };
+            }
+            await StartOperationCoreAsync();
+        });
+    }
+    private Task PreviewRosterAsync() => RunBusyAsync(async () =>
+    {
+        if (CurrentTask == null || HasDraftChanges || PendingOperation != null) throw new InvalidOperationException(L["EducationAssessment:SaveBeforePreview"]);
+        RosterPreview = null;
+        var preview = await AssessmentAppService.PreviewRecipientsAsync(CurrentTask.Id);
+        if (preview.TaskId != CurrentTask.Id || preview.DraftRevisionId != CurrentTask.CurrentRevision.Id || preview.ConcurrencyStamp != CurrentTask.ConcurrencyStamp) throw new InvalidOperationException(L["EducationAssessment:DraftChanged"]);
+        RosterPreview = preview;
+    });
+    private async Task PublishAsync()
+    {
+        if (!CanPublish || !await JSRuntime.InvokeAsync<bool>("confirm", L["EducationAssessment:PublishConfirmation", CurrentTask!.CurrentRevision.Title, RosterPreview!.Students.Count, LocalTime(CurrentTask.CurrentRevision.StartsAtUtc), LocalTime(CurrentTask.CurrentRevision.EndsAtUtc)].Value)) return;
+        await RunBusyAsync(async () =>
+        {
+            var input = new PublishEducationAssessmentDto { OperationId = Guid.NewGuid(), ConcurrencyStamp = RosterPreview!.ConcurrencyStamp, ExpectedDraftRevisionId = RosterPreview.DraftRevisionId, RosterFingerprint = RosterPreview.RosterFingerprint };
+            PendingOperation = new TaskOperation { Id = input.OperationId, TaskId = CurrentTask!.Id, Kind = "publish", Publish = input };
+            await StartOperationCoreAsync();
+        });
+    }
+    private async Task StartOperationCoreAsync()
+    {
+        // Store before sending: a reload can recover an unknown result with the original ID.
+        try { await PersistOperationAsync(required: true); }
+        catch { PendingOperation = null; throw; }
+        await ExecuteOperationCoreAsync();
+    }
+    private Task RecoverOperationAsync() => RunBusyAsync(async () =>
+    {
+        if (PendingOperation == null) return;
+        var receipt = await AssessmentAppService.GetOperationAsync(PendingOperation.TaskId, PendingOperation.Id);
+        if (receipt == null) throw new InvalidOperationException(L["EducationAssessment:NoReceipt"]);
+        await CompleteOperationAsync(receipt);
+    });
+    private Task RetryOperationAsync() => RunBusyAsync(() => ExecuteOperationCoreAsync(isRetry: true));
+    private async Task ExecuteOperationCoreAsync(bool isRetry = false)
+    {
+        if (PendingOperation is not { } operation || !operation.IsValid()) return;
+        EducationAssessmentTaskDto? workspace = null;
+        EducationAssessmentTaskRevisionDto? receipt;
+        try
+        {
+            if (operation.Kind == "create") workspace = await AssessmentAppService.CreateDraftAsync(operation.Create!);
+            else if (operation.Kind == "save") workspace = await AssessmentAppService.SaveDraftAsync(operation.TaskId, operation.Save!);
+            else { receipt = await AssessmentAppService.PublishAsync(operation.TaskId, operation.Publish!); await CompleteOperationAsync(receipt); return; }
+        }
+        catch (Exception exception)
+        {
+            // A retry denial cannot disprove the original unknown commit. Restored commands
+            // also enter through RetryOperationAsync and keep their exact ID until recovered.
+            if (!isRetry && IsDefinitiveWriteRejection(exception)) { PendingOperation = null; await PersistOperationAsync(); InvalidatePreview(); }
+            throw;
+        }
+        receipt = workspace!.CurrentRevision.Id == operation.Id ? workspace.CurrentRevision : await AssessmentAppService.GetOperationAsync(operation.TaskId, operation.Id);
+        if (receipt == null) throw new InvalidOperationException(L["EducationAssessment:NoReceipt"]);
+        await CompleteOperationAsync(receipt, workspace);
+    }
+    private async Task CompleteOperationAsync(EducationAssessmentTaskRevisionDto receipt, EducationAssessmentTaskDto? workspace = null)
+    {
+        if (PendingOperation is not { } operation || receipt.Id != operation.Id || receipt.TaskId != operation.TaskId || (operation.Kind == "publish") != receipt.PublishedAtUtc.HasValue) throw new InvalidOperationException(L["EducationAssessment:NoReceipt"]);
+        CompletedReceipt = receipt; PendingOperation = null; await PersistOperationAsync();
+        SuccessMessage = L[receipt.PublishedAtUtc.HasValue ? "EducationAssessment:PublishSucceeded" : "EducationAssessment:SaveSucceeded"];
+        await SetTaskAsync(workspace ?? await AssessmentAppService.GetAsync(receipt.TaskId));
+        SetTaskLink(receipt.TaskId);
+        await LoadTasksCoreAsync();
+    }
+    private void SetTaskLink(Guid id)
+    {
+        LoadedTaskQuery = id.ToString();
+        Navigation.NavigateTo($"/education/assessment-tasks?taskId={id}", replace: true);
+    }
+    private string OperationStorageKey => $"knowpulse.education.assessment-write.{CurrentTenantContext.Id}.{CurrentAccount.Id}";
+    private async Task PersistOperationAsync(bool required = false)
+    {
+        try
+        {
+            if (PendingOperation == null) await JSRuntime.InvokeVoidAsync("sessionStorage.removeItem", OperationStorageKey);
+            else await JSRuntime.InvokeVoidAsync("sessionStorage.setItem", OperationStorageKey, JsonSerializer.Serialize(PendingOperation));
+        }
+        catch (Exception)
+        {
+            StorageNotice = L["EducationGeneration:StorageUnavailable"];
+            if (required) throw new InvalidOperationException(L["EducationAssessment:OperationStorageRequired"]);
+        }
+    }
+    private static bool IsDefinitiveWriteRejection(Exception exception)
+    {
+        for (Exception? current = exception; current != null; current = current.InnerException)
+        {
+            if (current is Volo.Abp.BusinessException or Volo.Abp.Authorization.AbpAuthorizationException or Volo.Abp.Data.AbpDbConcurrencyException or Volo.Abp.Validation.AbpValidationException) return true;
+            var value = current is HttpRequestException request ? request.StatusCode : current.GetType().GetProperty("HttpStatusCode")?.GetValue(current) ?? current.GetType().GetProperty("StatusCode")?.GetValue(current);
+            var code = value is HttpStatusCode status ? (int)status : value is int number ? number : 0;
+            if (code is 400 or 401 or 403 or 409 or 422) return true;
+        }
+        return false;
+    }
+    private async Task RunBusyAsync(Func<Task> action)
+    {
+        if (IsBusy) return;
+        IsBusy = true; ErrorMessage = null; SuccessMessage = null;
+        try { await action(); } catch (Exception exception) { ErrorMessage = GetUserFriendlyErrorMessage(exception); } finally { IsBusy = false; }
+    }
+    private async Task ConfirmNavigationAsync(LocationChangingContext context)
+    {
+        if (HasUnsavedChanges && !await JSRuntime.InvokeAsync<bool>("confirm", L["EducationGeneration:ConfirmLeave"].Value)) context.PreventNavigation();
+    }
+    private string FormState() => JsonSerializer.Serialize(new { Form.Title, Form.Instructions, Form.DurationMinutes, Form.RecipientScope, SelectionIdText, PaperIdText, StartsAtText, EndsAtText, Mappings = MappingIds.OrderBy(x => x).ToList(), Students = StudentIds.OrderBy(x => x).ToList() });
+    private static bool TryUtc(string text, out DateTime utc)
+    {
+        utc = default;
+        if (!DateTime.TryParseExact(text, ["yyyy-MM-ddTHH:mm", "yyyy-MM-ddTHH:mm:ss"], CultureInfo.InvariantCulture, DateTimeStyles.None, out var local)) return false;
+        if (TimeZoneInfo.Local.IsInvalidTime(local)) return false;
+        utc = DateTime.SpecifyKind(local, DateTimeKind.Local).ToUniversalTime(); return true;
+    }
+    private static string DateInput(DateTime utc) => utc.ToLocalTime().ToString("yyyy-MM-ddTHH:mm:ss", CultureInfo.InvariantCulture);
+    private static string LocalTime(DateTime utc) => utc.ToLocalTime().ToString("g", CultureInfo.CurrentCulture);
+    private static string PaperHref(Guid id) => $"/education/papers?paperId={id}";
+    private string SelectionLabel(CurriculumChoice choice) => $"{choice.School.Name} · {choice.Assignment.TermName} · {choice.Assignment.ClassName} · {choice.Assignment.SubjectName} · {choice.Selection.TextbookTitle} · {L["EducationCurriculum:RevisionNumber", choice.Selection.CatalogRevision]}";
+    private string MappingLabel(TextbookKnowledgePointMappingDto mapping) => $"{Textbook?.Chapters.FirstOrDefault(x => x.Id == mapping.ChapterId)?.Title} · {mapping.KnowledgePointCode} · {mapping.KnowledgePointName} · {L["EducationCurriculum:RevisionNumber", mapping.RevisionNumber]}";
+    private string SnapshotLabel(EducationCurriculumSnapshot scope) => $"{scope.SubjectName} · {scope.TextbookTitle} · {scope.Edition} · {scope.Volume} · {L["EducationCurriculum:GradeNumber", scope.Grade]} · {L["EducationCurriculum:RevisionNumber", scope.CatalogRevision]}";
+    private string SnapshotMappingLabel(EducationCurriculumMappingSnapshot mapping) => $"{mapping.ChapterCode} · {mapping.ChapterTitle} · {mapping.KnowledgePointCode} · {mapping.KnowledgePointName}";
+    private sealed record CurriculumChoice(MySchoolDto School, MyTeachingContextDto Assignment, TeacherTextbookSelectionDto Selection);
+    private sealed class TaskForm
+    {
+        [Required, StringLength(256)] public string Title { get; set; } = string.Empty;
+        [Required, StringLength(8192)] public string Instructions { get; set; } = string.Empty;
+        [Range(1, 1440)] public int DurationMinutes { get; set; } = 60;
+        public EducationAssessmentRecipientScope RecipientScope { get; set; }
+    }
+    // The current tab stores only this teacher's exact write command; no answers or paper sources.
+    private sealed class TaskOperation
+    {
+        public TaskOperation() { }
+        public Guid Id { get; set; }
+        public Guid TaskId { get; set; }
+        public string Kind { get; set; } = string.Empty;
+        public CreateEducationAssessmentDraftDto? Create { get; set; }
+        public SaveEducationAssessmentDraftDto? Save { get; set; }
+        public PublishEducationAssessmentDto? Publish { get; set; }
+        public bool IsValid() => Id != Guid.Empty && TaskId != Guid.Empty && (Kind switch { "create" => Create?.OperationId == Id && TaskId == Id && Save == null && Publish == null, "save" => Save?.OperationId == Id && Create == null && Publish == null, "publish" => Publish?.OperationId == Id && Create == null && Save == null, _ => false });
+    }
+}

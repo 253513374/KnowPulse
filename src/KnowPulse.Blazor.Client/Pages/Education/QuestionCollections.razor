@@ -1,0 +1,70 @@
+@page "/education/question-collections"
+@attribute [Authorize(EducationPermissions.AssessmentParticipate)]
+@attribute [Authorize(EducationPermissions.LearningParticipate)]
+@inherits KnowPulseComponentBase
+@implements IAsyncDisposable
+@using KnowPulse.Education
+@using KnowPulse.Blazor.Client.Components
+@using System.Text.Json
+@inject IEducationQuestionCollectionAppService Collections
+@inject IEducationSchoolAppService Schools
+@inject IJSRuntime JS
+@inject Volo.Abp.Users.ICurrentUser Account
+@inject Volo.Abp.MultiTenancy.ICurrentTenant Tenant
+
+<PageTitle>@L["EducationCollection:Title"]</PageTitle>
+<h1 class="h4">@L["EducationCollection:Title"]</h1><p class="text-muted">@L["EducationCollection:Hint"]</p>
+@if (Error != null) { <p class="alert alert-danger" role="alert">@Error</p> }
+<label for="collection-school" class="form-label">@L["EducationCollection:School"]</label>
+<select id="collection-school" class="form-select mb-3" value="@SchoolId" @onchange="SelectSchoolAsync" disabled="@Busy"><option value="">@L["EducationFeedback:Choose"]</option>
+    @foreach (var school in Available) { <option value="@school.SchoolId">@school.SchoolName</option> }
+</select>
+@if (SchoolId.HasValue) {
+    <button class="btn btn-outline-secondary mb-3" disabled="@Busy" @onclick="ReloadAsync">@L["EducationGrading:Refresh"]</button>
+    @if (Pending.Count > 0) {
+        <h2 class="h6">@L["EducationCollection:Pending"] (@Pending.Count)</h2>
+        @foreach (var command in Pending.Skip(PendingOffset).Take(20)) { <p>@command.Input.OperationId <button class="btn btn-sm btn-outline-secondary" @onclick="() => Select(command.RecipientId, command.Input.PaperQuestionId)" disabled="@Busy">@L["EducationCollection:Manage"]</button></p> }
+        <button class="btn btn-sm btn-outline-secondary me-2" disabled="@(Busy || PendingOffset == 0)" @onclick="() => PendingOffset = Math.Max(0, PendingOffset - 20)">@L["EducationPaper:Previous"]</button>
+        <button class="btn btn-sm btn-outline-secondary" disabled="@(Busy || PendingOffset + 20 >= Pending.Count)" @onclick="() => PendingOffset += 20">@L["EducationPaper:Next"]</button>
+    }
+    @foreach (var row in Rows) {
+        <article class="card card-body my-2"><h2 class="h6">@row.TaskTitle</h2><p>@row.RecordedAtUtc.ToLocalTime().ToString("g") · v@(row.RevisionNumber)</p><p>@L[row.SourceAvailable ? "EducationCollection:SourceAvailable" : "EducationCollection:Unavailable"]</p>
+            <a href="@($"/education/assessment-results?recipientId={row.RecipientId:D}")">@L["EducationCollection:Original"]</a>
+            <button class="btn btn-sm btn-outline-secondary" @onclick="() => Select(row.RecipientId, row.PaperQuestionId)" disabled="@Busy">@L["EducationCollection:Manage"]</button></article>
+    }
+    @if (!Busy && Total == 0) { <p role="status">@L["EducationCollection:Empty"]</p> }
+    <p>@L["EducationPractice:RecordCount", Total]</p>
+    <button class="btn btn-outline-secondary me-2" disabled="@(Busy || Offset == 0)" @onclick="() => PageAsync(-1)">@L["EducationPaper:Previous"]</button><button class="btn btn-outline-secondary" disabled="@(Busy || Offset + 20 >= Total)" @onclick="() => PageAsync(1)">@L["EducationPaper:Next"]</button>
+    @if (Selected is { } target) { <EducationQuestionCollectionToggle @key="(SchoolId, target.Recipient, target.Question)" SchoolId="@SchoolId.Value" RecipientId="@target.Recipient" QuestionId="@target.Question" Changed="ReloadAsync" /> }
+}
+@code {
+    private List<EducationRoleWorkspaceDto> Available = [];
+    private List<EducationQuestionCollectionDto> Rows = [];
+    private List<EducationCollectionCommand> Pending = [];
+    private (Guid Recipient, Guid Question)? Selected;
+    private Guid? SchoolId; private int Offset, PendingOffset; private long Total; private bool Busy;
+    private string? Error; private IJSObjectReference? Module;
+    protected override async Task OnInitializedAsync() => await RunAsync(async () => Available = (await Schools.GetMyWorkspaceAsync()).Workspaces.Where(x => x.Role == SchoolMemberRole.Student).ToList());
+    private Task SelectSchoolAsync(ChangeEventArgs e) => RunAsync(async () => { SchoolId = Guid.TryParse(e.Value?.ToString(), out var id) && Available.Any(x => x.SchoolId == id) ? id : null;
+        Rows = []; Pending = []; Selected = null; Offset = PendingOffset = 0; Total = 0; if (SchoolId.HasValue) await LoadAsync(); });
+    private Task ReloadAsync() => RunAsync(LoadAsync);
+    private async Task LoadAsync() {
+        if (!SchoolId.HasValue) return; var school = SchoolId.Value;
+        Rows = []; Pending = []; var workspace = await Schools.GetMyWorkspaceAsync();
+        if (!workspace.Workspaces.Any(x => x.Role == SchoolMemberRole.Student && x.SchoolId == school)) { Selected = null; SchoolId = null; return; }
+        var page = await Collections.GetMyCollectionsAsync(new() { SchoolId = school, SkipCount = Offset, MaxResultCount = 20 }); Rows = page.Items.ToList(); Total = page.TotalCount;
+        Module ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/education-collections.js");
+        var prefix = EducationCollectionCommand.Prefix(Tenant.Id, Account.Id);
+        foreach (var key in await Module.InvokeAsync<string[]>("keys", prefix)) {
+            var raw = await JS.InvokeAsync<string?>("sessionStorage.getItem", key); if (raw == null) continue;
+            var command = JsonSerializer.Deserialize<EducationCollectionCommand>(raw) ?? throw new InvalidOperationException(L["EducationCollection:Unavailable"]); command.Validate();
+            if (command.Key(prefix) != key) throw new InvalidOperationException(L["EducationCollection:Unavailable"]);
+            if (command.Input.SchoolId == school) Pending.Add(command);
+        }
+        if (PendingOffset >= Pending.Count) PendingOffset = 0;
+    }
+    private void Select(Guid recipient, Guid question) { Selected = (recipient, question); }
+    private Task PageAsync(int direction) => RunAsync(async () => { Offset = Math.Max(0, Offset + direction * 20); await LoadAsync(); });
+    private async Task RunAsync(Func<Task> action) { if (Busy) return; Busy = true; Error = null; try { await action(); } catch (Exception e) { Rows = []; Pending = []; Selected = null; Error = GetUserFriendlyErrorMessage(e); } finally { Busy = false; } }
+    public async ValueTask DisposeAsync() { if (Module != null) await Module.DisposeAsync(); }
+}

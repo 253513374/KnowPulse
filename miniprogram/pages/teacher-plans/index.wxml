@@ -1,0 +1,10 @@
+<view class="page">
+  <view class="hero"><text class="eyebrow">教师工作区</text><text class="title">方案执行与困难跟进</text><text class="muted">只列本人已下发方案。私有备注不发送学生，正式调整在网页确认。</text></view>
+  <view wx:if="{{error}}" class="error" aria-role="alert">{{error}}</view><view wx:if="{{warning}}" class="notice">{{warning}}</view>
+  <picker wx:if="{{choices.length}}" range="{{choices}}" range-key="label" value="{{index}}" bindchange="choose" disabled="{{busy}}"><view class="field">{{choices[index].label}}</view></picker>
+  <button wx:if="{{choices.length &amp;&amp; warning}}" bindtap="confirmRange" disabled="{{busy}}">确认所选任教范围后读取</button>
+  <view wx:for="{{items}}" wx:key="id" class="card"><text class="heading">{{item.student}} · {{item.subject}}</text><text>{{item.className}} · 发布第 {{item.version}} 版</text><text class="muted">{{item.status}}</text><button data-id="{{item.id}}" bindtap="open" disabled="{{busy}}">查看进度与当前困难</button></view>
+  <view wx:if="{{!busy &amp;&amp; choices.length &amp;&amp; total === 0}}" class="card">这个任教范围暂无本人已下发方案。</view>
+  <view class="pager"><button data-direction="-1" bindtap="paginate" disabled="{{busy || offset === 0}}">上一页</button><text>{{total}} 份</text><button data-direction="1" bindtap="paginate" disabled="{{busy || offset + 20 >= total}}">下一页</button></view>
+  <button bindtap="load" disabled="{{busy}}">刷新当前范围</button><button wx:if="{{error}}" bindtap="login">返回登录核对身份</button>
+</view>

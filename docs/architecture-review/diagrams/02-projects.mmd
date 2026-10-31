@@ -1,0 +1,27 @@
+flowchart TD
+  %% 箭头从引用方指向被引用项目；由当前 csproj 生成，不包含 NuGet 传递依赖。
+  n0["Application"]
+  n1["Application.Contracts"]
+  n2["Blazor"]
+  n3["Blazor.Client"]
+  n4["DbMigrator"]
+  n5["Domain"]
+  n6["Domain.Shared"]
+  n7["EntityFrameworkCore"]
+  n8["HttpApi"]
+  n9["HttpApi.Client"]
+  n10["HttpApi.Host"]
+  n0 --> n5
+  n0 --> n1
+  n1 --> n6
+  n2 --> n3
+  n3 --> n9
+  n4 --> n1
+  n4 --> n7
+  n5 --> n6
+  n7 --> n5
+  n8 --> n1
+  n9 --> n1
+  n10 --> n0
+  n10 --> n7
+  n10 --> n8

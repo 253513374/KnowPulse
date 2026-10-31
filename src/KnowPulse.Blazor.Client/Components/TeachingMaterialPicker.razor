@@ -1,0 +1,21 @@
+@inherits KnowPulseComponentBase
+@using KnowPulse.Education
+@inject IEducationTeachingMaterialAppService MaterialsApi
+<fieldset disabled="@Disabled">
+    <label class="d-block mb-2">@L["EducationPlan:Steps"]<select class="form-select" @bind="StepId">@foreach (var step in EligibleSteps) { <option value="@step.Id">@step.Title</option> }</select></label>
+    <EducationMaterialSourcePicker @key="PlanId" Search="@(input => MaterialsApi.GetMaterialSourcesAsync(PlanId, input))" PreviewSource="@(input => MaterialsApi.PreviewMaterialSourceAsync(PlanId, input))" Selected="AddAsync" Disabled="@(Disabled || StepId == Guid.Empty || Items.Count >= 50 || Items.Count(x => x.StepId == StepId) >= 10)" />
+    <ul>@foreach (var item in Items) { <li class="text-break mb-2">@Steps.FirstOrDefault(x => x.Id == item.StepId)?.Title · @item.Title · @L["EducationMaterial:SelectedFiles", item.AttachmentIds.Count] <button type="button" class="btn btn-sm btn-outline-danger" @onclick="(() => RemoveAsync(item))">@L["EducationGeneration:Remove"]</button></li> }</ul>
+</fieldset>
+@code {
+    [Parameter] public Guid PlanId { get; set; }
+    [Parameter] public List<EducationTeachingPlanMaterial> Items { get; set; } = [];
+    [Parameter] public IReadOnlyList<EducationTeachingPlanStep> Steps { get; set; } = [];
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public EventCallback Changed { get; set; }
+    private Guid StepId;
+    private IEnumerable<EducationTeachingPlanStep> EligibleSteps => Steps.Where(x => x.Kind is not (EducationTeachingPlanStepKind.Diagnostic or EducationTeachingPlanStepKind.Reassessment));
+    protected override void OnParametersSet() { if (!EligibleSteps.Any(x => x.Id == StepId)) StepId = EligibleSteps.FirstOrDefault()?.Id ?? Guid.Empty; }
+    private async Task AddAsync(EducationStudyMaterial item) { if (Disabled || StepId == Guid.Empty || Items.Count >= 50 || Items.Count(x => x.StepId == StepId) >= 10) return;
+        Items.Add(new() { Id = item.Id, StepId = StepId, Title = item.Title, KnowledgeItemId = item.KnowledgeItemId, KnowledgeVersionId = item.KnowledgeVersionId, SchoolKnowledgeShareId = item.SchoolKnowledgeShareId, AttachmentIds = item.AttachmentIds }); await Changed.InvokeAsync(); }
+    private async Task RemoveAsync(EducationTeachingPlanMaterial item) { if (Disabled) return; Items.Remove(item); await Changed.InvokeAsync(); }
+}

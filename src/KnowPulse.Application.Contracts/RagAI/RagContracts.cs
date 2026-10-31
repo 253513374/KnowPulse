@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
+using KnowPulse.Education;
 using KnowPulse.Permissions;
 using Microsoft.AspNetCore.Authorization;
 using Volo.Abp.Application.Dtos;
@@ -554,6 +556,14 @@ public class KnowledgeVectorSearchRequest
 /// </summary>
 public class KnowledgeVectorPermissionFilter
 {
+    /// <summary>服务端课程范围 SQL 得出的分块集合；null 不应用课程过滤，空集合必须不命中。</summary>
+    public IReadOnlyList<Guid>? AllowedCurriculumChunkIds { get; set; }
+
+    /// <summary>由业务主库授权得到的指定共享版本，不能由终端自报。</summary>
+    public IReadOnlyList<Guid> AllowedSharedVersionIds { get; set; } = Array.Empty<Guid>();
+
+    public KnowledgeSearchScope Scope { get; set; }
+
     /// <summary>
     /// 当前租户编号。
     /// </summary>
@@ -639,8 +649,25 @@ public class VectorSearchHit
 /// <summary>
 /// RAG 检索请求，使用自然语言问题和访问人身份发起检索。
 /// </summary>
+public enum KnowledgeSearchScope
+{
+    AllAccessible = 0,
+    PersonalLibrary = 1,
+    SchoolShared = 2
+}
+
 public class RagSearchRequest
 {
+    public EducationCurriculumScopeDto? CurriculumScope { get; set; }
+
+    public KnowledgeSearchScope Scope { get; set; }
+
+    public Guid? SchoolId { get; set; }
+
+    /// <summary>只由内部出题服务设置；HTTP 输入不能降低出题用途校验。</summary>
+    [JsonIgnore]
+    public bool ForQuestionGeneration { get; set; }
+
     /// <summary>
     /// 用户查询文本。
     /// </summary>
@@ -667,6 +694,11 @@ public class RagSearchRequest
 /// </summary>
 public class RetrievedChunk
 {
+    /// <summary>当前 SQL 复核通过的精确课程映射和资料关联，模型只能引用这些教学依据。</summary>
+    public IReadOnlyList<Guid> TextbookKnowledgePointMappingIds { get; set; } = Array.Empty<Guid>();
+    public IReadOnlyList<Guid> CurriculumBindingIds { get; set; } = Array.Empty<Guid>();
+
+    public Guid? SchoolKnowledgeShareId { get; set; }
     /// <summary>
     /// 分块编号。
     /// </summary>
@@ -708,6 +740,10 @@ public class RetrievedChunk
 /// </summary>
 public class RagAnswerRequest
 {
+    public KnowledgeSearchScope Scope { get; set; }
+
+    public Guid? SchoolId { get; set; }
+
     /// <summary>
     /// 用户问题。
     /// </summary>
@@ -760,6 +796,7 @@ public class RagAnswerResult
 /// </summary>
 public class RagCitation
 {
+    public Guid? SchoolKnowledgeShareId { get; set; }
     /// <summary>
     /// 引用知识文档编号。
     /// </summary>

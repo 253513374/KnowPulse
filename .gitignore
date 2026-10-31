@@ -252,6 +252,7 @@ paket-files/
 *.sln.iml
 
 # KnowPulse
+miniprogram/project.private.config.json
 .scaffold/
 .codex/
 .env

@@ -1,0 +1,126 @@
+@page "/education/assessment-results"
+@attribute [Authorize(EducationPermissions.AssessmentParticipate)]
+@inherits KnowPulseComponentBase
+@implements IDisposable
+@using KnowPulse.Education
+@using KnowPulse.Exam
+@inject IEducationAssessmentAppService Assessments
+@inject IEducationAssessmentGradingAppService Grading
+@inject Volo.Abp.Users.ICurrentUser Account
+@inject Volo.Abp.MultiTenancy.ICurrentTenant Tenant
+
+<PageTitle>@L["EducationGrading:MyResults"]</PageTitle>
+<AuthorizeView Policy="@KnowPulsePermissions.KnowledgeBase.PersonalLibrary"><Authorized><p><a href="/education/notebook">@L["EducationNotebook:Title"]</a></p></Authorized></AuthorizeView>
+<AuthorizeView Policy="@EducationPermissions.LearningParticipate"><Authorized><p><a href="/education/workload">@L["EducationWorkload:Title"]</a></p></Authorized></AuthorizeView>
+<h1 class="h4 mb-3">@L["EducationGrading:MyResults"]</h1>
+<p><a href="/education/growth">@L["EducationGrowth:Title"]</a></p>
+<AuthorizeView Policy="@EducationPermissions.LearningParticipate"><Authorized><p><a href="/education/corrections/my">@L["EducationCorrection:MyTitle"]</a></p></Authorized></AuthorizeView>
+<AuthorizeView Policy="@EducationPermissions.LearningParticipate"><Authorized><p><a href="/education/question-collections">@L["EducationCollection:Title"]</a></p></Authorized></AuthorizeView>
+@if (Error != null) { <div class="alert alert-danger" role="alert">@Error</div> }
+<div class="row g-3">
+    <aside class="col-lg-4"><div class="list-group">
+        @foreach (var task in Tasks)
+        { <button class="list-group-item list-group-item-action" disabled="@Busy" @onclick="() => OpenAsync(task.Id)"><strong>@task.Title</strong><br /><span>@task.SubjectName · @task.SchoolClassName</span></button> }
+    </div>
+    @if (Total > PageSize)
+    { <div class="d-flex gap-2 mt-3"><button class="btn btn-sm btn-outline-secondary" @onclick="PreviousAsync" disabled="@(Busy || Offset == 0)">@L["EducationPaper:Previous"]</button><button class="btn btn-sm btn-outline-secondary" @onclick="NextAsync" disabled="@(Busy || Offset + PageSize >= Total)">@L["EducationPaper:Next"]</button></div> }
+    @if (Tasks.Count == 0) { <p>@L["EducationGrading:NoResults"]</p> }
+    </aside>
+    <section class="col-lg-8">
+        @if (Result is { } result)
+        {
+            <a class="btn btn-outline-primary mb-3" href="@($"/education/assessments/{result.RecipientId}")">@L["EducationAttempt:Title"]</a>
+            <button class="btn btn-outline-secondary mb-3" @onclick="() => OpenAsync(result.RecipientId)" disabled="@Busy">@L["EducationGrading:Refresh"]</button>
+            @if (result.Outcome == EducationAssessmentRecipientOutcome.Absent) { <p role="status">@L["EducationGrading:Absent"]</p> }
+            else if (result.CurrentResultVisibility == ExamResultVisibility.Hidden) { <p role="status">@L["EducationGrading:NotOpen"]</p> }
+            else
+            {
+                <p class="h4">@result.TotalScore / @result.MaxScore</p>
+                <p class="small text-muted">@L["EducationGrading:ReleasedAt", result.ReleasedAtUtc?.ToLocalTime().ToString("g") ?? ""]</p>
+                @if (result.CurrentResultVisibility != ExamResultVisibility.FullReview) { <p>@L["EducationGrading:ReviewNotOpen"]</p> }
+                @foreach (var question in result.Questions)
+                {
+                    <article class="card mb-3"><div class="card-body"><h2 class="h6">@question.DisplayOrder. @question.Title (@question.ObtainedScore / @question.MaxScore)</h2>
+                        <p style="white-space:pre-wrap">@question.Stem</p>
+                        @foreach (var option in question.Options) { <p>@option.OptionKey. @option.Content</p> }
+                        <h3 class="h6">@L["EducationGrading:SubmittedAnswer"]</h3>
+                        @if (question.Response == null) { <p>@L["EducationGrading:Unanswered"]</p> }
+                        else
+                        {
+                            <p style="white-space:pre-wrap">@question.Response.Text</p><p>@string.Join(", ", question.Response.SelectedOptionKeys)</p>
+                            @foreach (var blank in question.Response.Blanks) { <p style="white-space:pre-wrap">@question.ScoringDefinition?.Blanks.FirstOrDefault(x => x.Id == blank.BlankId)?.StemMarker: @blank.Text</p> }
+                            @foreach (var image in question.Response.Images)
+                            { <button type="button" class="btn btn-sm btn-outline-secondary me-2" disabled="@Busy" @onclick="() => ShowImageAsync(image.AttachmentId, image.RotationDegrees)">@L["EducationGrading:SubmittedImage"]</button> }
+                        }
+                        <h3 class="h6">@L["EducationGrading:Rubric"]</h3><p>@string.Join(", ", question.CorrectAnswers)</p>
+                        <p style="white-space:pre-wrap">@question.ScoringDefinition?.ReferenceAnswer</p>
+                        @if (question.ScoringDefinition != null)
+                        { @foreach (var blank in question.ScoringDefinition.Blanks) { <p>@blank.StemMarker: @string.Join(" / ", blank.AllowedAnswers)</p> }
+                          @foreach (var point in question.ScoringDefinition.ScoringPoints) { <p>@point.Description (@question.Parts.FirstOrDefault(x => x.PartId == point.Id)?.ObtainedScore / @point.Score)</p> } }
+                        <p style="white-space:pre-wrap">@question.Analysis</p><p style="white-space:pre-wrap">@question.Feedback</p>
+                        <AuthorizeView Policy="@EducationPermissions.LearningParticipate"><Authorized>
+                            <a class="btn btn-sm btn-outline-primary me-2" href="@($"/education/practice?recipientId={result.RecipientId:D}&questionId={question.Id:D}&resultReleaseId={result.ResultReleaseId:D}")">@L["EducationPractice:Start"]</a>
+                            <button class="btn btn-sm btn-outline-secondary" disabled="@Busy" @onclick="() => CollectionQuestionId = question.Id">@L["EducationCollection:Manage"]</button>
+                        </Authorized></AuthorizeView>
+                        <AuthorizeView Policy="@KnowPulsePermissions.KnowledgeBase.PersonalLibrary"><Authorized>
+                            <a href="@($"/education/notebook?sourceKind=AssessmentQuestion&recipientId={result.RecipientId:D}&componentId={question.Id:D}")">@L["EducationNotebook:ReferenceThisSource"]</a>
+                        </Authorized></AuthorizeView>
+                    </div></article>
+                }
+                @if (CollectionQuestionId is Guid collectionQuestion && SelectedSchoolId is Guid school) {
+                    <AuthorizeView Policy="@EducationPermissions.LearningParticipate"><Authorized><EducationQuestionCollectionToggle @key="(result.RecipientId, collectionQuestion, result.ResultReleaseId)" SchoolId="school" RecipientId="result.RecipientId" QuestionId="collectionQuestion" ExpectedResultReleaseId="result.ResultReleaseId" AllowCollect="result.AllowQuestionCollection" /></Authorized></AuthorizeView>
+                }
+            }
+        }
+        <EducationAssessmentImagePreview ImageData="@ImageData" Rotation="@ImageRotation" Alt="@L["EducationGrading:SubmittedImage"]" Closed="@(() => ImageData = null)" />
+    </section>
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "recipientId")] public Guid? RecipientId { get; set; }
+    [SupplyParameterFromQuery(Name = "schoolId")] public Guid? LinkSchoolId { get; set; }
+    [SupplyParameterFromQuery(Name = "taskRevisionId")] public Guid? LinkPublicationId { get; set; }
+    [SupplyParameterFromQuery(Name = "releaseId")] public Guid? LinkReleaseId { get; set; }
+    private (Guid?, Guid?, Guid?, Guid?)? LoadedLink;
+    private int ViewEpoch, ResultGeneration;
+    private bool Disposed;
+    private Guid? SelectedSchoolId, CollectionQuestionId;
+    private const int PageSize = 20;
+    private int Offset; private long Total; private bool Busy;
+    private List<EducationStudentAssessmentTaskDto> Tasks = [];
+    private EducationAssessmentStudentResultDto? Result;
+    private string? Error, ImageData; private int ImageRotation;
+    protected override async Task OnInitializedAsync() => await RunAsync(LoadAsync);
+    protected override async Task OnParametersSetAsync()
+    {
+        var link = (RecipientId, LinkSchoolId, LinkPublicationId, LinkReleaseId); if (LoadedLink == link) return;
+        LoadedLink = link; ViewEpoch++; ResultGeneration++; Busy = false; Result = null; ImageData = null;
+        if (RecipientId is Guid id) await RunAsync(() => ReadResultAsync(id, pinned: LinkSchoolId.HasValue || LinkPublicationId.HasValue || LinkReleaseId.HasValue));
+    }
+    private async Task LoadAsync() { var owner = Account.Id; var tenant = Tenant.Id; var epoch = ViewEpoch;
+        var page = await Assessments.GetMyStudentListAsync(new() { SkipCount = Offset, MaxResultCount = PageSize });
+        if (!Disposed && owner == Account.Id && tenant == Tenant.Id && epoch == ViewEpoch) { Tasks = page.Items.ToList(); Total = page.TotalCount; } }
+    private Task OpenAsync(Guid id) => RunAsync(() => ReadResultAsync(id));
+    private async Task ReadResultAsync(Guid id, bool pinned = false) {
+        Result = null; ImageData = null; CollectionQuestionId = null; var generation = ++ResultGeneration; var epoch = ViewEpoch; var owner = Account.Id; var tenant = Tenant.Id;
+        var school = LinkSchoolId; var publication = LinkPublicationId; var release = LinkReleaseId;
+        if (pinned && (!school.HasValue || !publication.HasValue || !release.HasValue || school == Guid.Empty || publication == Guid.Empty || release == Guid.Empty)) throw new InvalidOperationException(L["EducationReminder:SourceChanged"]);
+        var task = await Assessments.GetMyStudentTaskAsync(id);
+        if (Disposed || generation != ResultGeneration || epoch != ViewEpoch || owner != Account.Id || tenant != Tenant.Id) return;
+        if (pinned && school != task.SchoolId) throw new InvalidOperationException(L["EducationReminder:SourceChanged"]);
+        var result = await Grading.GetMyResultForSchoolAsync(id, pinned ? school!.Value : task.SchoolId, pinned ? publication : null, pinned ? release : null);
+        if (!Disposed && generation == ResultGeneration && epoch == ViewEpoch && owner == Account.Id && tenant == Tenant.Id) { SelectedSchoolId = task.SchoolId; Result = result; }
+    }
+    private Task ShowImageAsync(Guid id, int rotation) => RunAsync(async () =>
+    {
+        if (Result?.AttemptId is not Guid attemptId) return;
+        var generation = ResultGeneration; var owner = Account.Id; var tenant = Tenant.Id;
+        using var file = await Assessments.DownloadAnswerImageAsync(attemptId, id);
+        using var bytes = new System.IO.MemoryStream(); await file.GetStream().CopyToAsync(bytes);
+        if (!Disposed && generation == ResultGeneration && owner == Account.Id && tenant == Tenant.Id && Result?.AttemptId == attemptId) { ImageRotation = rotation; ImageData = $"data:{file.ContentType};base64,{Convert.ToBase64String(bytes.ToArray())}"; }
+    });
+    private Task PreviousAsync() => RunAsync(async () => { Offset -= PageSize; await LoadAsync(); });
+    private Task NextAsync() => RunAsync(async () => { Offset += PageSize; await LoadAsync(); });
+    private async Task RunAsync(Func<Task> action) { if (Busy || Disposed) return; var epoch = ViewEpoch; Busy = true; Error = null; try { await action(); } catch (Exception ex) { if (!Disposed && epoch == ViewEpoch) Error = GetUserFriendlyErrorMessage(ex); } finally { if (!Disposed && epoch == ViewEpoch) Busy = false; } }
+    public void Dispose() { Disposed = true; ViewEpoch++; ResultGeneration++; Tasks.Clear(); Result = null; ImageData = null; }
+}

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using KnowPulse.QuestionBank;
+using KnowPulse.Education;
 using Volo.Abp.Application.Dtos;
 
 namespace KnowPulse.Exam;
@@ -53,6 +54,9 @@ public class CreateExamPlanDto
 
 public class GenerateExamPaperDto
 {
+    /// <summary>保存时必需；同一编号重试返回原冻结试卷，可按此编号查询未知结果。</summary>
+    public Guid? OperationId { get; set; }
+    public EducationCurriculumScopeDto? CurriculumScope { get; set; }
     [Required]
     [StringLength(256)]
     public string Title { get; set; } = string.Empty;

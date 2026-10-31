@@ -1,0 +1,93 @@
+@page "/education/growth"
+@attribute [Authorize(EducationPermissions.AssessmentParticipate)]
+@inherits KnowPulseComponentBase
+@using KnowPulse.Education
+@using System.Globalization
+@inject IEducationStudentGrowthAppService Growth
+
+<PageTitle>@L["EducationGrowth:Title"]</PageTitle>
+<h1 class="h4">@L["EducationGrowth:Title"]</h1>
+<p class="text-muted">@L["EducationGrowth:Description"]</p>
+@if (Error != null) { <div class="alert alert-danger" role="alert">@Error</div> }
+@if (Busy) { <p role="status">@L["EducationGrowth:Loading"]</p> }
+<fieldset disabled="@Busy" class="card card-body mb-3">
+    <label for="growth-context" class="form-label">@L["EducationGrowth:Context"]</label>
+    <select id="growth-context" class="form-select mb-3" @bind="ContextText" @bind:after="ContextChangedAsync"><option value="">@L["EducationCurriculum:Choose"]</option>@foreach (var context in Contexts) { <option value="@context.Id">@context.SchoolName · @context.TermName · @context.ClassName · @context.SubjectName · @context.TextbookTitle · @context.TeacherName</option> }</select>
+    <div class="d-flex flex-wrap align-items-end gap-3"><label>@L["EducationReport:From"]<input type="datetime-local" class="form-control" @bind="From" /></label><label>@L["EducationReport:To"]<input type="datetime-local" class="form-control" @bind="To" /></label><button class="btn btn-primary" disabled="@(Context == null)" @onclick="LoadAsync">@L["EducationGrowth:View"]</button><button class="btn btn-outline-secondary" @onclick="RefreshContextsAsync">@L["EducationGrowth:RefreshContexts"]</button></div>
+    @if (Context is { } selected) { <p class="small mt-2 mb-0">@L["EducationGrowth:Window", selected.MaximumWindowDays]</p> }
+    @if (Contexts.Count == 0 && !Busy) { <p class="small text-muted mt-2 mb-0">@L["EducationGrowth:Empty"]</p> }
+</fieldset>
+@if (Report is { } report)
+{
+    var chart = BuildChart(report);
+    <h2 class="h5">@report.Context.SubjectName · @report.Context.TextbookTitle</h2>
+    <p class="small text-muted">@Local(report.WindowStartsAtUtc) → @Local(report.WindowEndsAtUtc) · @L["EducationGrowth:Calculated", Local(report.CalculatedAtUtc)] · @report.CalculationVersion</p>
+    @if (report.RuleMissing) { <p class="alert alert-info">@L["EducationReport:NoRule"]</p> }
+    else if (report.Rule is { } rule) { <p class="small">@L["EducationReport:Rule", rule.RevisionNumber, rule.MinimumIndependentQuestionCount, rule.MinimumAssessmentCount, rule.MaximumLatestEvidenceAgeDays, Ratio(rule.TargetRatio)]</p> }
+    <h3 class="h6">@L["EducationGrowth:Timeline"]</h3>
+    <p class="small text-muted">@L["EducationGrowth:TrendHint"]</p>
+    @if (chart.Count > 0)
+    {
+        <svg class="w-100 border rounded mb-3" viewBox="0 0 720 180" role="img" aria-label="@L["EducationGrowth:ChartLabel"]" style="max-height:240px">
+            <title>@L["EducationGrowth:ChartLabel"]</title>
+            <line x1="35" y1="15" x2="35" y2="155" stroke="currentColor" /><line x1="35" y1="155" x2="705" y2="155" stroke="currentColor" />
+            <text x="0" y="22" font-size="12">100%</text><text x="10" y="155" font-size="12">0%</text>
+            @for (var index = 0; index < chart.Count; index++)
+            {
+                var item = chart[index];
+                if (index > 0 && item.Value.ComparisonLimit == EducationGrowthComparisonLimit.None)
+                { var previous = chart[index - 1]; <line x1="@Number(previous.X)" y1="@Number(previous.Y)" x2="@Number(item.X)" y2="@Number(item.Y)" stroke="var(--bs-primary, #0d6efd)" stroke-width="2" /> }
+                <circle cx="@Number(item.X)" cy="@Number(item.Y)" r="4" fill="var(--bs-primary, #0d6efd)"><title>@item.Value.Title · @item.Value.TotalScore / @item.Value.MaxScore</title></circle>
+                <g><text x="@Number(item.X - 3)" y="174" font-size="12">@(index + 1)</text></g>
+            }
+        </svg>
+    }
+    <div class="table-responsive"><table class="table table-sm"><caption>@L["EducationGrowth:Timeline"]</caption><thead><tr><th>@L["EducationReport:Task"]</th><th>@L["EducationGrowth:Effective"]</th><th>@L["EducationReport:Score"]</th><th>@L["EducationGrowth:Comparison"]</th><th>@L["EducationGrowth:Result"]</th></tr></thead><tbody>
+        @foreach (var assessment in report.Assessments)
+        {
+            <tr><td>@assessment.Title</td><td>@Local(assessment.EffectiveAtUtc)</td><td>@(assessment.IsAbsent ? L["EducationReport:Absent"].Value : $"{assessment.TotalScore} / {assessment.MaxScore}")</td><td>@Comparison(assessment.ComparisonLimit)</td><td><a href="@($"/education/assessment-results?recipientId={assessment.RecipientId}")">@L[assessment.Visibility == KnowPulse.Exam.ExamResultVisibility.FullReview ? "EducationGrowth:Review" : "EducationGrowth:ScoreOnly"]</a></td></tr>
+        }
+    </tbody></table></div>
+    @if (report.Assessments.Count == 0) { <p class="text-muted">@L["EducationGrowth:NoAssessments"]</p> }
+    <h3 class="h6">@L["EducationGrowth:Points"]</h3>
+    <div class="row g-3">@foreach (var point in report.Points)
+    {
+        <div class="col-md-6"><div class="card card-body h-100"><h4 class="h6">@point.Code · @point.Name · @L["EducationCurriculum:RevisionNumber", point.RevisionNumber]</h4><p>@L[$"EducationReport:Mastery:{(int)point.State}"] · @Ratio(point.Ratio) (@point.ObtainedScore / @point.MaxScore)</p>
+            <p class="small">@L["EducationReport:EvidenceCounts", point.IndependentQuestionCount, point.AssessmentCount, point.UnverifiedQuestionCount, point.PracticeQuestionCount, point.InvalidQuestionCount]</p>
+            @if (!report.RuleMissing) { <p class="small">@L["EducationGrowth:Gaps", point.MissingIndependentQuestionCount, point.MissingAssessmentCount] @if (point.RecentEvidenceMissing) { <span> · @L["EducationGrowth:StaleEvidence"]</span> }</p> }
+            <button class="btn btn-sm btn-outline-secondary align-self-start" disabled="@Busy" @onclick="(() => BasisAsync(point.Id, 0))">@L["EducationReport:Basis"]</button>
+        </div></div>
+    }</div>
+    @if (Evidence != null)
+    {
+        <section class="card card-body mt-3"><h3 class="h6">@L["EducationReport:Basis"]</h3>
+            @if (Evidence.HasRestrictedEvidence) { <p class="alert alert-info">@L["EducationGrowth:Restricted"]</p> }
+            <ul>@foreach (var item in Evidence.Items) { <li>@report.Assessments.Single(x => x.TaskId == item.TaskId).Title · @item.ObtainedScore / @item.MaxScore · @L[$"EducationReport:Exclusion:{(int)item.ExclusionReason}"] · <a href="@($"/education/assessment-results?recipientId={item.RecipientId}")">@L["EducationGrowth:Review"]</a></li> }</ul>
+            @if (Evidence.Items.Count == 0) { <p class="text-muted">@L["EducationGrowth:NoBasis"]</p> }
+            <div class="d-flex gap-2"><button class="btn btn-sm btn-outline-secondary" disabled="@(Busy || Offset == 0)" @onclick="(() => BasisAsync(PointId, Offset - PageSize))">@L["EducationPaper:Previous"]</button><button class="btn btn-sm btn-outline-secondary" disabled="@(Busy || Offset + PageSize >= Evidence.TotalCount)" @onclick="(() => BasisAsync(PointId, Offset + PageSize))">@L["EducationPaper:Next"]</button></div>
+        </section>
+    }
+}
+@code {
+    private const int PageSize = 20;
+    private bool Busy; private string? Error; private string ContextText = ""; private DateTime From = DateTime.Now.AddDays(-30), To = DateTime.Now;
+    private List<EducationStudentGrowthContext> Contexts = []; private EducationStudentGrowthValue? Report;
+    private EducationStudentGrowthEvidencePageDto? Evidence; private Guid PointId; private int Offset;
+    private EducationStudentGrowthContext? Context => Contexts.FirstOrDefault(x => x.Id.ToString() == ContextText);
+    private static List<(EducationStudentGrowthAssessment Value, decimal X, decimal Y)> BuildChart(EducationStudentGrowthValue report)
+    {
+        var scored = report.Assessments.Where(x => x.TotalScore.HasValue && x.MaxScore > 0).ToList(); var width = Math.Max(1, scored.Count - 1);
+        return scored.Select((x, i) => (x, 45m + i * 650m / width, 155m - x.TotalScore!.Value / x.MaxScore!.Value * 140m)).ToList();
+    }
+    protected override Task OnInitializedAsync() => RefreshContextsAsync();
+    private Task RefreshContextsAsync() => RunAsync(async () => { Report = null; Evidence = null; Contexts = (await Growth.GetMyContextsAsync()).Items.ToList(); if (!Contexts.Any(x => x.Id.ToString() == ContextText)) ContextText = ""; });
+    private Task ContextChangedAsync() { Report = null; Evidence = null; if (Context != null) From = To.AddDays(-Math.Min(30, Context.MaximumWindowDays)); return Task.CompletedTask; }
+    private Task LoadAsync() => RunAsync(async () => { Report = null; Evidence = null; if (Context == null) return;
+        Report = await Growth.GetMyGrowthAsync(Context.Id, new() { WindowStartsAtUtc = DateTime.SpecifyKind(From, DateTimeKind.Local).ToUniversalTime(), WindowEndsAtUtc = DateTime.SpecifyKind(To, DateTimeKind.Local).ToUniversalTime() }); });
+    private Task BasisAsync(Guid point, int offset) => RunAsync(async () => { Evidence = null; PointId = point; Offset = offset; Evidence = await Growth.GetMyPointEvidenceAsync(Report!.Context.Id, Report.SnapshotId, point, new() { SkipCount = offset, MaxResultCount = PageSize }); });
+    private string Comparison(EducationGrowthComparisonLimit limit) => limit == EducationGrowthComparisonLimit.None ? L["EducationGrowth:Comparable"].Value : string.Join(" · ", Enum.GetValues<EducationGrowthComparisonLimit>().Where(x => x != 0 && limit.HasFlag(x)).Select(x => L[$"EducationGrowth:Limit:{(int)x}"].Value));
+    private static string Local(DateTime value) => value.ToLocalTime().ToString("yyyy-MM-dd HH:mm");
+    private static string Ratio(decimal? value) => value?.ToString("P1") ?? "—";
+    private static string Number(decimal value) => value.ToString(CultureInfo.InvariantCulture);
+    private async Task RunAsync(Func<Task> action) { if (Busy) return; Busy = true; Error = null; try { await action(); } catch (Exception ex) { Report = null; Evidence = null; Error = GetUserFriendlyErrorMessage(ex); } finally { Busy = false; } }
+}

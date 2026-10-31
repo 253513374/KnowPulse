@@ -1,0 +1,125 @@
+@page "/education/teaching-plans/{PlanId:guid}/activities"
+@attribute [Authorize(EducationPermissions.TeachingPlanView)]
+@inherits KnowPulseComponentBase
+@using KnowPulse.Education
+@using System.Text.Json
+@inject IEducationTeachingPlanActivityAppService Activities
+@inject IJSRuntime JS
+@inject Volo.Abp.Users.ICurrentUser Account
+@inject Volo.Abp.MultiTenancy.ICurrentTenant Tenant
+
+<PageTitle>@L["EducationActivity:MyTitle"]</PageTitle>
+<AuthorizeView Policy="@KnowPulsePermissions.KnowledgeBase.PersonalLibrary"><Authorized><p><a href="/education/notebook">@L["EducationNotebook:Title"]</a></p></Authorized></AuthorizeView>
+<AuthorizeView Policy="@EducationPermissions.LearningParticipate"><Authorized><p><a href="/education/workload">@L["EducationWorkload:Title"]</a></p></Authorized></AuthorizeView>
+<NavigationLock ConfirmExternalNavigation="@(Busy || Dirty || Pending != null)" OnBeforeInternalNavigation="LeaveAsync" />
+<h1 class="h4">@L["EducationActivity:MyTitle"]</h1><p>@L["EducationActivity:ActivityOnly"]</p>
+<a href="/education/teaching-plans/my">@L["EducationPlan:MyTitle"]</a>
+@if (Error != null) { <div class="alert alert-danger" role="alert">@Error</div> }
+@if (Receipt != null) { <p class="alert alert-success" role="status">@L["EducationGrading:Receipt", Receipt]</p> }
+@if (Pending != null) { <div class="alert alert-info" role="status">@L["EducationGrading:Unknown"]
+    <button class="btn btn-sm btn-outline-primary" disabled="@Busy" @onclick="RecoverAsync">@L["EducationGrading:Recover"]</button>
+    <button class="btn btn-sm btn-outline-primary" disabled="@Busy" @onclick="(() => RunAsync(SendAsync))">@L["EducationReport:RetryCommand"]</button>
+    <button class="btn btn-sm btn-outline-secondary" disabled="@Busy" @onclick="DiscardAsync">@L["EducationReport:Abandon"]</button>
+</div> }
+else if (StorageAttempted && !StorageReady) { <button class="btn btn-outline-secondary" disabled="@Busy" @onclick="DiscardAsync">@L["EducationReport:Abandon"]</button> }
+<button class="btn btn-outline-secondary my-3" disabled="@(Busy || Pending != null)" @onclick="RefreshAsync">@L["EducationReport:Reload"]</button>
+@if (View is { } view) {
+    <p>@view.Plan.TeacherName · @view.Plan.SubjectName · @L[$"EducationPlan:Availability:{(int)view.Plan.Availability}"]</p>
+    <p role="status">@L[$"EducationPlanExecution:State:{(int)view.Plan.ExecutionState}"] · @L["EducationPlanExecution:StudentNotice"]</p>
+    @if (view.Plan.Content is { } content) { <h2 class="h5">@content.Title</h2><p>@content.StudentGoal</p><p>@content.StartsAtUtc.ToLocalTime().ToString("g") → @content.EndsAtUtc.ToLocalTime().ToString("g")</p> }
+    <div class="row g-3"><aside class="col-lg-4"><div class="list-group">@foreach (var row in view.Activities.OrderBy(x => x.StepOrder)) {
+        var step = view.Plan.Content?.Steps.FirstOrDefault(x => x.Id == row.StepId);
+        <button class="list-group-item list-group-item-action" disabled="@(Busy || Pending != null)" @onclick="(() => SelectAsync(row.Id))">@L["EducationActivity:Step", row.StepOrder] @step?.Title<br /><small>@L[$"EducationActivity:State:{row.State}"]</small></button>
+    }</div></aside><main class="col-lg-8">
+    @if (Selected is { } selected) {
+        var step = view.Plan.Content?.Steps.FirstOrDefault(x => x.Id == selected.StepId);
+        <h2 class="h5">@L["EducationActivity:Step", selected.StepOrder] @step?.Title</h2>
+        @if (step != null) { <p style="white-space:pre-wrap">@step.Instructions</p><p>@L["EducationPlan:TotalMinutes", step.EstimatedMinutes] · @step.DueAtUtc.ToLocalTime().ToString("g")</p>
+            @if (step.DueAtUtc < DateTime.UtcNow && selected.State != EducationTeachingActivityState.ReportedComplete && selected.FormalAssessment?.SealedAtUtc == null) { <p role="status">@L["EducationActivity:Overdue"]</p> }
+            @if (step.Kind is EducationTeachingPlanStepKind.Diagnostic or EducationTeachingPlanStepKind.Reassessment) { <p class="alert alert-info">@L["EducationActivity:FormalAssessment"]</p> }
+        }
+        <p>@L[$"EducationActivity:State:{selected.State}"]</p>
+        @if (view.Plan.Content is { } assignedContent) { <TeachingMaterialReader @key="selected.Id" ActivityId="selected.Id" PlanId="PlanId" RevisionId="view.Plan.VersionId" Materials="@(assignedContent.Materials.Where(x => x.StepId == selected.StepId).ToList())" Disabled="@(Busy || Pending != null || !selected.CanReadMaterials)" /> }
+        @if (selected.FormalAssessment is { } formal) {
+            @if (formal.RequiresAssessmentPermission) { <p>@L["EducationFormal:Permission"]</p> }
+            @if (formal.IsStopped) { <p role="status">@L["EducationFormal:Stopped"]</p> }
+            @if (formal.CanOpen && formal.RecipientId is Guid recipient) { <a class="btn btn-outline-primary mb-2" href="@($"/education/assessments/{recipient}")">@L["EducationAttempt:Title"] · @formal.Title</a> }
+            @if (formal.SealedAtUtc is DateTime sealedAt) { <p>@L["EducationActivity:State:AssessmentSealed"] · @sealedAt.ToLocalTime().ToString("g")</p> }
+        }
+        @if (selected.TeacherHandledAtUtc is DateTime handled) { <p>@L["EducationActivity:HandledAt", handled.ToLocalTime().ToString("g")]</p> }
+        @if (selected.CurrentStudent is { } last) { <p>@last.RecordedAtUtc.ToLocalTime().ToString("g")</p><p style="white-space:pre-wrap">@last.SharedText</p> }
+        <AuthorizeView Policy="@EducationPermissions.LearningParticipate"><Authorized>
+        <fieldset disabled="@(Busy || Pending != null || !StorageReady || view.Plan.Availability == EducationTeachingPlanAvailability.Withdrawn)" @oninput="Changed" @onchange="Changed">
+            <label for="activity-shared" class="form-label">@L["EducationActivity:SharedText"]</label><textarea id="activity-shared" class="form-control mb-2" maxlength="2000" @bind="SharedText" @bind:event="oninput"></textarea>
+            <label class="d-block"><input type="checkbox" @bind="Share" /> @L["EducationActivity:ShareConfirmation"]</label>
+            <label class="d-block mb-2"><input type="checkbox" @bind="ActivityOnly" /> @L["EducationActivity:CompleteConfirmation"]</label>
+            <label for="activity-minutes" class="form-label">@L["EducationActivity:ReportedMinutes"]</label><input id="activity-minutes" type="number" min="1" max="1440" class="form-control mb-2" @bind="Minutes" />
+            <div class="d-flex gap-2 mb-3"><button class="btn btn-outline-primary" disabled="@(step == null || !selected.CanStart || selected.FormalAssessment?.IsStopped == true || selected.FormalAssessment?.SealedAtUtc != null || view.Plan.Content!.StartsAtUtc > DateTime.UtcNow || !Share && !string.IsNullOrWhiteSpace(SharedText) || selected.State == EducationTeachingActivityState.ReportedComplete && string.IsNullOrWhiteSpace(SharedText))" @onclick="StartAsync">@L["EducationActivity:Start"]</button>
+                <button class="btn btn-primary" disabled="@(step == null || step.Kind is EducationTeachingPlanStepKind.Diagnostic or EducationTeachingPlanStepKind.Reassessment || selected.State != EducationTeachingActivityState.InProgress || !ActivityOnly || !Share && !string.IsNullOrWhiteSpace(SharedText) || Minutes is < 1 or > 1440)" @onclick="CompleteAsync">@L["EducationActivity:Complete"]</button></div>
+            <label for="activity-difficulty" class="form-label">@L["EducationActivity:Difficulty"]</label><select id="activity-difficulty" class="form-select mb-2" @bind="Difficulty">@foreach (var kind in Enum.GetValues<EducationTeachingActivityDifficulty>()) { <option value="@kind">@L[$"EducationActivity:Difficulty:{kind}"]</option> }</select>
+            <button class="btn btn-outline-warning" disabled="@(!Share || string.IsNullOrWhiteSpace(SharedText))" @onclick="ReportAsync">@L["EducationActivity:ReportDifficulty"]</button>
+        </fieldset>
+        </Authorized></AuthorizeView>
+        <h3 class="h6 mt-4">@L["EducationActivity:History"]</h3><ul>@foreach (var item in History) { <li>@item.RecordedAtUtc.ToLocalTime().ToString("g") · @L[$"EducationActivity:Action:{item.Action}"]<p style="white-space:pre-wrap">@item.SharedText</p></li> }</ul>
+        <div class="d-flex gap-2"><button class="btn btn-sm btn-outline-secondary" disabled="@(Busy || HistoryOffset == 0)" @onclick="(() => HistoryPageAsync(-1))">@L["EducationPaper:Previous"]</button><button class="btn btn-sm btn-outline-secondary" disabled="@(Busy || HistoryOffset + PageSize >= HistoryTotal)" @onclick="(() => HistoryPageAsync(1))">@L["EducationPaper:Next"]</button></div>
+    }
+    </main></div>
+}
+<section class="card mt-4"><div class="card-body"><h2 class="h5">@L["EducationActivity:Workload"]</h2><p>@L["EducationActivity:WorkloadScope"]</p>
+    <label for="workload-from">@L["EducationActivity:FromUtc"]</label><input id="workload-from" type="date" class="form-control mb-2" @bind="WorkFrom" />
+    <label for="workload-to">@L["EducationActivity:ToUtc"]</label><input id="workload-to" type="date" class="form-control mb-2" @bind="WorkTo" />
+    <button class="btn btn-outline-primary" disabled="@Busy" @onclick="WorkloadAsync">@L["EducationActivity:CalculateWorkload"]</button>
+    @if (Workload is { } load) { <p>@L["EducationActivity:Uncounted", load.UncountedPlanCount]</p><table class="table"><thead><tr><th>@L["EducationActivity:DueDateUtc"]</th><th>@L["EducationActivity:Subject"]</th><th>@L["EducationActivity:Count"]</th><th>@L["EducationActivity:EstimatedMinutes"]</th></tr></thead><tbody>@foreach (var day in load.Days) { <tr><td>@day.DueDateUtc.ToString("yyyy-MM-dd")</td><td>@day.SubjectName</td><td>@day.ActivityCount</td><td>@day.EstimatedMinutes</td></tr> }</tbody></table><p>@L["EducationActivity:TotalMinutes", load.Days.Sum(x => x.EstimatedMinutes)]</p> }
+</div></section>
+
+@code {
+    [Parameter] public Guid PlanId { get; set; }
+    [SupplyParameterFromQuery(Name = "versionId")] public Guid? VersionId { get; set; }
+    [SupplyParameterFromQuery(Name = "schoolId")] public Guid? SchoolId { get; set; }
+    [SupplyParameterFromQuery(Name = "stepId")] public Guid? StepId { get; set; }
+    private const int PageSize = 20; private bool Busy, Dirty, StorageReady, StorageAttempted, Share, ActivityOnly;
+    private string? Error, LoadedKey; private Guid? Receipt, SelectedId; private string SharedText = ""; private int? Minutes;
+    private EducationTeachingActivityDifficulty Difficulty; private EducationMyActivitiesDto? View; private EducationActivityWorkloadDto? Workload;
+    private List<EducationStudentActivityEventDto> History = []; private int HistoryOffset; private long HistoryTotal; private Command? Pending;
+    private DateTime WorkFrom = DateTime.UtcNow.Date.AddDays(-7), WorkTo = DateTime.UtcNow.Date.AddDays(7);
+    private EducationStudentActivityDto? Selected => View?.Activities.FirstOrDefault(x => x.Id == SelectedId);
+    private string StorageKey => $"education-my-activities-v1:{Tenant.Id}:{Account.Id}:{PlanId}";
+    protected override Task OnParametersSetAsync() => RunAsync(async () => { var key = $"{PlanId}|{VersionId}|{SchoolId}|{StepId}"; if (key == LoadedKey) return; LoadedKey = key; SelectedId = null; StorageReady = StorageAttempted = false; Pending = null; await LoadAsync(); });
+    protected override async Task OnAfterRenderAsync(bool firstRender) {
+        if (StorageAttempted || Busy) return; StorageAttempted = true;
+        await RunAsync(async () => { var raw = await JS.InvokeAsync<string?>("sessionStorage.getItem", StorageKey);
+            if (raw != null) { var command = JsonSerializer.Deserialize<Command>(raw); if (command == null || !Matches(command)) throw new InvalidOperationException(L["EducationGrading:NoReceipt"]); Pending = command; } StorageReady = true; }); StateHasChanged();
+    }
+    private bool Matches(Command command) => command.PlanId == PlanId && command.AccountId == Account.Id && command.TenantId == Tenant.Id && command.ActivityId != Guid.Empty &&
+        command.Input != null && command.Input.OperationId != Guid.Empty && Enum.IsDefined(command.Input.Action) && command.Input.Action != EducationTeachingActivityAction.TeacherFollowUp;
+    private async Task LoadAsync() { View = null; History.Clear(); Dirty = false; Share = ActivityOnly = false; SharedText = ""; Minutes = null;
+        if (VersionId == null) throw new InvalidOperationException(L["EducationActivity:Reenter"]);
+        View = SchoolId.HasValue ? await Activities.GetMyActivitiesForSchoolAsync(PlanId, VersionId.Value, SchoolId.Value) : await Activities.GetMyActivitiesAsync(PlanId, VersionId.Value);
+        if (StepId.HasValue && !View.Activities.Any(x => x.StepId == StepId)) { View = null; throw new InvalidOperationException(L["EducationActivity:Reenter"]); }
+        if (!View.Activities.Any(x => x.Id == SelectedId)) SelectedId = StepId.HasValue ? View.Activities.Single(x => x.StepId == StepId).Id : View.Activities.OrderBy(x => x.StepOrder).FirstOrDefault()?.Id;
+        HistoryOffset = 0; await LoadHistoryAsync();
+    }
+    private async Task LoadHistoryAsync() { History.Clear(); if (Selected == null) return; var page = await Activities.GetMyActivityHistoryAsync(Selected.Id, Selected.CurrentStudentRevisionId, new() { SkipCount = HistoryOffset, MaxResultCount = PageSize }); History = page.Items.ToList(); HistoryTotal = page.TotalCount; }
+    private void Changed() => Dirty = true;
+    private Task RefreshAsync() => RunAsync(async () => { if (!Dirty || await JS.InvokeAsync<bool>("confirm", L["EducationGrading:Discard"].Value)) await LoadAsync(); });
+    private Task SelectAsync(Guid id) => RunAsync(async () => { if (Dirty && !await JS.InvokeAsync<bool>("confirm", L["EducationGrading:Discard"].Value)) return; SelectedId = id; Dirty = Share = ActivityOnly = false; SharedText = ""; Minutes = null; HistoryOffset = 0; await LoadHistoryAsync(); });
+    private Task HistoryPageAsync(int direction) => RunAsync(async () => { HistoryOffset += direction * PageSize; await LoadHistoryAsync(); });
+    private Task StartAsync() => SaveAsync(EducationTeachingActivityAction.Started);
+    private Task CompleteAsync() => SaveAsync(EducationTeachingActivityAction.Completed);
+    private Task ReportAsync() => SaveAsync(EducationTeachingActivityAction.Difficulty);
+    private Task SaveAsync(EducationTeachingActivityAction action) => RunAsync(async () => {
+        if (Selected == null || Pending != null || !StorageReady) return;
+        var command = new Command { PlanId = PlanId, AccountId = Account.Id, TenantId = Tenant.Id, ActivityId = Selected.Id, Input = new() { OperationId = Guid.NewGuid(),
+            ExpectedStudentRevisionId = Selected.CurrentStudentRevisionId, Action = action, Difficulty = action == EducationTeachingActivityAction.Difficulty ? Difficulty : null,
+            SharedText = SharedText, ReportedMinutes = action == EducationTeachingActivityAction.Completed ? Minutes : null, ConfirmSharingWithTeacher = Share, ConfirmActivityOnly = ActivityOnly } };
+        await JS.InvokeVoidAsync("sessionStorage.setItem", StorageKey, JsonSerializer.Serialize(command)); Pending = command; await SendAsync();
+    });
+    private async Task SendAsync() { if (Pending == null || !Matches(Pending)) throw new InvalidOperationException(L["EducationGrading:NoReceipt"]); await FinishAsync(await Activities.SaveMyActivityAsync(Pending.ActivityId, Pending.Input)); }
+    private Task RecoverAsync() => RunAsync(async () => { if (Pending == null || !Matches(Pending)) throw new InvalidOperationException(L["EducationGrading:NoReceipt"]); var receipt = await Activities.GetMyActivityOperationAsync(PlanId, Pending.Input.OperationId); if (receipt == null) throw new InvalidOperationException(L["EducationGrading:NoReceipt"]); await FinishAsync(receipt); });
+    private async Task FinishAsync(EducationStudentActivityEventDto receipt) { Receipt = receipt.Id; await JS.InvokeVoidAsync("sessionStorage.removeItem", StorageKey); Pending = null; await LoadAsync(); Workload = null; }
+    private Task DiscardAsync() => RunAsync(async () => { if (!await JS.InvokeAsync<bool>("confirm", L["EducationReport:AbandonHint"].Value)) return; await JS.InvokeVoidAsync("sessionStorage.removeItem", StorageKey); Pending = null; StorageReady = true; await LoadAsync(); });
+    private Task WorkloadAsync() => RunAsync(async () => { Workload = null; Workload = await Activities.GetMyActivityWorkloadAsync(new() { StartsAtUtc = DateTime.SpecifyKind(WorkFrom.Date, DateTimeKind.Utc), EndsAtUtc = DateTime.SpecifyKind(WorkTo.Date, DateTimeKind.Utc) }); });
+    private async Task LeaveAsync(Microsoft.AspNetCore.Components.Routing.LocationChangingContext context) { if (Busy || (Dirty || Pending != null) && !await JS.InvokeAsync<bool>("confirm", L["EducationGrading:Discard"].Value)) context.PreventNavigation(); }
+    private async Task RunAsync(Func<Task> action) { if (Busy) return; Busy = true; Error = null; try { await action(); } catch (Exception ex) { Error = GetUserFriendlyErrorMessage(ex); } finally { Busy = false; } }
+    private sealed class Command { public Guid PlanId { get; set; } public Guid ActivityId { get; set; } public Guid? AccountId { get; set; } public Guid? TenantId { get; set; } public SaveEducationMyActivityDto Input { get; set; } = new(); }
+}

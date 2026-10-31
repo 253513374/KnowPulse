@@ -1,0 +1,31 @@
+@page "/account/assistance"
+@attribute [AllowAnonymous]
+@inherits KnowPulseComponentBase
+@using KnowPulse.AccountSupport
+@using Microsoft.AspNetCore.Components.WebAssembly.Authentication
+@using Microsoft.Extensions.Options
+@inject Microsoft.Extensions.Configuration.IConfiguration Configuration
+@inject Volo.Abp.Users.ICurrentUser Account
+@inject NavigationManager Navigation
+@inject IOptionsSnapshot<RemoteAuthenticationOptions<OidcProviderOptions>> AuthenticationOptions
+
+<PageTitle>@L["AccountHelp:Title"]</PageTitle>
+<h1 class="h4">@L["AccountHelp:Title"]</h1><p>@L["AccountHelp:Intro"]</p>
+<AuthorizeView><Authorized><p class="fw-semibold">@L["WeChat:CurrentAccount", Account.UserName ?? ""]</p></Authorized></AuthorizeView>
+@if (PasswordRecoveryUrl == null) { <p class="alert alert-info" role="status">@L["AccountHelp:NotConfigured"]</p> }
+<div class="row g-3">
+    <section class="col-lg-6"><div class="card h-100"><div class="card-body"><h2 class="h5">@L["AccountHelp:Password"]</h2><p>@L["AccountHelp:PasswordHint"]</p>
+        @if (PasswordRecoveryUrl != null) { <a class="btn btn-outline-primary me-2" href="@PasswordRecoveryUrl" @onclick="OpenRecovery" @onclick:preventDefault="true">@L["AccountHelp:OpenRecovery"]</a><a class="btn btn-outline-secondary" href="@LoginPath" @onclick="OpenLogin" @onclick:preventDefault="true">@L["AccountHelp:OpenLogin"]</a> }
+    </div></div></section>
+    <section class="col-lg-6"><div class="card h-100"><div class="card-body"><h2 class="h5">@L["AccountHelp:Binding"]</h2><p>@L["AccountHelp:BindingHint"]</p><a class="btn btn-outline-primary" href="/account/wechat-bindings">@L["AccountHelp:OpenBinding"]</a></div></div></section>
+    <section class="col-lg-6"><div class="card h-100"><div class="card-body"><h2 class="h5">@L["AccountHelp:School"]</h2><p>@L["AccountHelp:SchoolHint"]</p><a class="btn btn-outline-primary me-2" href="/education/workspace">@L["EducationWorkspace:Title"]</a><a class="btn btn-outline-secondary" href="/education/invitations">@L["SchoolInvites:Mine"]</a></div></div></section>
+    <section class="col-lg-6"><div class="card h-100"><div class="card-body"><h2 class="h5">@L["AccountHelp:Unable"]</h2><p>@L["AccountHelp:UnableHint"]</p><p>@L["AccountHelp:LearningHint"]</p></div></div></section>
+</div>
+
+@code {
+    private string? PasswordRecoveryUrl;
+    private string LoginPath => AuthenticationOptions.Value.AuthenticationPaths.LogInPath;
+    protected override void OnInitialized() => PasswordRecoveryUrl = AccountAssistanceLinks.GetPasswordRecoveryUrl(Configuration["AuthServer:Authority"]);
+    private void OpenRecovery() { if (PasswordRecoveryUrl != null) Navigation.NavigateTo(PasswordRecoveryUrl, forceLoad: true); }
+    private void OpenLogin() { if (PasswordRecoveryUrl != null) Navigation.NavigateToLogin(LoginPath); }
+}

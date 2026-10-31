@@ -4,9 +4,24 @@ KnowPulse is an enterprise knowledge, learning, and exam system built on ABP Fra
 
 The current application includes organization and permission management, knowledge lifecycle and ingestion, permission-aware RAG, AI model management, question review, AI-assisted question generation, exams, learning paths, and knowledge feedback.
 
+The education student inbox now covers assessment, feedback and teaching plan notices in Web and the shared-AppID student workspace. It preserves exact source versions, separate message reads and current-school permissions; real WeChat delivery remains unconfigured. See [the operation guide](docs/user-operation-guide.md#83-教学方案执行变化与困难处理站内消息) and [ADR 0050](docs/adr/0050-public-plan-and-difficulty-handling-inbox-notices.md).
+
+School managers can also issue account-bound teacher/student invitations for explicit confirmation in Web or the same mini program. Acceptance preserves personal ownership and requires separate teaching/enrollment verification. See [ADR 0051](docs/adr/0051-account-bound-school-invitations-and-explicit-membership-confirmation.md) and operation guide §84; account recovery and school support policies remain in progress.
+
+Teachers can review their own relations and request school correction in Web and the mini program. Authorized managers resolve the request with atomic relation changes and preserved history. See [ADR 0052](docs/adr/0052-teacher-relation-correction-requests-and-atomic-school-resolution.md) and operation guide §85.
+
+The public account-assistance entry connects existing original-account recovery, normal OIDC login and owner WeChat binding management; native login/workspaces can copy its fixed URL. The user confirmed owner self-service with platform manual review for exceptions; that exceptional workflow and real email delivery remain unfinished. See [ADR 0053](docs/adr/0053-original-account-self-service-assistance-entry.md) and operation guide §86.
+
 ## KnowPulse docs
 
+* [全仓库技术架构、12 张架构图与审计报告（2026-10-18 文件快照）](docs/architecture-review/README.md)
+* [初中教育完整产品 PRD](docs/education-prd.md)
+
 * [详细使用操作手册](docs/user-operation-guide.md)
+* [初中教育完整产品规划](docs/education-product-plan.md)
+* [教师微信小程序体验规划](docs/product/education-teacher-miniapp-experience.md)
+* [原生微信登录工程与接入说明](miniprogram/README.md)
+* [初中教师个人知识库与个性化教学需求草案](docs/education-personal-knowledge-requirements.md)
 * [Development environment](docs/development-environment.md)
 * [MVP-0 task breakdown](docs/mvp-0-task-breakdown.md)
 * [Module boundaries](docs/module-boundaries.md)

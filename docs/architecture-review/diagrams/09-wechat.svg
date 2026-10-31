@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1029 647" role="img" aria-labelledby="title desc"><title id="title">微信绑定与逐请求校验</title><desc id="desc">三个阶段：原账号验证、微信证明登录、每次业务请求重验。</desc>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10Z" fill="#63768c"/></marker></defs>
+<rect width="1029" height="647" rx="18" fill="#f6f8fb"/>
+<text x="40" y="35" font-size="22" font-weight="700" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">微信绑定与逐请求校验</text>
+<path d="M304,136.0 L330,140 L350,140 L370,136.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M634,136.0 L660,140 L680,140 L700,136.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M832.0,192 L830,210 L830,250 L832.0,275" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M700,331.0 L680,330 L660,330 L634,331.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M370,331.0 L350,330 L330,330 L304,331.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M172.0,387 L170,410 L170,450 L172.0,470" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M304,526.0 L330,530 L350,530 L370,526.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M634,526.0 L660,530 L680,530 L700,526.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<rect x="40" y="80" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="40" y="80" width="5" height="112" rx="2" fill="#126b82"/>
+<text x="172.0" y="124.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">网页原账号登录</text>
+<text x="172.0" y="148.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">再次确认密码</text>
+<rect x="370" y="80" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="370" y="80" width="5" height="112" rx="2" fill="#3654a5"/>
+<text x="502.0" y="124.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">限时绑定码</text>
+<text x="502.0" y="148.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">随机秘密仅保存 hash</text>
+<rect x="700" y="80" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="700" y="80" width="5" height="112" rx="2" fill="#80539b"/>
+<text x="832.0" y="124.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">小程序交换</text>
+<text x="832.0" y="148.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">绑定码 + 一次微信 code</text>
+<rect x="700" y="275" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="700" y="275" width="5" height="112" rx="2" fill="#126b82"/>
+<text x="832.0" y="319.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">服务端验证微信</text>
+<text x="832.0" y="343.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">固定账号 / App / subject</text>
+<rect x="370" y="275" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="370" y="275" width="5" height="112" rx="2" fill="#3654a5"/>
+<text x="502.0" y="319.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">建立绑定历史</text>
+<text x="502.0" y="343.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">不创建学校身份</text>
+<rect x="40" y="275" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="40" y="275" width="5" height="112" rx="2" fill="#80539b"/>
+<text x="172.0" y="319.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">再次取得微信 code</text>
+<text x="172.0" y="343.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">自定义 grant 换短时 token</text>
+<rect x="40" y="470" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="40" y="470" width="5" height="112" rx="2" fill="#126b82"/>
+<text x="172.0" y="514.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">业务请求</text>
+<text x="172.0" y="538.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">Bearer + binding claim</text>
+<rect x="370" y="470" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="370" y="470" width="5" height="112" rx="2" fill="#3654a5"/>
+<text x="502.0" y="514.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">中间件重验</text>
+<text x="502.0" y="538.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">令牌 / 租户 / 绑定 / 安全戳</text>
+<rect x="700" y="470" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="700" y="470" width="5" height="112" rx="2" fill="#80539b"/>
+<text x="832.0" y="514.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">应用服务授权</text>
+<text x="832.0" y="538.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">学校 / 功能 / 版本 / 用途</text>
+</svg>

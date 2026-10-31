@@ -5,6 +5,7 @@ using KnowPulse.Exam;
 using KnowPulse.QuestionBank;
 using Shouldly;
 using Volo.Abp;
+using Volo.Abp.Authorization;
 using Volo.Abp.Domain.Repositories;
 using Xunit;
 
@@ -147,14 +148,15 @@ public class Mvp2ExamAppServiceTests : KnowPulseEntityFrameworkCoreTestBase
             IdempotencyKey = "submit-flow-1"
         });
         submitted.Status.ShouldBe(ExamAttemptStatus.Scored);
-        submitted.Score.ShouldNotBeNull();
-        submitted.Score!.IsPassed.ShouldBeTrue();
+        submitted.Score.ShouldBeNull();
+        (await _examAppService.GradeAttemptAsync(attempt.Id)).IsPassed.ShouldBeTrue();
 
         var duplicateSubmit = await _examAppService.SubmitAttemptAsync(attempt.Id, new SubmitExamAttemptDto
         {
             IdempotencyKey = "submit-flow-1"
         });
         duplicateSubmit.Status.ShouldBe(ExamAttemptStatus.Scored);
+        duplicateSubmit.Score.ShouldBeNull();
 
         await Should.ThrowAsync<BusinessException>(() => _examAppService.SaveAnswersAsync(attempt.Id, new SaveExamAnswersDto
         {
@@ -232,8 +234,7 @@ public class Mvp2ExamAppServiceTests : KnowPulseEntityFrameworkCoreTestBase
             IdempotencyKey = "score-submit-1"
         });
         submitted.Status.ShouldBe(ExamAttemptStatus.Scored);
-        submitted.Score!.ObtainedScore.ShouldBe(20);
-        submitted.Score.WrongQuestions.Count.ShouldBe(2);
+        submitted.Score.ShouldBeNull();
 
         var gradedAgain = await _examAppService.GradeAttemptAsync(attempt.Id);
         gradedAgain.ObtainedScore.ShouldBe(20);
@@ -245,6 +246,115 @@ public class Mvp2ExamAppServiceTests : KnowPulseEntityFrameworkCoreTestBase
             return wrongs.Count(x => x.AttemptId == attempt.Id);
         });
         wrongCount.ShouldBe(2);
+    }
+
+    [Theory]
+    [InlineData(ExamResultVisibility.Hidden)]
+    [InlineData(ExamResultVisibility.ScoreOnly)]
+    [InlineData(ExamResultVisibility.FullReview)]
+    public async Task Participant_Responses_Should_Hide_Results_During_Exam_Even_For_Administrator(ExamResultVisibility visibility)
+    {
+        var point = UniquePoint();
+        var question = await CreateApprovedQuestionAsync("private review", QuestionType.SingleChoice, "A", point);
+        var plan = await CreatePlanAsync(point, QuestionType.SingleChoice, 1, resultVisibility: visibility);
+
+        AssertManagementPaper(plan.Paper!);
+        AssertManagementPaper(await _examAppService.PreviewPaperAsync(FixedPaper(question.Id)));
+        AssertManagementPaper((await _examAppService.GetPlanAsync(plan.Id)).Paper!);
+        var managed = await _examAppService.GetPlanListAsync(new GetExamPlanListInput { Keyword = point });
+        AssertManagementPaper(managed.Items.Single().Paper!);
+        managed.Items.Single().Assignments.ShouldNotBeEmpty();
+
+        var mine = await _examAppService.GetMyPlanListAsync(new GetExamPlanListInput { Keyword = point });
+        AssertParticipantPlanSummary(mine.Items.Single());
+
+        var started = await _examAppService.StartAttemptAsync(plan.Id);
+        AssertParticipantAttempt(started);
+        var resumed = await _examAppService.StartAttemptAsync(plan.Id);
+        resumed.Id.ShouldBe(started.Id);
+        AssertParticipantAttempt(resumed);
+        AssertParticipantAttempt(await _examAppService.GetAttemptAsync(started.Id));
+
+        var save = new SaveExamAnswersDto
+        {
+            IdempotencyKey = $"private-save-{point}",
+            Answers = { Answer(started.Paper!.Questions.Single().Id, "B", 1) }
+        };
+        var saved = await _examAppService.SaveAnswersAsync(started.Id, save);
+        AssertParticipantAttempt(saved);
+        saved.Answers.Single().Values.ShouldBe(new[] { "B" });
+        AssertParticipantAttempt(await _examAppService.SaveAnswersAsync(started.Id, save));
+
+        var submit = new SubmitExamAttemptDto { IdempotencyKey = $"private-submit-{point}" };
+        var submitted = await _examAppService.SubmitAttemptAsync(started.Id, submit);
+        submitted.Status.ShouldBe(ExamAttemptStatus.Scored);
+        AssertParticipantAttempt(submitted);
+        AssertParticipantAttempt(await _examAppService.SubmitAttemptAsync(started.Id, submit));
+        AssertParticipantAttempt(await _examAppService.GetAttemptAsync(started.Id));
+
+        var graded = await _examAppService.GradeAttemptAsync(started.Id);
+        graded.ObtainedScore.ShouldBe(0);
+        graded.WrongQuestions.Single().CorrectAnswers.ShouldBe(new[] { "A" });
+        graded.WrongQuestions.Single().AnalysisSnapshot.ShouldBe("private review analysis");
+        var managedScores = await _examAppService.GetScoreListAsync(new GetExamScoreListInput { PlanId = plan.Id });
+        managedScores.Items.Single().WrongQuestions.Single().CorrectAnswers.ShouldBe(new[] { "A" });
+    }
+
+    [Theory]
+    [InlineData(ExamResultVisibility.Hidden, false, false)]
+    [InlineData(ExamResultVisibility.ScoreOnly, true, false)]
+    [InlineData(ExamResultVisibility.FullReview, true, true)]
+    public async Task Ended_Exam_Should_Apply_Result_Visibility_Without_Exposing_Private_Sources(
+        ExamResultVisibility visibility,
+        bool canViewScore,
+        bool canReview)
+    {
+        var point = UniquePoint();
+        await CreateApprovedQuestionAsync("private review", QuestionType.SingleChoice, "A", point);
+        var plan = await CreatePlanAsync(point, QuestionType.SingleChoice, 1,
+            resultVisibility: visibility, endTime: DateTime.UtcNow.AddHours(-1));
+        var attempt = await CreateHistoricalAttemptAsync(plan, CurrentUserId, submitted: true);
+        var graded = await _examAppService.GradeAttemptAsync(attempt.Id);
+        graded.WrongQuestions.Single().CorrectAnswers.ShouldBe(new[] { "A" });
+
+        var result = await _examAppService.GetAttemptAsync(attempt.Id);
+        AssertParticipantAttempt(result, canViewScore, canReview);
+        if (canViewScore)
+        {
+            result.Score!.ObtainedScore.ShouldBe(graded.ObtainedScore);
+            result.Score.TotalScore.ShouldBe(graded.TotalScore);
+        }
+
+        AssertParticipantAttempt(await _examAppService.SubmitAttemptAsync(attempt.Id, new SubmitExamAttemptDto()),
+            canViewScore, canReview);
+        var mine = await _examAppService.GetMyPlanListAsync(new GetExamPlanListInput { Keyword = point });
+        AssertParticipantPlanSummary(mine.Items.Single());
+        AssertManagementPaper((await _examAppService.GetPlanAsync(plan.Id)).Paper!);
+    }
+
+    [Fact]
+    public async Task Ended_Exam_Should_Not_Expose_Review_Of_Unscored_Attempt()
+    {
+        var point = UniquePoint();
+        await CreateApprovedQuestionAsync("private review", QuestionType.SingleChoice, "A", point);
+        var plan = await CreatePlanAsync(point, QuestionType.SingleChoice, 1,
+            resultVisibility: ExamResultVisibility.FullReview, endTime: DateTime.UtcNow.AddHours(-1));
+        var attempt = await CreateHistoricalAttemptAsync(plan, CurrentUserId, submitted: true);
+
+        AssertParticipantAttempt(await _examAppService.GetAttemptAsync(attempt.Id));
+    }
+
+    [Fact]
+    public async Task Participant_Endpoints_Should_Reject_Another_Users_Attempt_Even_For_Administrator()
+    {
+        var point = UniquePoint();
+        await CreateApprovedQuestionAsync("private review", QuestionType.SingleChoice, "A", point);
+        var plan = await CreatePlanAsync(point, QuestionType.SingleChoice, 1);
+        var attempt = await CreateHistoricalAttemptAsync(plan, Guid.NewGuid(), submitted: false);
+
+        await Should.ThrowAsync<AbpAuthorizationException>(() => _examAppService.GetAttemptAsync(attempt.Id));
+        await Should.ThrowAsync<AbpAuthorizationException>(() => _examAppService.SaveAnswersAsync(attempt.Id, new SaveExamAnswersDto()));
+        await Should.ThrowAsync<AbpAuthorizationException>(() => _examAppService.SubmitAttemptAsync(attempt.Id, new SubmitExamAttemptDto()));
     }
 
     [Fact]
@@ -291,16 +401,21 @@ public class Mvp2ExamAppServiceTests : KnowPulseEntityFrameworkCoreTestBase
         string point,
         QuestionType type,
         int count,
-        decimal passingScore = 0)
+        decimal passingScore = 0,
+        ExamResultVisibility resultVisibility = ExamResultVisibility.ScoreOnly,
+        DateTime? endTime = null)
     {
+        var now = DateTime.UtcNow;
+        var end = endTime ?? now.AddHours(1);
         return await _examAppService.CreatePlanAsync(new CreateExamPlanDto
         {
             Name = $"Exam {point}",
-            StartTime = DateTime.UtcNow.AddMinutes(-5),
-            EndTime = DateTime.UtcNow.AddHours(1),
+            StartTime = end < now ? end.AddHours(-1) : now.AddMinutes(-5),
+            EndTime = end,
             DurationMinutes = 30,
             PassingScore = passingScore,
             MaxAttempts = 1,
+            ResultVisibility = resultVisibility,
             Paper = new GenerateExamPaperDto
             {
                 Title = $"Paper {point}",
@@ -314,6 +429,73 @@ public class Mvp2ExamAppServiceTests : KnowPulseEntityFrameworkCoreTestBase
                 new ExamAssignmentInputDto { ScopeType = ExamAssignmentScopeType.All }
             }
         });
+    }
+
+    private async Task<ExamAttempt> CreateHistoricalAttemptAsync(ExamPlanDto plan, Guid userId, bool submitted)
+    {
+        var attempt = new ExamAttempt(Guid.NewGuid(), null, plan.Id, plan.PaperId, userId, 1,
+            plan.StartTime, plan.EndTime);
+        if (submitted)
+        {
+            attempt.Submit(plan.StartTime.AddMinutes(1), $"historical-{attempt.Id:N}");
+        }
+
+        return await _attemptRepository.InsertAsync(attempt, autoSave: true);
+    }
+
+    private static void AssertManagementPaper(ExamPaperDto paper)
+    {
+        var question = paper.Questions.Single();
+        question.CorrectAnswers.ShouldBe(new[] { "A" });
+        question.Analysis.ShouldBe("private review analysis");
+        question.SourceSnapshot.ShouldBe("private review source");
+    }
+
+    private static void AssertParticipantPlanSummary(ExamPlanDto plan)
+    {
+        plan.Assignments.ShouldBeEmpty();
+        plan.Paper.ShouldNotBeNull();
+        plan.Paper!.QuestionCount.ShouldBe(1);
+        plan.Paper.TotalScore.ShouldBe(10);
+        plan.Paper.Questions.ShouldBeEmpty();
+    }
+
+    private static void AssertParticipantAttempt(ExamAttemptDto attempt, bool canViewScore = false, bool canReview = false)
+    {
+        attempt.Plan.ShouldNotBeNull();
+        AssertParticipantPlanSummary(attempt.Plan!);
+        attempt.Paper.ShouldNotBeNull();
+        var question = attempt.Paper!.Questions.Single();
+        question.Stem.ShouldBe("private review stem");
+        question.Options.Count.ShouldBe(3);
+        question.SourceSnapshot.ShouldBeNull();
+        if (canReview)
+        {
+            question.CorrectAnswers.ShouldBe(new[] { "A" });
+            question.Analysis.ShouldBe("private review analysis");
+        }
+        else
+        {
+            question.CorrectAnswers.ShouldBeEmpty();
+            question.Analysis.ShouldBeNull();
+        }
+
+        if (!canViewScore)
+        {
+            attempt.Score.ShouldBeNull();
+            return;
+        }
+
+        attempt.Score.ShouldNotBeNull();
+        if (canReview)
+        {
+            attempt.Score!.WrongQuestions.Single().CorrectAnswers.ShouldBe(new[] { "A" });
+            attempt.Score.WrongQuestions.Single().AnalysisSnapshot.ShouldBe("private review analysis");
+        }
+        else
+        {
+            attempt.Score!.WrongQuestions.ShouldBeEmpty();
+        }
     }
 
     private static GenerateExamPaperDto FixedPaper(Guid questionId)

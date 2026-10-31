@@ -161,6 +161,81 @@ public class QdrantKnowledgeVectorStoreTests
     /// <summary>
     /// 验证 collection 缺失时会创建 collection，并补齐必需 payload index。
     /// </summary>
+    [Theory]
+    [InlineData(KnowledgeSearchScope.AllAccessible)]
+    [InlineData(KnowledgeSearchScope.SchoolShared)]
+    [InlineData(KnowledgeSearchScope.PersonalLibrary)]
+    public async Task School_Version_Candidates_Should_Keep_Tenant_Publish_And_Security_Constraints(KnowledgeSearchScope scope)
+    {
+        var tenant = Guid.NewGuid();
+        var user = Guid.NewGuid();
+        var version = Guid.NewGuid();
+        var handler = new RecordingHttpMessageHandler();
+        handler.EnqueueJsonResponse("""{"result":[],"status":"ok"}""");
+        using var client = new HttpClient(handler) { BaseAddress = new Uri("http://qdrant.test/") };
+        var store = new QdrantKnowledgeVectorStore(CreateOptions(), client);
+        await store.SearchAsync(new KnowledgeVectorSearchRequest
+        {
+            QueryEmbedding = new[] { 0.1f, 0.2f, 0.3f },
+            PermissionFilter = new KnowledgeVectorPermissionFilter
+            {
+                TenantId = tenant, UserId = user, Scope = scope, AllowedSharedVersionIds = new[] { version, version },
+                SecurityLevel = 2, PublishedOnly = true
+            }
+        });
+        using var json = JsonDocument.Parse(handler.Requests.Single().Body);
+        var filter = json.RootElement.GetProperty("filter");
+        var must = filter.GetProperty("must").EnumerateArray().ToArray();
+        must.Any(x => x.TryGetProperty("match", out _) && ContainsMatch(x, "tenantId", tenant.ToString("D"))).ShouldBeTrue();
+        must.Any(x => x.TryGetProperty("match", out _) && ContainsMatch(x, "isPublished", true)).ShouldBeTrue();
+        must.Any(x => ContainsRangeLte(x, "securityLevel", 2)).ShouldBeTrue();
+        var should = filter.GetProperty("should").EnumerateArray().ToArray();
+        var versions = should.Where(x => x.GetProperty("key").GetString() == "knowledgeVersionId").ToArray();
+        if (scope == KnowledgeSearchScope.PersonalLibrary) versions.ShouldBeEmpty();
+        else versions.Single().GetProperty("match").GetProperty("any").EnumerateArray()
+            .Select(x => x.GetString()).ShouldBe(new[] { version.ToString("D") });
+        if (scope == KnowledgeSearchScope.SchoolShared) should.Length.ShouldBe(1);
+        if (scope == KnowledgeSearchScope.PersonalLibrary)
+            should.Single().GetProperty("key").GetString().ShouldBe("userIds");
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    public async Task Curriculum_Chunk_Constraint_Should_Be_Mandatory_And_Empty_Should_Not_Remove_It(int state)
+    {
+        var tenant = Guid.NewGuid();
+        var version = Guid.NewGuid();
+        var chunk = Guid.NewGuid();
+        var handler = new RecordingHttpMessageHandler();
+        handler.EnqueueJsonResponse("""{"result":[],"status":"ok"}""");
+        using var client = new HttpClient(handler) { BaseAddress = new Uri("http://qdrant.test/") };
+        await new QdrantKnowledgeVectorStore(CreateOptions(), client).SearchAsync(new KnowledgeVectorSearchRequest
+        {
+            QueryEmbedding = new[] { 0.1f, 0.2f, 0.3f },
+            PermissionFilter = new KnowledgeVectorPermissionFilter
+            {
+                TenantId = tenant, Scope = KnowledgeSearchScope.SchoolShared, AllowedSharedVersionIds = new[] { version },
+                AllowedCurriculumChunkIds = state == 0 ? null : state == 1 ? Array.Empty<Guid>() : new[] { chunk, chunk },
+                PublishedOnly = true, SecurityLevel = 3
+            }
+        });
+        using var json = JsonDocument.Parse(handler.Requests.Single().Body);
+        var filter = json.RootElement.GetProperty("filter");
+        var must = filter.GetProperty("must").EnumerateArray().ToArray();
+        must.Single(x => x.GetProperty("key").GetString() == "tenantId").GetProperty("match").GetProperty("value").GetString().ShouldBe(tenant.ToString("D"));
+        must.Single(x => x.GetProperty("key").GetString() == "isPublished").GetProperty("match").GetProperty("value").GetBoolean().ShouldBeTrue();
+        must.Single(x => x.GetProperty("key").GetString() == "securityLevel").GetProperty("range").GetProperty("lte").GetInt32().ShouldBe(3);
+        var chunks = must.Where(x => x.GetProperty("key").GetString() == "chunkId").ToArray();
+        if (state == 0) chunks.ShouldBeEmpty();
+        else if (state == 1) chunks.Single().GetProperty("match").GetProperty("value").GetString().ShouldBe(Guid.Empty.ToString("D"));
+        else chunks.Single().GetProperty("match").GetProperty("any").EnumerateArray().Select(x => x.GetString()).ShouldBe(new[] { chunk.ToString("D") });
+        var acl = filter.GetProperty("should").EnumerateArray().Single();
+        acl.GetProperty("key").GetString().ShouldBe("knowledgeVersionId");
+        acl.GetProperty("match").GetProperty("any")[0].GetString().ShouldBe(version.ToString("D"));
+    }
+
     [Fact]
     public async Task Should_Ensure_Collection_And_Required_Payload_Indexes()
     {

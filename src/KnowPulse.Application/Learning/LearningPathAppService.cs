@@ -28,6 +28,7 @@ public class LearningPathAppService : KnowPulseAppService, ILearningPathAppServi
     private readonly IRepository<LearningPathRequiredExam, Guid> _requiredExamRepository;
     private readonly IRepository<LearningKnowledgeReadRecord, Guid> _readRecordRepository;
     private readonly IRepository<KnowledgeItem, Guid> _knowledgeItemRepository;
+    private readonly IRepository<KnowledgeLibrary, Guid> _knowledgeLibraryRepository;
     private readonly IRepository<KnowledgeVersion, Guid> _knowledgeVersionRepository;
     private readonly IRepository<KnowledgePermissionScope, Guid> _knowledgePermissionScopeRepository;
     private readonly IRepository<ExamPlan, Guid> _examPlanRepository;
@@ -45,6 +46,7 @@ public class LearningPathAppService : KnowPulseAppService, ILearningPathAppServi
         IRepository<LearningPathRequiredExam, Guid> requiredExamRepository,
         IRepository<LearningKnowledgeReadRecord, Guid> readRecordRepository,
         IRepository<KnowledgeItem, Guid> knowledgeItemRepository,
+        IRepository<KnowledgeLibrary, Guid> knowledgeLibraryRepository,
         IRepository<KnowledgeVersion, Guid> knowledgeVersionRepository,
         IRepository<KnowledgePermissionScope, Guid> knowledgePermissionScopeRepository,
         IRepository<ExamPlan, Guid> examPlanRepository,
@@ -61,6 +63,7 @@ public class LearningPathAppService : KnowPulseAppService, ILearningPathAppServi
         _requiredExamRepository = requiredExamRepository;
         _readRecordRepository = readRecordRepository;
         _knowledgeItemRepository = knowledgeItemRepository;
+        _knowledgeLibraryRepository = knowledgeLibraryRepository;
         _knowledgeVersionRepository = knowledgeVersionRepository;
         _knowledgePermissionScopeRepository = knowledgePermissionScopeRepository;
         _examPlanRepository = examPlanRepository;
@@ -72,7 +75,7 @@ public class LearningPathAppService : KnowPulseAppService, ILearningPathAppServi
     }
 
     /// <summary>
-    /// 管理端分页查询学习路径，返回完整路径配置，不按个人知识权限过滤内容。
+    /// 管理端分页查询学习路径，保留组织知识的管理视图，但不返回他人的个人资料。
     /// </summary>
     /// <param name="input">查询条件和分页参数。</param>
     /// <returns>学习路径分页结果。</returns>
@@ -112,12 +115,14 @@ public class LearningPathAppService : KnowPulseAppService, ILearningPathAppServi
     {
         await CheckMvpPermissionAsync(KnowPulsePermissions.Learning.Manage);
         EnsureInputHasAssignmentAndContent(input);
+        var requiredKnowledge = await ResolveKnowledgeAsync(input.RequiredKnowledge);
+        var recommendedKnowledge = await ResolveKnowledgeAsync(input.RecommendedKnowledge);
 
         var path = await _pathRepository.InsertAsync(
             new LearningPath(GuidGenerator.Create(), CurrentTenant.Id, input.Name.Trim(), TrimToNull(input.Description)),
             autoSave: true);
 
-        await ReplaceConfigurationAsync(path.Id, input);
+        await ReplaceConfigurationAsync(path.Id, input, requiredKnowledge, recommendedKnowledge);
 
         return await MapPathAsync(path, filterKnowledgeVisibility: false);
     }
@@ -132,12 +137,14 @@ public class LearningPathAppService : KnowPulseAppService, ILearningPathAppServi
     {
         await CheckMvpPermissionAsync(KnowPulsePermissions.Learning.Manage);
         EnsureInputHasAssignmentAndContent(input);
+        var requiredKnowledge = await ResolveKnowledgeAsync(input.RequiredKnowledge);
+        var recommendedKnowledge = await ResolveKnowledgeAsync(input.RecommendedKnowledge);
 
         var path = await _pathRepository.GetAsync(id);
         path.UpdateDetails(input.Name.Trim(), TrimToNull(input.Description));
         path = await _pathRepository.UpdateAsync(path, autoSave: true);
 
-        await ReplaceConfigurationAsync(path.Id, input);
+        await ReplaceConfigurationAsync(path.Id, input, requiredKnowledge, recommendedKnowledge);
 
         return await MapPathAsync(path, filterKnowledgeVisibility: false);
     }
@@ -256,7 +263,11 @@ public class LearningPathAppService : KnowPulseAppService, ILearningPathAppServi
         return await MapPathAsync(path, filterKnowledgeVisibility: true);
     }
 
-    private async Task ReplaceConfigurationAsync(Guid pathId, UpdateLearningPathDto input)
+    private async Task ReplaceConfigurationAsync(
+        Guid pathId,
+        UpdateLearningPathDto input,
+        IReadOnlyList<ResolvedKnowledgeInput> requiredKnowledge,
+        IReadOnlyList<ResolvedKnowledgeInput> recommendedKnowledge)
     {
         await DeleteExistingConfigurationAsync(pathId);
 
@@ -272,7 +283,6 @@ public class LearningPathAppService : KnowPulseAppService, ILearningPathAppServi
                 autoSave: true);
         }
 
-        var requiredKnowledge = await ResolveKnowledgeAsync(input.RequiredKnowledge);
         for (var i = 0; i < requiredKnowledge.Count; i++)
         {
             var item = requiredKnowledge[i];
@@ -288,7 +298,6 @@ public class LearningPathAppService : KnowPulseAppService, ILearningPathAppServi
                 autoSave: true);
         }
 
-        var recommendedKnowledge = await ResolveKnowledgeAsync(input.RecommendedKnowledge);
         for (var i = 0; i < recommendedKnowledge.Count; i++)
         {
             var item = recommendedKnowledge[i];
@@ -359,6 +368,11 @@ public class LearningPathAppService : KnowPulseAppService, ILearningPathAppServi
         foreach (var input in inputs)
         {
             var item = await _knowledgeItemRepository.GetAsync(input.KnowledgeItemId);
+            if (!await CanAccessPersonalKnowledgeAsync(item))
+            {
+                throw new AbpAuthorizationException("The current user cannot assign another user's personal knowledge.");
+            }
+
             if (!item.IsActive)
             {
                 throw new EntityNotFoundException(typeof(KnowledgeItem), item.Id);
@@ -596,14 +610,15 @@ public class LearningPathAppService : KnowPulseAppService, ILearningPathAppServi
     {
         var item = await _knowledgeItemRepository.FindAsync(knowledgeItemId);
         var version = await _knowledgeVersionRepository.FindAsync(knowledgeVersionId);
-        if (item == null || version == null)
+        if (item == null || version == null || version.KnowledgeItemId != item.Id ||
+            !await CanAccessPersonalKnowledgeAsync(item))
         {
             return null;
         }
 
         if (accessContext != null)
         {
-            if (!item.IsActive)
+            if (!item.IsActive || version.Status != KnowledgeVersionStatus.Published)
             {
                 return null;
             }
@@ -611,7 +626,7 @@ public class LearningPathAppService : KnowPulseAppService, ILearningPathAppServi
             var scopes = scopesByItemId.TryGetValue(item.Id, out var itemScopes)
                 ? itemScopes
                 : new List<KnowledgePermissionScope>();
-            if (!KnowledgeAccessEvaluator.CanAccess(scopes, accessContext))
+            if (!KnowledgeAccessEvaluator.CanAccess(item, scopes, accessContext))
             {
                 return null;
             }
@@ -650,6 +665,7 @@ public class LearningPathAppService : KnowPulseAppService, ILearningPathAppServi
         var attemptsByPlanId = currentUserId.HasValue
             ? await GetExamAttemptLookupAsync(planIds, currentUserId.Value)
             : new Dictionary<Guid, List<ExamAttempt>>();
+        var now = DateTime.UtcNow;
 
         foreach (var item in exams)
         {
@@ -662,8 +678,17 @@ public class LearningPathAppService : KnowPulseAppService, ILearningPathAppServi
             var isAssignedToCurrentUser = !currentUserId.HasValue || await IsExamAssignedAsync(plan.Id, currentUserId.Value);
             var scores = scoresByPlanId.TryGetValue(plan.Id, out var planScores) ? planScores : new List<ExamScore>();
             var attempts = attemptsByPlanId.TryGetValue(plan.Id, out var planAttempts) ? planAttempts : new List<ExamAttempt>();
-            var bestScore = scores.OrderByDescending(x => x.ObtainedScore).FirstOrDefault();
-            var passedScore = scores.Where(x => x.IsPassed).OrderByDescending(x => x.ScoredTime).FirstOrDefault();
+            var canViewScores = !currentUserId.HasValue ||
+                                (isAssignedToCurrentUser &&
+                                 plan.Status == ExamPlanStatus.Published &&
+                                 now > plan.EndTime &&
+                                 plan.ResultVisibility is ExamResultVisibility.ScoreOnly or ExamResultVisibility.FullReview);
+            var scoredAttemptIds = attempts.Where(x => x.Status == ExamAttemptStatus.Scored).Select(x => x.Id).ToHashSet();
+            var visibleScores = canViewScores
+                ? scores.Where(x => !currentUserId.HasValue || scoredAttemptIds.Contains(x.AttemptId)).ToList()
+                : new List<ExamScore>();
+            var bestScore = visibleScores.OrderByDescending(x => x.ObtainedScore).FirstOrDefault();
+            var passedScore = visibleScores.Where(x => x.IsPassed).OrderByDescending(x => x.ScoredTime).FirstOrDefault();
             var lastAttemptTime = attempts.Select(GetAttemptLastActivityTime)
                 .Concat(scores.Select(x => x.ScoredTime))
                 .DefaultIfEmpty()
@@ -681,7 +706,7 @@ public class LearningPathAppService : KnowPulseAppService, ILearningPathAppServi
                 DisplayOrder = item.DisplayOrder,
                 PassingRequired = item.PassingRequired,
                 Note = item.Note,
-                CompletionStatus = GetExamCompletionStatus(item.PassingRequired, isAssignedToCurrentUser, scores, attempts),
+                CompletionStatus = GetExamCompletionStatus(item.PassingRequired, isAssignedToCurrentUser, visibleScores, attempts),
                 IsAssignedToCurrentUser = isAssignedToCurrentUser,
                 LastAttemptTime = lastAttemptTime == default ? null : lastAttemptTime,
                 PassedTime = passedScore?.ScoredTime,
@@ -794,7 +819,8 @@ public class LearningPathAppService : KnowPulseAppService, ILearningPathAppServi
             version == null ||
             !item.IsActive ||
             version.KnowledgeItemId != item.Id ||
-            version.Status != KnowledgeVersionStatus.Published)
+            version.Status != KnowledgeVersionStatus.Published ||
+            !await CanAccessPersonalKnowledgeAsync(item))
         {
             return false;
         }
@@ -804,7 +830,25 @@ public class LearningPathAppService : KnowPulseAppService, ILearningPathAppServi
         var scopes = scopesByItemId.TryGetValue(knowledgeItemId, out var itemScopes)
             ? itemScopes
             : new List<KnowledgePermissionScope>();
-        return KnowledgeAccessEvaluator.CanAccess(scopes, accessContext);
+        return KnowledgeAccessEvaluator.CanAccess(item, scopes, accessContext);
+    }
+
+    private async Task<bool> CanAccessPersonalKnowledgeAsync(KnowledgeItem item)
+    {
+        if (!item.LibraryId.HasValue && !item.OwnerUserId.HasValue)
+        {
+            return true;
+        }
+
+        if (item.TenantId != CurrentTenant.Id ||
+            !KnowledgeAccessEvaluator.CanAccess(item, Array.Empty<KnowledgePermissionScope>(), new KnowledgeAccessContext(CurrentUser.Id)))
+        {
+            return false;
+        }
+
+        var library = await _knowledgeLibraryRepository.FindAsync(item.LibraryId!.Value);
+        return library != null && library.TenantId == item.TenantId &&
+               library.OwnerUserId == item.OwnerUserId && library.Id == item.OwnerUserId;
     }
 
     private static LearningContentCompletionStatus GetKnowledgeCompletionStatus(LearningKnowledgeReadRecord? record)
@@ -842,7 +886,8 @@ public class LearningPathAppService : KnowPulseAppService, ILearningPathAppServi
                 : LearningContentCompletionStatus.NotStarted;
         }
 
-        if (scores.Count > 0)
+        // A completed scoring activity is visible without revealing whether the participant passed.
+        if (scores.Count > 0 || attempts.Any(x => x.Status == ExamAttemptStatus.Scored))
         {
             return LearningContentCompletionStatus.Completed;
         }

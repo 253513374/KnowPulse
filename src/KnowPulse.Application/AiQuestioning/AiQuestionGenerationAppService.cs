@@ -5,9 +5,11 @@ using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 using KnowPulse.AiModelManagement;
+using KnowPulse.Education;
 using KnowPulse.Permissions;
 using KnowPulse.QuestionBank;
 using KnowPulse.RagAI;
@@ -16,7 +18,11 @@ using Microsoft.Extensions.Options;
 using Volo.Abp;
 using Volo.Abp.Application.Dtos;
 using Volo.Abp.Authorization;
+using Volo.Abp.DependencyInjection;
+using Volo.Abp.Data;
 using Volo.Abp.Domain.Repositories;
+using Volo.Abp.Security.Claims;
+using Volo.Abp.Uow;
 
 namespace KnowPulse.AiQuestioning;
 
@@ -28,6 +34,10 @@ namespace KnowPulse.AiQuestioning;
 [Authorize(KnowPulsePermissions.QuestionBank.AiGeneration)]
 public class AiQuestionGenerationAppService : KnowPulseAppService, IAiQuestionGenerationAppService
 {
+    private KnowledgeSourceAccessGuard SourceAccess => LazyServiceProvider.LazyGetRequiredService<KnowledgeSourceAccessGuard>();
+    private EducationCurriculumAccessGuard CurriculumAccess => LazyServiceProvider.LazyGetRequiredService<EducationCurriculumAccessGuard>();
+    private IUnitOfWorkManager Uow => LazyServiceProvider.LazyGetRequiredService<IUnitOfWorkManager>();
+    private AiQuestionGenerationWorkerOptions WorkerOptions => LazyServiceProvider.LazyGetRequiredService<IOptions<AiQuestionGenerationWorkerOptions>>().Value;
     /// <summary>
     /// 模型响应 JSON 解析选项。
     /// 使用 Web 默认值并忽略属性大小写，降低不同模型 JSON 命名风格造成的解析失败。
@@ -209,15 +219,20 @@ public class AiQuestionGenerationAppService : KnowPulseAppService, IAiQuestionGe
             queryable = queryable.Where(x => x.CreationTime <= input.CreatedTo.Value);
         }
 
-        var totalCount = await AsyncExecuter.CountAsync(queryable);
-        var logs = await AsyncExecuter.ToListAsync(queryable
-            .OrderByDescending(x => x.CreationTime)
-            .Skip(input.SkipCount)
-            .Take(input.MaxResultCount));
+        var logs = await AsyncExecuter.ToListAsync(queryable.OrderByDescending(x => x.CreationTime));
+        var visibleLogs = new List<AiQuestionModelCallLog>();
+        foreach (var log in logs)
+        {
+            var task = await _taskRepository.FindAsync(log.TaskId);
+            if (task != null && log.TenantId == task.TenantId && await SourceAccess.CanReadTaskAsync(task))
+            {
+                visibleLogs.Add(log);
+            }
+        }
 
         return new PagedResultDto<AiQuestionModelCallLogDto>(
-            totalCount,
-            logs.Select(MapModelCallLogToDto).ToList());
+            visibleLogs.Count,
+            visibleLogs.Skip(input.SkipCount).Take(input.MaxResultCount).Select(MapModelCallLogToDto).ToList());
     }
 
     /// <summary>
@@ -255,19 +270,24 @@ public class AiQuestionGenerationAppService : KnowPulseAppService, IAiQuestionGe
             queryable = queryable.Where(x => x.KnowledgeScope.Contains(keyword) || x.RetrievalQuery.Contains(keyword));
         }
 
-        var totalCount = await AsyncExecuter.CountAsync(queryable);
-        var tasks = await AsyncExecuter.ToListAsync(queryable
-            .OrderByDescending(x => x.CreationTime)
-            .Skip(input.SkipCount)
-            .Take(input.MaxResultCount));
+        queryable = queryable.Where(x => x.PersonalOwnerUserId == null || x.PersonalOwnerUserId == CurrentUser.Id);
+        var tasks = await AsyncExecuter.ToListAsync(queryable.OrderByDescending(x => x.CreationTime));
+        var visibleTasks = new List<AiQuestionGenerationTask>();
+        foreach (var task in tasks)
+        {
+            if (await SourceAccess.CanReadTaskAsync(task))
+            {
+                visibleTasks.Add(task);
+            }
+        }
 
         var dtos = new List<AiQuestionGenerationTaskDto>();
-        foreach (var task in tasks)
+        foreach (var task in visibleTasks.Skip(input.SkipCount).Take(input.MaxResultCount))
         {
             dtos.Add(await MapTaskToDtoAsync(task));
         }
 
-        return new PagedResultDto<AiQuestionGenerationTaskDto>(totalCount, dtos);
+        return new PagedResultDto<AiQuestionGenerationTaskDto>(visibleTasks.Count, dtos);
     }
 
     /// <summary>
@@ -291,12 +311,41 @@ public class AiQuestionGenerationAppService : KnowPulseAppService, IAiQuestionGe
     }
 
     /// <summary>
-    /// 创建并同步执行 AI 出题任务。
+    /// 创建持久化待执行任务。模型调用由后台处理器执行。
     /// 输入数量和检索上下文数量会按配置截断，防止单次模型调用过大；生成结果先落入候选题表。
     /// </summary>
     public virtual async Task<AiQuestionGenerationTaskDto> CreateAsync(CreateAiQuestionGenerationTaskDto input)
     {
         await CheckMvpPermissionAsync(KnowPulsePermissions.QuestionBank.AiGeneration);
+        Check.NotNull(input, nameof(input));
+        Check.NotNullOrWhiteSpace(input.KnowledgeScope, nameof(input.KnowledgeScope), AiQuestionGenerationTask.MaxKnowledgeScopeLength);
+        Check.NotNullOrWhiteSpace(input.Purpose, nameof(input.Purpose), 64);
+        if (!Enum.IsDefined(input.Scope) || (input.Scope == KnowledgeSearchScope.PersonalLibrary && input.SchoolId.HasValue))
+            throw new ArgumentException("The requested knowledge search scope is invalid.", nameof(input));
+        if (input.IdempotencyKey == Guid.Empty || (input.CurriculumScope != null && !input.IdempotencyKey.HasValue) ||
+            !Enum.IsDefined(input.Type) || !Enum.IsDefined(input.Difficulty))
+            throw new ArgumentException("The generation input is invalid.", nameof(input));
+
+        var fingerprint = ComputeHash(JsonSerializer.Serialize(new
+        {
+            input.Scope, input.SchoolId, input.Type, input.Difficulty, input.RequestedCount, input.TopK,
+            KnowledgeScope = input.KnowledgeScope.Trim(), KnowledgePointText = input.KnowledgePointText?.Trim(),
+            input.ApplicablePositionId, input.SecurityLevel, Tags = NormalizeTags(input.Tags), input.Score,
+            Purpose = input.Purpose.Trim(), SelectionId = input.CurriculumScope?.TeacherTextbookSelectionId,
+            MappingIds = input.CurriculumScope?.TextbookKnowledgePointMappingIds?.OrderBy(x => x).ToList()
+        }, JsonOptions));
+        var id = input.IdempotencyKey ?? GuidGenerator.Create();
+        var existing = await _taskRepository.FindAsync(id);
+        if (existing != null)
+        {
+            await SourceAccess.EnsureTaskAsync(existing);
+            if (existing.PersonalOwnerUserId != CurrentUser.Id || existing.RequestFingerprint != fingerprint)
+                throw new BusinessException("KnowPulse:AiGeneration:ConflictingOperation");
+            return await MapTaskToDtoAsync(existing);
+        }
+        var snapshot = input.CurriculumScope == null ? null : await CurriculumAccess.ResolveAsync(input.CurriculumScope);
+        if (snapshot != null && input.SchoolId.HasValue && snapshot.SchoolId != input.SchoolId)
+            throw new BusinessException(EducationCurriculumErrorCodes.ReferenceMismatch);
 
         var template = await EnsureDefaultPromptTemplateAsync();
         // 使用配置上限兜底前端输入，避免任务一次性请求过多候选题或上下文片段。
@@ -305,7 +354,7 @@ public class AiQuestionGenerationAppService : KnowPulseAppService, IAiQuestionGe
         var retrievalQuery = BuildRetrievalQuery(input);
         var modelConfiguration = await GetModelConfigurationAsync();
         var task = new AiQuestionGenerationTask(
-            GuidGenerator.Create(),
+            id,
             CurrentTenant.Id,
             template.Id,
             template.Version,
@@ -322,25 +371,74 @@ public class AiQuestionGenerationAppService : KnowPulseAppService, IAiQuestionGe
             input.SecurityLevel,
             NormalizeTags(input.Tags));
 
+        task.RestrictToPersonalOwner(CurrentUser.Id ?? throw new AbpAuthorizationException("An identified user is required."));
+        task.InitializeExecution(fingerprint,
+            input.CurriculumScope == null ? null : JsonSerializer.Serialize(input.CurriculumScope, JsonOptions),
+            snapshot == null ? null : JsonSerializer.Serialize(snapshot, JsonOptions), input.Score, input.Purpose);
+        // 复用聚合的持久化扩展属性，重试必须保留原检索范围；授权仍每次查数据库。
+        task.ExtraProperties["KnowledgeSearchScope"] = (int)input.Scope;
+        if (input.SchoolId.HasValue) task.ExtraProperties["KnowledgeSearchSchoolId"] = input.SchoolId.Value.ToString("D");
         await _taskRepository.InsertAsync(task, autoSave: true);
-        await ExecuteTaskAsync(task, template, CancellationToken.None);
-        return await GetAsync(task.Id);
+        return await MapTaskToDtoAsync(task);
     }
 
     /// <summary>
     /// 重试已有 AI 出题任务。
-    /// 重试会清理旧候选题并复用原任务约束和 prompt 模板，调用日志会继续保留作为失败/重试审计历史。
+    /// 重试只恢复失败运行，不删除候选或改写成功结果。
     /// </summary>
     public virtual async Task<AiQuestionGenerationTaskDto> RetryAsync(Guid id)
     {
         await CheckMvpPermissionAsync(KnowPulsePermissions.QuestionBank.AiGeneration);
 
         var task = await _taskRepository.GetAsync(id);
-        await DeleteCandidatesAsync(task.Id);
+        await SourceAccess.EnsureTaskAsync(task);
+        if (task.PersonalOwnerUserId != CurrentUser.Id) throw new AbpAuthorizationException();
+        if (task.Status == AiQuestionGenerationTaskStatus.Failed)
+        {
+            task.QueueRetry(DateTime.UtcNow, WorkerOptions.MaxAttempts);
+            await _taskRepository.UpdateAsync(task, autoSave: true);
+        }
+        return await MapTaskToDtoAsync(task);
+    }
 
-        var template = await _promptTemplateRepository.GetAsync(task.PromptTemplateId);
-        await ExecuteTaskAsync(task, template, CancellationToken.None);
-        return await GetAsync(task.Id);
+    public virtual async Task<AiQuestionGenerationTaskDto> RegenerateAsync(Guid id, RegenerateAiQuestionGenerationTaskDto input)
+    {
+        await CheckMvpPermissionAsync(KnowPulsePermissions.QuestionBank.AiGeneration);
+        var task = await _taskRepository.GetAsync(id);
+        await SourceAccess.EnsureTaskAsync(task);
+        if (task.PersonalOwnerUserId != CurrentUser.Id) throw new AbpAuthorizationException();
+        if (task.QueueRegeneration(input.IdempotencyKey, DateTime.UtcNow, WorkerOptions.MaxRegenerationOperations))
+            await _taskRepository.UpdateAsync(task, autoSave: true);
+        return await MapTaskToDtoAsync(task);
+    }
+
+    public virtual async Task<AiQuestionCandidateDto> UpdateCandidateAsync(Guid id, UpdateAiQuestionCandidateDto input)
+    {
+        await CheckMvpPermissionAsync(KnowPulsePermissions.QuestionBank.AiGeneration);
+        var candidate = await _candidateRepository.GetAsync(id);
+        var task = await SourceAccess.EnsureCandidateAsync(candidate);
+        if (task.PersonalOwnerUserId != CurrentUser.Id) throw new AbpAuthorizationException();
+        if (candidate.ContentRevision != input.ContentRevision) throw new AbpDbConcurrencyException();
+        var citations = await GetCandidateCitationsAsync(id);
+        var chunks = citations.Select(x => new RetrievedChunk
+        {
+            ChunkId = x.ChunkId, KnowledgeItemId = x.KnowledgeItemId, KnowledgeVersionId = x.KnowledgeVersionId,
+            TextbookKnowledgePointMappingIds = Deserialize<List<Guid>>(x.TextbookKnowledgePointMappingIdsJson)
+        }).ToList();
+        var model = new ModelQuestion
+        {
+            Type = candidate.Type.ToString(), Difficulty = candidate.Difficulty.ToString(), Title = input.Title,
+            Stem = input.Stem, Analysis = input.Analysis,
+            ScoringDefinition = input.ScoringDefinition,
+            KnowledgePoints = Deserialize<List<string>>(candidate.KnowledgePointsJson),
+            TextbookKnowledgePointMappingIds = Deserialize<List<Guid>>(candidate.CurriculumMappingIdsJson),
+            Citations = Deserialize<List<Guid>>(candidate.SubmittedCitationChunkIdsJson).Select(x => new ModelQuestionCitation { ChunkId = x }).ToList()
+        };
+        var errors = ValidateCandidate(task, model, input.Options, input.Answers, chunks);
+        candidate.Edit(input.Title, input.Stem, input.Analysis, JsonSerializer.Serialize(input.Options, JsonOptions),
+            JsonSerializer.Serialize(input.Answers, JsonOptions), errors.Count == 0 ? null : string.Join("；", errors), input.ScoringDefinition);
+        await _candidateRepository.UpdateAsync(candidate, autoSave: true);
+        return await MapCandidateToDtoAsync(candidate);
     }
 
     /// <summary>
@@ -367,30 +465,57 @@ public class AiQuestionGenerationAppService : KnowPulseAppService, IAiQuestionGe
     /// 流程按顺序执行授权 RAG 检索、prompt 组装、模型调用、JSON 解析、候选题创建和调用日志落库；
     /// 任一阶段失败都会安全降级为失败任务并写入审计日志。
     /// </summary>
+    [RemoteService(false)]
+    [UnitOfWork(IsDisabled = true)]
+    public virtual async Task ExecuteClaimedAsync(Guid id, Guid runId, CancellationToken cancellationToken = default)
+    {
+        await CheckMvpPermissionAsync(KnowPulsePermissions.QuestionBank.AiGeneration);
+        AiQuestionGenerationTask task;
+        using (_taskRepository.DisableTracking())
+            task = await _taskRepository.GetAsync(id, cancellationToken: cancellationToken);
+        if (task.TenantId != CurrentTenant.Id || task.PersonalOwnerUserId != CurrentUser.Id) throw new AbpAuthorizationException();
+        task.EnsureRun(runId);
+        var template = await _promptTemplateRepository.GetAsync(task.PromptTemplateId, cancellationToken: cancellationToken);
+        await ExecuteTaskAsync(task, template, runId, cancellationToken);
+    }
+
     private async Task ExecuteTaskAsync(
         AiQuestionGenerationTask task,
         AiQuestionPromptTemplate template,
+        Guid runId,
         CancellationToken cancellationToken)
     {
         var stopwatch = Stopwatch.StartNew();
-        task.MarkProcessing(DateTime.UtcNow);
-        await _taskRepository.UpdateAsync(task, autoSave: true, cancellationToken: cancellationToken);
 
         IReadOnlyList<RetrievedChunk> chunks;
         try
         {
+            var snapshot = GetCurriculumSnapshot(task);
+            if (snapshot != null) await CurriculumAccess.ValidateAsync(snapshot, cancellationToken);
             // RAG 检索必须带上租户和用户上下文，确保进入 prompt 的知识片段已经通过 MVP-1 权限边界。
             chunks = await _knowledgeRetriever.SearchAsync(new RagSearchRequest
             {
                 Query = task.RetrievalQuery,
                 TopK = task.TopK,
                 TenantId = CurrentTenant.Id,
-                UserId = CurrentUser.Id
+                UserId = CurrentUser.Id,
+                Scope = GetSearchScope(task),
+                SchoolId = GetSearchSchoolId(task),
+                CurriculumScope = GetCurriculumScope(task),
+                ForQuestionGeneration = true
             }, cancellationToken);
+            foreach (var chunk in chunks)
+            {
+                var metadata = await SourceAccess.EnsureSourceMetadataAsync(chunk.KnowledgeItemId, chunk.KnowledgeVersionId, chunk.ChunkId,
+                    requireUsable: true, schoolKnowledgeShareId: chunk.SchoolKnowledgeShareId);
+                if (!chunk.SchoolKnowledgeShareId.HasValue) chunk.SourceTitle = metadata.Title ?? "未命名知识";
+            }
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
         catch (Exception ex)
         {
-            await FailTaskAndLogAsync(task, template, RagCallStatus.Failed, stopwatch, "retrieval", ex.Message, null, 0, cancellationToken);
+            await FailTaskAndLogAsync(task, template, RagCallStatus.Failed, stopwatch,
+                ex is AbpAuthorizationException ? "authorization" : "retrieval", SafeFailureReason("retrieval"), null, 0, cancellationToken);
             return;
         }
 
@@ -425,9 +550,10 @@ public class AiQuestionGenerationAppService : KnowPulseAppService, IAiQuestionGe
                 Temperature = modelSelection.Temperature
             }, cancellationToken);
         }
-        catch (Exception ex)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+        catch (Exception)
         {
-            await FailTaskAndLogAsync(task, template, RagCallStatus.Failed, stopwatch, "chat", ex.Message, userPrompt, chunks.Count, cancellationToken);
+            await FailTaskAndLogAsync(task, template, RagCallStatus.Failed, stopwatch, "chat", SafeFailureReason("chat"), userPrompt, chunks.Count, cancellationToken);
             return;
         }
 
@@ -438,8 +564,8 @@ public class AiQuestionGenerationAppService : KnowPulseAppService, IAiQuestionGe
                 template,
                 RagCallStatus.Failed,
                 stopwatch,
-                chatResult.FailureStage ?? "chat",
-                chatResult.FailureReason ?? "AI question model call failed.",
+                "chat",
+                SafeFailureReason("chat"),
                 userPrompt,
                 chunks.Count,
                 cancellationToken,
@@ -455,26 +581,44 @@ public class AiQuestionGenerationAppService : KnowPulseAppService, IAiQuestionGe
         }
         catch (Exception ex) when (ex is JsonException or InvalidOperationException)
         {
-            await FailTaskAndLogAsync(task, template, RagCallStatus.Failed, stopwatch, "parse", ex.Message, userPrompt, chunks.Count, cancellationToken, chatResult);
+            await FailTaskAndLogAsync(task, template, RagCallStatus.Failed, stopwatch, "parse", SafeFailureReason("parse"), userPrompt, chunks.Count, cancellationToken, chatResult);
             return;
         }
 
+        using var completion = Uow.Begin(requiresNew: true, isTransactional: true);
+        var current = await _taskRepository.GetAsync(task.Id, cancellationToken: cancellationToken);
+        current.EnsureRun(runId);
+        var principal = await AiQuestionGenerationIdentity.CreateAsync(LazyServiceProvider, current, cancellationToken);
+        using var identity = LazyServiceProvider.LazyGetRequiredService<ICurrentPrincipalAccessor>().Change(principal);
+        await CheckMvpPermissionAsync(KnowPulsePermissions.QuestionBank.AiGeneration);
+        var currentSnapshot = GetCurriculumSnapshot(current);
+        if (currentSnapshot != null) await CurriculumAccess.ValidateAsync(currentSnapshot, cancellationToken);
+        foreach (var chunk in chunks)
+        {
+            await SourceAccess.EnsureSourceMetadataAsync(chunk.KnowledgeItemId, chunk.KnowledgeVersionId, chunk.ChunkId,
+                requireUsable: true, forUpdate: true, schoolKnowledgeShareId: chunk.SchoolKnowledgeShareId);
+            if (currentSnapshot != null)
+                await LazyServiceProvider.LazyGetRequiredService<EducationMaterialScope>().ValidateSourceAsync(currentSnapshot,
+                    chunk.KnowledgeItemId, chunk.KnowledgeVersionId, chunk.ChunkId, chunk.CurriculumBindingIds.ToList(),
+                    chunk.TextbookKnowledgePointMappingIds.ToList(), chunk.SchoolKnowledgeShareId, cancellationToken, forUpdate: true);
+        }
         var chunkById = chunks.ToDictionary(x => x.ChunkId);
         var generatedCount = 0;
-        foreach (var modelQuestion in modelQuestions.Take(task.RequestedCount))
+        foreach (var output in modelQuestions.Take(task.RequestedCount).Select((question, index) => (Question: question, Ordinal: index + 1)))
         {
             // 即使某道题校验失败，也会以 ValidationFailed 候选题落库，方便人工排查模型输出问题。
-            var candidate = await CreateCandidateAsync(task, modelQuestion, chunkById, cancellationToken);
+            var candidate = await _candidateRepository.FindAsync(x => x.TaskId == task.Id && x.RunNumber == current.RunNumber && x.OutputOrdinal == output.Ordinal,
+                cancellationToken: cancellationToken) ?? await CreateCandidateAsync(current, output.Question, chunkById, output.Ordinal, cancellationToken);
             if (candidate.Status == AiQuestionCandidateStatus.Generated)
             {
                 generatedCount++;
             }
         }
 
-        task.MarkGenerated(generatedCount, DateTime.UtcNow);
-        await _taskRepository.UpdateAsync(task, autoSave: true, cancellationToken: cancellationToken);
+        current.MarkGenerated(generatedCount, DateTime.UtcNow);
+        await _taskRepository.UpdateAsync(current, autoSave: true, cancellationToken: cancellationToken);
         await WriteModelCallLogAsync(
-            task,
+            current,
             template,
             RagCallStatus.Succeeded,
             task.RetrievalQuery,
@@ -486,6 +630,7 @@ public class AiQuestionGenerationAppService : KnowPulseAppService, IAiQuestionGe
             userPrompt,
             chatResult,
             cancellationToken);
+        await completion.CompleteAsync(cancellationToken);
     }
 
     /// <summary>
@@ -496,6 +641,7 @@ public class AiQuestionGenerationAppService : KnowPulseAppService, IAiQuestionGe
         AiQuestionGenerationTask task,
         ModelQuestion modelQuestion,
         IReadOnlyDictionary<Guid, RetrievedChunk> chunkById,
+        int outputOrdinal,
         CancellationToken cancellationToken)
     {
         var options = NormalizeOptions(modelQuestion.Options);
@@ -526,13 +672,20 @@ public class AiQuestionGenerationAppService : KnowPulseAppService, IAiQuestionGe
             JsonSerializer.Serialize(knowledgePoints, JsonOptions),
             validationErrors.Count == 0 ? null : string.Join("；", validationErrors));
 
-        await _candidateRepository.InsertAsync(candidate, autoSave: true, cancellationToken: cancellationToken);
+        var snapshot = GetCurriculumSnapshot(task);
+        try { candidate.SetScoringDefinition(modelQuestion.ScoringDefinition); }
+        catch (BusinessException) { /* Invalid rules are recorded in the controlled validation summary. */ }
+        candidate.SetGenerationContext(task.RunNumber, outputOrdinal,
+            snapshot == null ? null : JsonSerializer.Serialize(snapshot, JsonOptions),
+            JsonSerializer.Serialize(modelQuestion.TextbookKnowledgePointMappingIds ?? [], JsonOptions),
+            JsonSerializer.Serialize((modelQuestion.Citations ?? []).Where(x => x != null).Select(x => x.ChunkId).ToList(), JsonOptions), task.Score, task.Purpose,
+            snapshot != null && ValidateCurriculumMappings(task, modelQuestion, matchedCitations).Count == 0);
+        await _candidateRepository.InsertAsync(candidate, autoSave: false, cancellationToken: cancellationToken);
 
         foreach (var citation in matchedCitations.Select((chunk, index) => new { Chunk = chunk, Rank = index + 1 }))
         {
             // citation 只保存短摘录和 hash，既能追溯来源，又避免把完整 chunk 复制到候选题表。
-            await _candidateCitationRepository.InsertAsync(
-                new AiQuestionCandidateCitation(
+            var reference = new AiQuestionCandidateCitation(
                     GuidGenerator.Create(),
                     CurrentTenant.Id,
                     candidate.Id,
@@ -548,9 +701,10 @@ public class AiQuestionGenerationAppService : KnowPulseAppService, IAiQuestionGe
                         Math.Min(
                             AiQuestionCandidateCitation.MaxSourceExcerptLength,
                             Math.Max(1, _options.AiQuestionGeneration.MaxCitationExcerptLength))),
-                    ComputeHash(citation.Chunk.Content)),
-                autoSave: true,
-                cancellationToken: cancellationToken);
+                    ComputeHash(citation.Chunk.Content));
+            reference.SetCurriculumReferences(JsonSerializer.Serialize(citation.Chunk.CurriculumBindingIds, JsonOptions),
+                JsonSerializer.Serialize(citation.Chunk.TextbookKnowledgePointMappingIds, JsonOptions), citation.Chunk.SchoolKnowledgeShareId);
+            await _candidateCitationRepository.InsertAsync(reference, autoSave: false, cancellationToken: cancellationToken);
         }
 
         // 相似题检测只产生提示，不阻止候选题生成；是否继续提交由审核人员判断。
@@ -558,7 +712,7 @@ public class AiQuestionGenerationAppService : KnowPulseAppService, IAiQuestionGe
         if (similarity != null)
         {
             candidate.SetSimilarity(similarity.QuestionId, similarity.Score, similarity.Summary);
-            await _candidateRepository.UpdateAsync(candidate, autoSave: true, cancellationToken: cancellationToken);
+            await _candidateRepository.UpdateAsync(candidate, autoSave: false, cancellationToken: cancellationToken);
         }
 
         return candidate;
@@ -576,6 +730,8 @@ public class AiQuestionGenerationAppService : KnowPulseAppService, IAiQuestionGe
         IReadOnlyList<RetrievedChunk> matchedCitations)
     {
         var errors = new List<string>();
+        if (modelQuestion.ScoringDefinitionParseFailed)
+            errors.Add("评分规则格式无效，请修订评分定义");
         if (string.IsNullOrWhiteSpace(modelQuestion.Title))
         {
             errors.Add("缺少标题");
@@ -621,6 +777,13 @@ public class AiQuestionGenerationAppService : KnowPulseAppService, IAiQuestionGe
         {
             errors.Add("缺少可追溯 citation");
         }
+        if (modelQuestion.Citations == null || modelQuestion.Citations.Any(x => x == null || x.ChunkId == Guid.Empty ||
+            matchedCitations.All(chunk => chunk.ChunkId != x.ChunkId)) ||
+            modelQuestion.Citations.Select(x => x.ChunkId).Distinct().Count() != modelQuestion.Citations.Count)
+            errors.Add("citation 包含空、重复或未实际检索的来源编号");
+        if (modelQuestion.Options?.Any(x => x == null) == true || modelQuestion.Answers?.Any(string.IsNullOrWhiteSpace) == true)
+            errors.Add("选项或答案包含空值");
+        errors.AddRange(ValidateCurriculumMappings(task, modelQuestion, matchedCitations));
 
         if (ContainsUnsafeLeakage(modelQuestion))
         {
@@ -642,6 +805,13 @@ public class AiQuestionGenerationAppService : KnowPulseAppService, IAiQuestionGe
                 task.SecurityLevel,
                 task.Tags);
 
+            var scope = GetCurriculumSnapshot(task);
+            if (scope != null && task.Type is QuestionType.FillBlank or QuestionType.MultipleChoice or QuestionType.Subjective && modelQuestion.ScoringDefinition == null)
+                throw new BusinessException("KnowPulse:Education:InvalidScoringDefinition");
+            modelQuestion.ScoringDefinition?.ValidateForConfirmation(task.Type, probe.Stem, task.Score,
+                scope == null ? null : modelQuestion.TextbookKnowledgePointMappingIds);
+            probe.SetScoringDefinitionDraft(modelQuestion.ScoringDefinition);
+
             probe.EnsureDefinitionIsValid(
                 options.Select(x => new QuestionOption(
                     GuidGenerator.Create(),
@@ -655,7 +825,7 @@ public class AiQuestionGenerationAppService : KnowPulseAppService, IAiQuestionGe
                     CurrentTenant.Id,
                     probe.Id,
                     x.Value,
-                    x.DisplayOrder)).ToList());
+                    x.DisplayOrder)).ToList(), task.Score);
         }
         catch (Exception ex) when (ex is BusinessException or ArgumentException)
         {
@@ -663,6 +833,20 @@ public class AiQuestionGenerationAppService : KnowPulseAppService, IAiQuestionGe
         }
 
         return errors;
+    }
+
+    private static List<string> ValidateCurriculumMappings(AiQuestionGenerationTask task, ModelQuestion question,
+        IReadOnlyList<RetrievedChunk> citations)
+    {
+        var snapshot = GetCurriculumSnapshot(task);
+        if (snapshot == null) return [];
+        var ids = question.TextbookKnowledgePointMappingIds ?? [];
+        var allowed = snapshot.Mappings.Select(x => x.MappingId).ToHashSet();
+        var cited = citations.SelectMany(x => x.TextbookKnowledgePointMappingIds).ToHashSet();
+        var names = snapshot.Mappings.Where(x => ids.Contains(x.MappingId)).Select(x => x.KnowledgePointName).ToHashSet(StringComparer.Ordinal);
+        return ids.Count == 0 || ids.Count != ids.Distinct().Count() || ids.Any(x => x == Guid.Empty || !allowed.Contains(x) || !cited.Contains(x)) ||
+            (question.KnowledgePoints ?? []).Any(x => string.IsNullOrWhiteSpace(x) || !names.Contains(x.Trim()))
+            ? ["候选知识点必须来自已确认教材映射及本题实际引用的资料"] : [];
     }
 
     /// <summary>
@@ -681,10 +865,15 @@ public class AiQuestionGenerationAppService : KnowPulseAppService, IAiQuestionGe
         CancellationToken cancellationToken,
         RagChatClientResult? chatResult = null)
     {
-        task.MarkFailed(failureStage, TrimInline(failureReason, AiQuestionGenerationTask.MaxFailureReasonLength), DateTime.UtcNow);
-        await _taskRepository.UpdateAsync(task, autoSave: true, cancellationToken: cancellationToken);
+        using var failure = Uow.Begin(requiresNew: true, isTransactional: true);
+        var current = await _taskRepository.GetAsync(task.Id, cancellationToken: cancellationToken);
+        current.EnsureRun(task.RunId ?? throw new InvalidOperationException("A generation lease is required."));
+        current.MarkFailed(failureStage, TrimInline(failureReason, AiQuestionGenerationTask.MaxFailureReasonLength), DateTime.UtcNow);
+        if (failureStage == "chat" && current.AttemptCount < WorkerOptions.MaxAttempts)
+            current.QueueRetry(DateTime.UtcNow.AddSeconds(Math.Min(1800, WorkerOptions.RetryDelaySeconds * Math.Pow(2, current.AttemptCount - 1))), WorkerOptions.MaxAttempts);
+        await _taskRepository.UpdateAsync(current, autoSave: true, cancellationToken: cancellationToken);
         await WriteModelCallLogAsync(
-            task,
+            current,
             template,
             status,
             task.RetrievalQuery,
@@ -696,7 +885,16 @@ public class AiQuestionGenerationAppService : KnowPulseAppService, IAiQuestionGe
             prompt,
             chatResult,
             cancellationToken);
+        await failure.CompleteAsync(cancellationToken);
     }
+
+    private static string SafeFailureReason(string stage) => stage switch
+    {
+        "retrieval" => "KnowPulse:AiGeneration:RetrievalFailed",
+        "chat" => "KnowPulse:AiGeneration:ModelFailed",
+        "parse" => "KnowPulse:AiGeneration:InvalidResponse",
+        _ => "KnowPulse:AiGeneration:WorkerFailed"
+    };
 
     /// <summary>
     /// 写入 AI 出题模型调用日志。
@@ -815,6 +1013,8 @@ public class AiQuestionGenerationAppService : KnowPulseAppService, IAiQuestionGe
             contexts.Append(chunk.Index);
             contexts.Append(". chunkId=");
             contexts.Append(chunk.Chunk.ChunkId);
+            if (task.CurriculumSnapshotJson != null)
+                contexts.Append(" textbookKnowledgePointMappingIds=" + JsonSerializer.Serialize(chunk.Chunk.TextbookKnowledgePointMappingIds, JsonOptions));
             contexts.Append(" title=");
             contexts.Append(string.IsNullOrWhiteSpace(chunk.Chunk.SourceTitle) ? "未命名知识" : chunk.Chunk.SourceTitle);
             if (chunk.Chunk.SourcePage.HasValue)
@@ -829,13 +1029,24 @@ public class AiQuestionGenerationAppService : KnowPulseAppService, IAiQuestionGe
             contexts.AppendLine(TrimInline(chunk.Chunk.Content, _options.AiQuestionGeneration.MaxPromptChunkLength));
         }
 
-        return template.UserPromptTemplate
+        var prompt = template.UserPromptTemplate
             .Replace("{questionType}", task.Type.ToString(), StringComparison.OrdinalIgnoreCase)
             .Replace("{difficulty}", task.Difficulty.ToString(), StringComparison.OrdinalIgnoreCase)
             .Replace("{count}", task.RequestedCount.ToString(), StringComparison.OrdinalIgnoreCase)
             .Replace("{knowledgeScope}", task.KnowledgeScope, StringComparison.OrdinalIgnoreCase)
             .Replace("{securityLevel}", task.SecurityLevel.ToString(), StringComparison.OrdinalIgnoreCase)
             .Replace("{contexts}", contexts.ToString(), StringComparison.OrdinalIgnoreCase);
+        var snapshot = GetCurriculumSnapshot(task);
+        return snapshot == null ? prompt : prompt + "\n教材范围：" + JsonSerializer.Serialize(snapshot, JsonOptions) +
+            "\n每题必须返回 textbookKnowledgePointMappingIds 数组，只能使用本题 citation 资料所列的已确认映射编号；knowledgePoints 如填写只能使用对应修订名称。" +
+            $"\n每题分值：{task.Score}；用途：{task.Purpose}。教材与资料不足时不要补造题目。" +
+            "\n课程多选、填空和Subjective必须提供 scoringDefinition：schemaVersion=1，referenceAnswer为参考解答；" +
+            "多选明确 multipleChoiceScoringMode（0全部正确才得分、1无错选时按选中正确项比例得分）；" +
+            "填空 blanks 每行包含独立UUID id、displayOrder、在题干唯一出现的stemMarker（如【1】）、score、allowedAnswers、" +
+            "textRule（0精确、1忽略大小写、2人工）、trimWhitespace、formatInstructions、textbookKnowledgePointMappingId；" +
+            "Subjective用 scoringPoints，每行含独立UUID id、displayOrder、description、score、textbookKnowledgePointMappingId。" +
+            "逐空/点评分总和必须等于题分；映射仅用该题确认且有实际citation支持的编号；填空/主观的answers与options为空。" +
+            "不能确定公式或表达等价时明确使用人工评分；不要猜测规则或制造占位答案。";
     }
 
     /// <summary>
@@ -850,22 +1061,32 @@ public class AiQuestionGenerationAppService : KnowPulseAppService, IAiQuestionGe
         }
 
         var trimmed = content.Trim();
-        if (trimmed.StartsWith("[", StringComparison.Ordinal))
-        {
-            var direct = JsonSerializer.Deserialize<List<ModelQuestion>>(trimmed, JsonOptions);
-            if (direct is { Count: > 0 })
-            {
-                return direct;
-            }
-        }
-
-        var envelope = JsonSerializer.Deserialize<ModelQuestionEnvelope>(trimmed, JsonOptions);
-        if (envelope?.Questions is not { Count: > 0 })
+        var questions = trimmed.StartsWith("[", StringComparison.Ordinal)
+            ? JsonSerializer.Deserialize<List<ModelQuestion>>(trimmed, JsonOptions)
+            : JsonSerializer.Deserialize<ModelQuestionEnvelope>(trimmed, JsonOptions)?.Questions;
+        if (questions is not { Count: > 0 })
         {
             throw new InvalidOperationException("AI question response did not contain a questions array.");
         }
 
-        return envelope.Questions;
+        foreach (var question in questions)
+        {
+            if (question == null) throw new InvalidOperationException("AI question response contained an empty question.");
+            try
+            {
+                if (question.ScoringDefinitionPayload.ValueKind is not (JsonValueKind.Undefined or JsonValueKind.Null))
+                    question.ScoringDefinition = QuestionScoringDefinition.Parse(question.ScoringDefinitionPayload.GetRawText());
+            }
+            catch (BusinessException)
+            {
+                question.ScoringDefinitionParseFailed = true;
+            }
+            finally
+            {
+                question.ScoringDefinitionPayload = default;
+            }
+        }
+        return questions;
     }
 
     /// <summary>
@@ -875,6 +1096,7 @@ public class AiQuestionGenerationAppService : KnowPulseAppService, IAiQuestionGe
     private static List<AiQuestionOptionDto> NormalizeOptions(IEnumerable<ModelQuestionOption>? options)
     {
         return (options ?? Array.Empty<ModelQuestionOption>())
+            .Where(x => x != null)
             .Select((x, index) => new AiQuestionOptionDto
             {
                 OptionKey = TrimRequired(x.OptionKey ?? x.Key, ((char)('A' + index)).ToString(), 16),
@@ -927,7 +1149,7 @@ public class AiQuestionGenerationAppService : KnowPulseAppService, IAiQuestionGe
         var seen = new HashSet<Guid>();
         foreach (var citation in citations ?? Array.Empty<ModelQuestionCitation>())
         {
-            if (citation.ChunkId == Guid.Empty ||
+            if (citation == null || citation.ChunkId == Guid.Empty ||
                 !seen.Add(citation.ChunkId) ||
                 !chunkById.TryGetValue(citation.ChunkId, out var chunk))
             {
@@ -941,25 +1163,12 @@ public class AiQuestionGenerationAppService : KnowPulseAppService, IAiQuestionGe
     }
 
     /// <summary>
-    /// 删除任务下已有候选题。
-    /// 重试任务前清理候选题，避免新旧模型输出在页面上混在一起。
-    /// </summary>
-    private async Task DeleteCandidatesAsync(Guid taskId)
-    {
-        var queryable = await _candidateRepository.GetQueryableAsync();
-        var candidates = await AsyncExecuter.ToListAsync(queryable.Where(x => x.TaskId == taskId));
-        foreach (var candidate in candidates)
-        {
-            await _candidateRepository.DeleteAsync(candidate, autoSave: true);
-        }
-    }
-
-    /// <summary>
     /// 将任务实体映射为页面 DTO。
     /// 映射时加载候选题和调用日志，使任务详情页可以一次展示生成结果、引用和失败原因。
     /// </summary>
     private async Task<AiQuestionGenerationTaskDto> MapTaskToDtoAsync(AiQuestionGenerationTask task)
     {
+        await SourceAccess.EnsureTaskAsync(task);
         var candidates = await GetTaskCandidatesAsync(task.Id);
         var callLogs = await GetTaskCallLogsAsync(task.Id);
 
@@ -974,12 +1183,18 @@ public class AiQuestionGenerationAppService : KnowPulseAppService, IAiQuestionGe
             DeleterId = task.DeleterId,
             DeletionTime = task.DeletionTime,
             Status = task.Status,
+            CurriculumScope = GetCurriculumScope(task),
+            CurriculumSnapshot = GetCurriculumSnapshot(task), Score = task.Score, Purpose = task.Purpose,
+            RunNumber = task.RunNumber, AttemptCount = task.AttemptCount,
+            LastHeartbeatAtUtc = task.LastHeartbeatAtUtc, NextAttemptAtUtc = task.NextAttemptAtUtc,
             Type = task.Type,
             Difficulty = task.Difficulty,
             RequestedCount = task.RequestedCount,
             GeneratedCount = task.GeneratedCount,
             TopK = task.TopK,
             KnowledgeScope = task.KnowledgeScope,
+            Scope = GetSearchScope(task),
+            SchoolId = GetSearchSchoolId(task),
             RetrievalQuery = task.RetrievalQuery,
             PromptVersion = task.PromptVersion,
             ModelProvider = task.ModelProvider,
@@ -995,6 +1210,26 @@ public class AiQuestionGenerationAppService : KnowPulseAppService, IAiQuestionGe
             Candidates = candidates,
             CallLogs = callLogs
         };
+    }
+
+    private static EducationCurriculumScopeDto? GetCurriculumScope(AiQuestionGenerationTask task) =>
+        task.CurriculumScopeJson == null ? null : JsonSerializer.Deserialize<EducationCurriculumScopeDto>(task.CurriculumScopeJson, JsonOptions);
+
+    private static EducationCurriculumSnapshot? GetCurriculumSnapshot(AiQuestionGenerationTask task) =>
+        task.CurriculumSnapshotJson == null ? null : JsonSerializer.Deserialize<EducationCurriculumSnapshot>(task.CurriculumSnapshotJson, JsonOptions);
+
+    private static KnowledgeSearchScope GetSearchScope(AiQuestionGenerationTask task)
+    {
+        if (!task.ExtraProperties.TryGetValue("KnowledgeSearchScope", out var value)) return KnowledgeSearchScope.AllAccessible;
+        if (Enum.TryParse<KnowledgeSearchScope>(value?.ToString(), out var scope) && Enum.IsDefined(scope)) return scope;
+        throw new InvalidOperationException("The saved knowledge search scope is invalid.");
+    }
+
+    private static Guid? GetSearchSchoolId(AiQuestionGenerationTask task)
+    {
+        if (!task.ExtraProperties.TryGetValue("KnowledgeSearchSchoolId", out var value)) return null;
+        if (Guid.TryParse(value?.ToString(), out var schoolId) && schoolId != Guid.Empty) return schoolId;
+        throw new InvalidOperationException("The saved knowledge search school is invalid.");
     }
 
     /// <summary>
@@ -1022,7 +1257,12 @@ public class AiQuestionGenerationAppService : KnowPulseAppService, IAiQuestionGe
     /// </summary>
     private async Task<AiQuestionCandidateDto> MapCandidateToDtoAsync(AiQuestionCandidate candidate)
     {
+        await SourceAccess.EnsureCandidateAsync(candidate);
         var citations = await GetCandidateCitationsAsync(candidate.Id);
+        var canShowSimilarity = candidate.HighestSimilarQuestionId.HasValue &&
+            await SourceAccess.CanReadQuestionAsync(candidate.HighestSimilarQuestionId.Value);
+        var canShowLinkedQuestion = candidate.LinkedQuestionId.HasValue &&
+            await SourceAccess.CanReadQuestionAsync(candidate.LinkedQuestionId.Value);
         return new AiQuestionCandidateDto
         {
             Id = candidate.Id,
@@ -1034,6 +1274,14 @@ public class AiQuestionGenerationAppService : KnowPulseAppService, IAiQuestionGe
             DeleterId = candidate.DeleterId,
             DeletionTime = candidate.DeletionTime,
             TaskId = candidate.TaskId,
+            ScoringDefinition = candidate.ScoringDefinitionJson == null ? null : QuestionScoringDefinition.Parse(candidate.ScoringDefinitionJson),
+            RunNumber = candidate.RunNumber, OutputOrdinal = candidate.OutputOrdinal,
+            ContentRevision = candidate.ContentRevision, IsEdited = candidate.IsEdited,
+            Score = candidate.Score, Purpose = candidate.Purpose,
+            CurriculumSnapshot = candidate.CurriculumSnapshotJson == null ? null : JsonSerializer.Deserialize<EducationCurriculumSnapshot>(candidate.CurriculumSnapshotJson, JsonOptions),
+            TextbookKnowledgePointMappingIds = Deserialize<List<Guid>>(candidate.CurriculumMappingIdsJson),
+            SubmittedCitationChunkIds = Deserialize<List<Guid>>(candidate.SubmittedCitationChunkIdsJson),
+            HasValidatedCurriculumMapping = candidate.HasValidatedCurriculumMapping,
             Status = candidate.Status,
             Type = candidate.Type,
             Difficulty = candidate.Difficulty,
@@ -1044,10 +1292,10 @@ public class AiQuestionGenerationAppService : KnowPulseAppService, IAiQuestionGe
             Tags = candidate.Tags,
             Analysis = candidate.Analysis,
             ValidationErrors = candidate.ValidationErrors,
-            LinkedQuestionId = candidate.LinkedQuestionId,
-            HighestSimilarQuestionId = candidate.HighestSimilarQuestionId,
-            HighestSimilarityScore = candidate.HighestSimilarityScore,
-            SimilaritySummary = candidate.SimilaritySummary,
+            LinkedQuestionId = canShowLinkedQuestion ? candidate.LinkedQuestionId : null,
+            HighestSimilarQuestionId = canShowSimilarity ? candidate.HighestSimilarQuestionId : null,
+            HighestSimilarityScore = canShowSimilarity ? candidate.HighestSimilarityScore : null,
+            SimilaritySummary = canShowSimilarity ? candidate.SimilaritySummary : null,
             Options = Deserialize<List<AiQuestionOptionDto>>(candidate.OptionsJson),
             Answers = Deserialize<List<AiQuestionAnswerDto>>(candidate.AnswersJson),
             KnowledgePoints = Deserialize<List<string>>(candidate.KnowledgePointsJson),
@@ -1058,6 +1306,9 @@ public class AiQuestionGenerationAppService : KnowPulseAppService, IAiQuestionGe
                 KnowledgeItemId = x.KnowledgeItemId,
                 KnowledgeVersionId = x.KnowledgeVersionId,
                 ChunkId = x.ChunkId,
+                SchoolKnowledgeShareId = x.SchoolKnowledgeShareId,
+                CurriculumBindingIds = Deserialize<List<Guid>>(x.CurriculumBindingIdsJson),
+                TextbookKnowledgePointMappingIds = Deserialize<List<Guid>>(x.TextbookKnowledgePointMappingIdsJson),
                 Rank = x.Rank,
                 Score = x.Score,
                 SourceTitle = x.SourceTitle,
@@ -1280,6 +1531,13 @@ public class AiQuestionGenerationAppService : KnowPulseAppService, IAiQuestionGe
     /// </summary>
     private sealed class ModelQuestion
     {
+        [JsonPropertyName("scoringDefinition")]
+        public JsonElement ScoringDefinitionPayload { get; set; }
+        [JsonIgnore]
+        public QuestionScoringDefinition? ScoringDefinition { get; set; }
+        [JsonIgnore]
+        public bool ScoringDefinitionParseFailed { get; set; }
+        public List<Guid> TextbookKnowledgePointMappingIds { get; set; } = [];
         /// <summary>
         /// 模型声明的题型。仅用于一致性校验，最终候选题题型以任务要求为准。
         /// </summary>

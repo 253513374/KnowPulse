@@ -173,6 +173,10 @@ public class Mvp1KnowledgeRetrieverTests : KnowPulseEntityFrameworkCoreTestBase
             blockedDepartment.Id);
         var tenantMismatchChunk = await InsertTenantMismatchChunkAsync($"Tenant Mismatch {suffix}");
 
+        // 上面完整摄取会调用 embedding；下面只统计本次检索行为。
+        _embeddingClient.Reset();
+        _vectorStore.Reset();
+
         _vectorStore.SearchResults.AddRange(new[]
         {
             ToHit(blockedDepartmentChunk, 0.99),

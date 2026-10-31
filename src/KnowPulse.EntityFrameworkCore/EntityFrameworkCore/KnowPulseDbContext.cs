@@ -1,7 +1,11 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using KnowPulse.AiModelManagement;
+using System;
+using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using KnowPulse.AiQuestioning;
 using KnowPulse.Exam;
+using KnowPulse.Education;
+using KnowPulse.WeChat;
 using KnowPulse.KnowledgeIndexing;
 using KnowPulse.KnowledgeBase;
 using KnowPulse.Learning;
@@ -38,6 +42,96 @@ public class KnowPulseDbContext :
     public DbSet<UserOrganizationAssignment> UserOrganizationAssignments { get; set; }
     public DbSet<KnowledgeCategory> KnowledgeCategories { get; set; }
     public DbSet<KnowledgeTag> KnowledgeTags { get; set; }
+    public DbSet<KnowledgeLibrary> KnowledgeLibraries { get; set; }
+    public DbSet<PersonalNotebookCommand> PersonalNotebookCommands { get; set; }
+    public DbSet<PersonalKnowledgeExport> PersonalKnowledgeExports { get; set; }
+    public DbSet<SchoolKnowledgeShare> SchoolKnowledgeShares { get; set; }
+    public DbSet<School> Schools { get; set; }
+    public DbSet<WeChatAccountBinding> WeChatAccountBindings { get; set; }
+    public DbSet<SchoolMembership> SchoolMemberships { get; set; }
+    public DbSet<AcademicTerm> AcademicTerms { get; set; }
+    public DbSet<SchoolClass> SchoolClasses { get; set; }
+    public DbSet<EducationSubject> EducationSubjects { get; set; }
+    public DbSet<TextbookVersion> TextbookVersions { get; set; }
+    public DbSet<TextbookChapter> TextbookChapters { get; set; }
+    public DbSet<CourseKnowledgePoint> CourseKnowledgePoints { get; set; }
+    public DbSet<CourseKnowledgePointRevision> CourseKnowledgePointRevisions { get; set; }
+    public DbSet<TextbookKnowledgePointMapping> TextbookKnowledgePointMappings { get; set; }
+    public DbSet<TeacherTextbookSelection> TeacherTextbookSelections { get; set; }
+    public DbSet<KnowledgeMaterialCurriculumBinding> KnowledgeMaterialCurriculumBindings { get; set; }
+    public DbSet<LessonPreparation> LessonPreparations { get; set; }
+    public DbSet<LessonPreparationRevision> LessonPreparationRevisions { get; set; }
+    public DbSet<LessonPreparationRevisionMapping> LessonPreparationRevisionMappings { get; set; }
+    public DbSet<LessonPreparationReference> LessonPreparationReferences { get; set; }
+    public DbSet<TeachingAssignment> TeachingAssignments { get; set; }
+    public DbSet<StudentEnrollment> StudentEnrollments { get; set; }
+    public DbSet<EducationAssessmentTask> EducationAssessmentTasks { get; set; }
+    public DbSet<EducationAssessmentTaskRevision> EducationAssessmentTaskRevisions { get; set; }
+    public DbSet<EducationAssessmentRecipient> EducationAssessmentRecipients { get; set; }
+    public DbSet<EducationAssessmentReminder> EducationAssessmentReminders { get; set; }
+    public DbSet<EducationAssessmentAttempt> EducationAssessmentAttempts { get; set; }
+    public DbSet<EducationAssessmentResponseRevision> EducationAssessmentResponseRevisions { get; set; }
+    public DbSet<EducationAssessmentCurrentResponse> EducationAssessmentCurrentResponses { get; set; }
+    public DbSet<EducationAssessmentSubmission> EducationAssessmentSubmissions { get; set; }
+    public DbSet<EducationAssessmentAnswerAttachment> EducationAssessmentAnswerAttachments { get; set; }
+    public DbSet<EducationAssessmentQuestionGrade> EducationAssessmentQuestionGrades { get; set; }
+    public DbSet<EducationAssessmentGradeRevision> EducationAssessmentGradeRevisions { get; set; }
+    public DbSet<EducationAssessmentClosure> EducationAssessmentClosures { get; set; }
+    public DbSet<EducationAssessmentResultRelease> EducationAssessmentResultReleases { get; set; }
+    public DbSet<EducationAssessmentResultReleaseItem> EducationAssessmentResultReleaseItems { get; set; }
+    public DbSet<EducationAssessmentScoreReviewRequest> EducationAssessmentScoreReviewRequests { get; set; }
+    public DbSet<EducationTeacherObservation> EducationTeacherObservations { get; set; }
+    public DbSet<EducationQuestionCollection> EducationQuestionCollections { get; set; }
+    public DbSet<EducationFeedbackPhrase> EducationFeedbackPhrases { get; set; }
+    public DbSet<EducationFeedbackPhraseRevision> EducationFeedbackPhraseRevisions { get; set; }
+    public DbSet<EducationStudentFeedback> EducationStudentFeedback { get; set; }
+    public DbSet<EducationStudentFeedbackRevision> EducationStudentFeedbackRevisions { get; set; }
+    public DbSet<EducationFeedbackAssessment> EducationFeedbackAssessments { get; set; }
+    public DbSet<EducationFeedbackRead> EducationFeedbackReads { get; set; }
+    public DbSet<EducationFeedbackNotice> EducationFeedbackNotices { get; set; }
+    public DbSet<EducationQuestionExposure> EducationQuestionExposures { get; set; }
+    public DbSet<EducationEvidenceQualification> EducationEvidenceQualifications { get; set; }
+    public DbSet<EducationEvidenceQualificationRevision> EducationEvidenceQualificationRevisions { get; set; }
+    public DbSet<EducationExposureHintReview> EducationExposureHintReviews { get; set; }
+    public DbSet<EducationExposureHintReviewRevision> EducationExposureHintReviewRevisions { get; set; }
+    public DbSet<EducationQuestionOriginRelation> EducationQuestionOriginRelations { get; set; }
+    public DbSet<EducationQuestionOriginRelationRevision> EducationQuestionOriginRelationRevisions { get; set; }
+    public DbSet<EducationMasteryRule> EducationMasteryRules { get; set; }
+    public DbSet<EducationMasteryRuleRevision> EducationMasteryRuleRevisions { get; set; }
+    public DbSet<EducationLearningReport> EducationLearningReports { get; set; }
+    public DbSet<EducationLearningReportJob> EducationLearningReportJobs { get; set; }
+    public DbSet<EducationLearningReportSnapshot> EducationLearningReportSnapshots { get; set; }
+    public DbSet<EducationLearningReportStudentSnapshot> EducationLearningReportStudentSnapshots { get; set; }
+    public DbSet<EducationStudentGrowthSnapshot> EducationStudentGrowthSnapshots { get; set; }
+    public DbSet<EducationTeachingPlan> EducationTeachingPlans { get; set; }
+    public DbSet<EducationTeachingPlanGenerationJob> EducationTeachingPlanGenerationJobs { get; set; }
+    public DbSet<EducationTeachingPlanDecisionRevision> EducationTeachingPlanDecisions { get; set; }
+    public DbSet<EducationTeachingPlanNotice> EducationTeachingPlanNotices { get; set; }
+    public DbSet<SchoolInvitation> SchoolInvitations { get; set; }
+    public DbSet<TeachingRelationRequest> TeachingRelationRequests { get; set; }
+    public DbSet<EducationTeachingPlanRevision> EducationTeachingPlanRevisions { get; set; }
+    public DbSet<EducationTeachingPlanQuestionExposure> EducationTeachingPlanQuestionExposures { get; set; }
+    public DbSet<EducationTeachingPlanHintReview> EducationTeachingPlanHintReviews { get; set; }
+    public DbSet<EducationTeachingPlanHintReviewRevision> EducationTeachingPlanHintReviewRevisions { get; set; }
+    public DbSet<EducationTeachingActivity> EducationTeachingActivities { get; set; }
+    public DbSet<EducationTeachingActivityRevision> EducationTeachingActivityRevisions { get; set; }
+    public DbSet<EducationTeachingFormalAssessment> EducationTeachingFormalAssessments { get; set; }
+    public DbSet<EducationTeachingFormalQuestion> EducationTeachingFormalQuestions { get; set; }
+    public DbSet<EducationTeachingFormalReview> EducationTeachingFormalReviews { get; set; }
+    public DbSet<EducationStudyTask> EducationStudyTasks { get; set; }
+    public DbSet<EducationStudyTaskRevision> EducationStudyTaskRevisions { get; set; }
+    public DbSet<EducationStudyRecipient> EducationStudyRecipients { get; set; }
+    public DbSet<EducationStudyEvent> EducationStudyEvents { get; set; }
+    public DbSet<EducationStudyHintReview> EducationStudyHintReviews { get; set; }
+    public DbSet<EducationStudyHintReviewRevision> EducationStudyHintReviewRevisions { get; set; }
+    public DbSet<EducationCorrectionTask> EducationCorrectionTasks { get; set; }
+    public DbSet<EducationCorrectionTaskRevision> EducationCorrectionTaskRevisions { get; set; }
+    public DbSet<EducationCorrectionDelivery> EducationCorrectionDeliveries { get; set; }
+    public DbSet<EducationCorrectionSubmission> EducationCorrectionSubmissions { get; set; }
+    public DbSet<EducationCorrectionReview> EducationCorrectionReviews { get; set; }
+    public DbSet<EducationCorrectionImage> EducationCorrectionImages { get; set; }
+    public DbSet<EducationQuestionPractice> EducationQuestionPractices { get; set; }
+    public DbSet<EducationPracticeImage> EducationPracticeImages { get; set; }
     public DbSet<KnowledgeItem> KnowledgeItems { get; set; }
     public DbSet<KnowledgeVersion> KnowledgeVersions { get; set; }
     public DbSet<KnowledgeAttachment> KnowledgeAttachments { get; set; }
@@ -61,6 +155,7 @@ public class KnowPulseDbContext :
     public DbSet<AiQuestionCandidateCitation> AiQuestionCandidateCitations { get; set; }
     public DbSet<AiQuestionModelCallLog> AiQuestionModelCallLogs { get; set; }
     public DbSet<Question> Questions { get; set; }
+    public DbSet<QuestionDefinitionRevision> QuestionDefinitionRevisions { get; set; }
     public DbSet<QuestionOption> QuestionOptions { get; set; }
     public DbSet<QuestionAnswer> QuestionAnswers { get; set; }
     public DbSet<QuestionAnalysis> QuestionAnalyses { get; set; }
@@ -126,6 +221,9 @@ public class KnowPulseDbContext :
     protected override void OnModelCreating(ModelBuilder builder)
     {
         base.OnModelCreating(builder);
+
+        var nullableUtc = new ValueConverter<DateTime?, DateTime?>(value => value,
+            value => value.HasValue ? DateTime.SpecifyKind(value.Value, DateTimeKind.Utc) : null);
 
         /* Include modules to your migration db context */
 
@@ -195,14 +293,34 @@ public class KnowPulseDbContext :
             b.HasIndex(x => new { x.TenantId, x.Name }).IsUnique();
         });
 
+        builder.Entity<KnowledgeLibrary>(b =>
+        {
+            b.ToTable(KnowPulseConsts.DbTablePrefix + "KnowledgeLibraries", KnowPulseConsts.DbSchema);
+            b.ConfigureByConvention();
+            b.Property(x => x.Name).IsRequired().HasMaxLength(KnowledgeLibrary.MaxNameLength);
+            // Identity 用户编号全局唯一；软删除不释放默认库归属，恢复仍使用同一库。
+            b.HasIndex(x => x.OwnerUserId).IsUnique();
+        });
+
         builder.Entity<KnowledgeItem>(b =>
         {
-            b.ToTable(KnowPulseConsts.DbTablePrefix + "KnowledgeItems", KnowPulseConsts.DbSchema);
+            b.ToTable(KnowPulseConsts.DbTablePrefix + "KnowledgeItems", KnowPulseConsts.DbSchema,
+                table => table.HasCheckConstraint("CK_AppKnowledgeItems_PersonalOwnership",
+                    "(\"LibraryId\" IS NULL AND \"OwnerUserId\" IS NULL) OR (\"LibraryId\" IS NOT NULL AND \"OwnerUserId\" IS NOT NULL)"));
             b.ConfigureByConvention();
             b.Property(x => x.Title).IsRequired().HasMaxLength(KnowledgeItem.MaxTitleLength);
             b.Property(x => x.Summary).HasMaxLength(KnowledgeItem.MaxSummaryLength);
+            b.Property(x => x.MaterialType).IsRequired().HasDefaultValue(PersonalMaterialType.Unspecified);
+            b.Property(x => x.SubjectName).HasMaxLength(KnowledgeItem.MaxSubjectNameLength);
+            b.Property(x => x.PersonalTags).HasMaxLength(KnowledgeItem.MaxPersonalTagsLength);
+            b.HasIndex(x => new { x.TenantId, x.OwnerUserId, x.MaterialType, x.MaterialYear });
             b.HasIndex(x => x.CategoryId);
             b.HasIndex(x => x.CurrentPublishedVersionId);
+            b.HasIndex(x => new { x.TenantId, x.OwnerUserId, x.LibraryId });
+            b.HasOne<KnowledgeLibrary>().WithMany()
+                .HasForeignKey(x => new { x.LibraryId, x.OwnerUserId })
+                .HasPrincipalKey(x => new { x.Id, x.OwnerUserId })
+                .OnDelete(DeleteBehavior.Restrict);
         });
 
         builder.Entity<KnowledgeVersion>(b =>
@@ -212,6 +330,7 @@ public class KnowPulseDbContext :
             b.Property(x => x.Title).IsRequired().HasMaxLength(KnowledgeVersion.MaxTitleLength);
             b.Property(x => x.ContentText).HasMaxLength(KnowledgeVersion.MaxContentTextLength);
             b.Property(x => x.Status).IsRequired();
+            b.HasAlternateKey(x => new { x.Id, x.KnowledgeItemId });
             b.HasIndex(x => new { x.KnowledgeItemId, x.VersionNumber }).IsUnique();
             b.HasIndex(x => new { x.KnowledgeItemId, x.IsCurrentPublished })
                 .HasDatabaseName("IX_AppKnowledgeVersions_KnowledgeItemId_CurrentPublished")
@@ -476,6 +595,16 @@ public class KnowPulseDbContext :
             b.Property(x => x.Tags).HasMaxLength(AiQuestionGenerationTask.MaxTagsLength);
             b.Property(x => x.FailureStage).HasMaxLength(AiQuestionGenerationTask.MaxFailureStageLength);
             b.Property(x => x.FailureReason).HasMaxLength(AiQuestionGenerationTask.MaxFailureReasonLength);
+            b.Property(x => x.RequestFingerprint).HasMaxLength(64);
+            b.Property(x => x.CurriculumScopeJson);
+            b.Property(x => x.CurriculumSnapshotJson);
+            b.Property(x => x.Score).HasPrecision(18, 2).HasDefaultValue(1m);
+            b.Property(x => x.Purpose).IsRequired().HasMaxLength(64).HasDefaultValue("Practice");
+            b.Property(x => x.RunNumber).HasDefaultValue(1);
+            b.Property(x => x.AttemptCount).HasDefaultValue(0);
+            b.Property(x => x.LastHeartbeatAtUtc).HasConversion(nullableUtc);
+            b.Property(x => x.NextAttemptAtUtc).HasConversion(nullableUtc);
+            b.HasIndex(x => new { x.Status, x.NextAttemptAtUtc, x.LastHeartbeatAtUtc });
             b.HasIndex(x => new { x.TenantId, x.Status, x.CreationTime });
             b.HasIndex(x => new { x.Type, x.Difficulty });
             b.HasIndex(x => x.PromptTemplateId);
@@ -496,11 +625,23 @@ public class KnowPulseDbContext :
             b.Property(x => x.Stem).IsRequired().HasMaxLength(AiQuestionCandidate.MaxStemLength);
             b.Property(x => x.Tags).HasMaxLength(AiQuestionCandidate.MaxTagsLength);
             b.Property(x => x.Analysis).HasMaxLength(AiQuestionCandidate.MaxAnalysisLength);
+            b.Property(x => x.ScoringDefinitionJson).HasMaxLength(QuestionScoringDefinition.MaxJsonLength);
             b.Property(x => x.OptionsJson).IsRequired().HasMaxLength(AiQuestionCandidate.MaxJsonLength);
             b.Property(x => x.AnswersJson).IsRequired().HasMaxLength(AiQuestionCandidate.MaxJsonLength);
             b.Property(x => x.KnowledgePointsJson).IsRequired().HasMaxLength(AiQuestionCandidate.MaxJsonLength);
             b.Property(x => x.ValidationErrors).HasMaxLength(AiQuestionCandidate.MaxValidationErrorsLength);
             b.Property(x => x.SimilaritySummary).HasMaxLength(AiQuestionCandidate.MaxSimilaritySummaryLength);
+            b.Property(x => x.CurriculumSnapshotJson);
+            b.Property(x => x.CurriculumMappingIdsJson).IsRequired().HasDefaultValue("[]");
+            b.Property(x => x.SubmittedCitationChunkIdsJson).IsRequired().HasDefaultValue("[]");
+            b.Property(x => x.Score).HasPrecision(18, 2).HasDefaultValue(1m);
+            b.Property(x => x.Purpose).IsRequired().HasMaxLength(64).HasDefaultValue("Practice");
+            b.Property(x => x.RunNumber).HasDefaultValue(0);
+            b.Property(x => x.OutputOrdinal).HasDefaultValue(0);
+            b.Property(x => x.ContentRevision).IsConcurrencyToken().HasDefaultValue(0);
+            b.Property(x => x.IsEdited).HasDefaultValue(false);
+            b.Property(x => x.HasValidatedCurriculumMapping).HasDefaultValue(false);
+            b.HasIndex(x => new { x.TaskId, x.RunNumber, x.OutputOrdinal }).IsUnique().HasFilter("\"RunNumber\" > 0");
             b.HasIndex(x => new { x.TaskId, x.CreationTime });
             b.HasIndex(x => new { x.Status, x.Type, x.Difficulty });
             b.HasIndex(x => x.LinkedQuestionId);
@@ -526,6 +667,8 @@ public class KnowPulseDbContext :
             b.Property(x => x.SourceTitle).IsRequired().HasMaxLength(AiQuestionCandidateCitation.MaxSourceTitleLength);
             b.Property(x => x.SourceExcerpt).IsRequired().HasMaxLength(AiQuestionCandidateCitation.MaxSourceExcerptLength);
             b.Property(x => x.SourceHash).IsRequired().HasMaxLength(AiQuestionCandidateCitation.MaxSourceHashLength);
+            b.Property(x => x.CurriculumBindingIdsJson).IsRequired().HasDefaultValue("[]");
+            b.Property(x => x.TextbookKnowledgePointMappingIdsJson).IsRequired().HasDefaultValue("[]");
             b.HasIndex(x => new { x.CandidateId, x.Rank }).IsUnique();
             b.HasIndex(x => new { x.KnowledgeVersionId, x.ChunkId });
             b.HasIndex(x => x.KnowledgeItemId);
@@ -572,6 +715,14 @@ public class KnowPulseDbContext :
             b.Property(x => x.Title).IsRequired().HasMaxLength(Question.MaxTitleLength);
             b.Property(x => x.Stem).IsRequired().HasMaxLength(Question.MaxStemLength);
             b.Property(x => x.Tags).HasMaxLength(Question.MaxTagsLength);
+            b.Property(x => x.ScoringDefinitionJson).HasMaxLength(QuestionScoringDefinition.MaxJsonLength);
+            b.Property(x => x.CurriculumSnapshotJson).HasMaxLength(Question.MaxCurriculumJsonLength);
+            b.Property(x => x.CurriculumSuggestedMappingIdsJson).IsRequired().HasMaxLength(Question.MaxCurriculumJsonLength).HasDefaultValue("[]");
+            b.Property(x => x.CurriculumSourceReferencesJson).IsRequired().HasMaxLength(Question.MaxCurriculumJsonLength).HasDefaultValue("[]");
+            b.Property(x => x.CurriculumPointWeightsJson).IsRequired().HasMaxLength(Question.MaxCurriculumJsonLength).HasDefaultValue("[]");
+            b.Property(x => x.CurriculumScore).HasPrecision(18, 2);
+            b.Property(x => x.CurriculumConfirmed).HasDefaultValue(false);
+            b.Property(x => x.CurriculumConfirmedAtUtc).HasConversion(nullableUtc);
             b.HasIndex(x => new { x.TenantId, x.Status, x.Type });
             b.HasIndex(x => x.ApplicablePositionId);
             b.HasIndex(x => x.CreationSource);
@@ -636,6 +787,8 @@ public class KnowPulseDbContext :
             b.Property(x => x.SourceExcerpt).HasMaxLength(QuestionSource.MaxSourceExcerptLength);
             b.Property(x => x.SourceHash).HasMaxLength(QuestionSource.MaxSourceHashLength);
             b.Property(x => x.ManualSourceDescription).HasMaxLength(QuestionSource.MaxManualSourceDescriptionLength);
+            b.Property(x => x.CurriculumBindingIdsJson).IsRequired().HasMaxLength(Question.MaxCurriculumJsonLength).HasDefaultValue("[]");
+            b.Property(x => x.TextbookKnowledgePointMappingIdsJson).IsRequired().HasMaxLength(Question.MaxCurriculumJsonLength).HasDefaultValue("[]");
             b.HasIndex(x => x.QuestionId);
             b.HasIndex(x => x.KnowledgeItemId);
             b.HasIndex(x => x.KnowledgeVersionId);
@@ -701,6 +854,9 @@ public class KnowPulseDbContext :
         {
             b.ToTable(KnowPulseConsts.DbTablePrefix + "ExamPapers", KnowPulseConsts.DbSchema);
             b.ConfigureByConvention();
+            b.Property(x => x.PersonalOwnerUserId);
+            b.Property(x => x.CurriculumSnapshotJson).HasMaxLength(Question.MaxCurriculumJsonLength);
+            b.Property(x => x.SaveOperationRequestHash).HasMaxLength(64);
             b.Property(x => x.Title).IsRequired().HasMaxLength(ExamPaper.MaxTitleLength);
             b.Property(x => x.BuildMode).IsRequired();
             b.Property(x => x.TotalScore).HasPrecision(18, 2);
@@ -722,6 +878,11 @@ public class KnowPulseDbContext :
             b.Property(x => x.Analysis).HasMaxLength(ExamPaperQuestion.MaxAnalysisLength);
             b.Property(x => x.KnowledgePointsSnapshot).HasMaxLength(ExamPaperQuestion.MaxKnowledgePointsLength);
             b.Property(x => x.SourceSnapshot).HasMaxLength(ExamPaperQuestion.MaxSourceSnapshotLength);
+            b.Property(x => x.ScoringDefinitionJson).HasMaxLength(QuestionScoringDefinition.MaxJsonLength);
+            b.Property(x => x.CurriculumSnapshotJson).HasMaxLength(Question.MaxCurriculumJsonLength);
+            b.Property(x => x.CurriculumPointWeightsJson).HasMaxLength(Question.MaxCurriculumJsonLength);
+            b.Property(x => x.CurriculumSourceReferencesJson).HasMaxLength(Question.MaxCurriculumJsonLength);
+            b.Property(x => x.CurriculumConfirmedAtUtc).HasConversion(nullableUtc);
             b.Property(x => x.Score).HasPrecision(18, 2);
             b.Property(x => x.MultipleChoiceScoringMode).IsRequired();
             b.HasIndex(x => new { x.PaperId, x.DisplayOrder }).IsUnique();
@@ -913,6 +1074,38 @@ public class KnowPulseDbContext :
                 .HasForeignKey(x => x.ExamPlanId)
                 .OnDelete(DeleteBehavior.Restrict);
         });
+
+        builder.ConfigureKnowPulseEducation();
+        builder.ConfigureKnowPulseEducationPreparation();
+        builder.ConfigureEducationQuestionDefinitions();
+        builder.ConfigureEducationAssessments();
+        builder.ConfigureEducationAssessmentResponses();
+        builder.ConfigureEducationAssessmentGrading();
+        builder.ConfigureEducationAssessmentReminders();
+        builder.ConfigureEducationFeedback();
+        builder.ConfigureEducationQuestionExposures();
+        builder.ConfigureEducationEvidenceDecisions();
+        builder.ConfigureEducationLearningReports();
+        builder.ConfigureStudentGrowth();
+        builder.ConfigureEducationTeachingPlans();
+        builder.ConfigureEducationTeachingPlanGeneration();
+        builder.ConfigureEducationTeachingPlanExecution();
+        builder.ConfigureEducationTeachingActivities();
+        builder.ConfigureEducationTeachingPlanNotices();
+        builder.ConfigureSchoolInvitations();
+        builder.ConfigureTeachingRelationRequests();
+        builder.ConfigureEducationTeachingFormalAssessments();
+        builder.ConfigureEducationStudyTasks();
+        builder.ConfigureEducationStudyHintReviews();
+        builder.ConfigureEducationCorrections();
+        builder.ConfigureEducationPractice();
+        builder.ConfigurePersonalNotebook();
+        builder.ConfigureWeChatBindings();
+        builder.Entity<AiQuestionGenerationTask>().HasIndex(x => new { x.TenantId, x.PersonalOwnerUserId });
+        builder.Entity<Question>().HasIndex(x => new { x.TenantId, x.PersonalOwnerUserId });
+        builder.Entity<KnowPulse.RagAI.RagCallLog>().HasIndex(x => new { x.TenantId, x.PersonalOwnerUserId });
+        builder.Entity<KnowPulse.RagAI.RagEvaluationCase>().HasIndex(x => new { x.TenantId, x.PersonalOwnerUserId });
+        builder.Entity<KnowPulse.RagAI.RagEvaluationRun>().HasIndex(x => new { x.TenantId, x.PersonalOwnerUserId });
 
         builder.Entity<LearningKnowledgeReadRecord>(b =>
         {

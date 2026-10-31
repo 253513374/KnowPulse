@@ -1,0 +1,8 @@
+<view class="page">
+  <view class="hero"><text class="eyebrow">学生工作区 · 当前学校</text><text class="title">我的教学方案</text><text class="muted">列表只展示当前有权查看的方案信息。明确进入某个版本才提供活动要求，阅读不代表完成或掌握。</text></view>
+  <view wx:if="{{error}}" class="error" aria-role="alert">{{error}}</view><text wx:if="{{busy}}" class="muted">正在核对方案…</text>
+  <view wx:for="{{items}}" wx:key="id" class="card"><text class="heading">{{item.subject}}教学方案 · 第 {{item.version}} 版</text><text>{{item.className}} · {{item.teacher}}</text><text class="muted">{{item.status}} · {{item.executionLabel}} · {{item.recordedAt}}</text><button data-id="{{item.id}}" bindtap="open" disabled="{{busy}}">查看这个版本与活动记录</button></view>
+  <view wx:if="{{!busy &amp;&amp; !error &amp;&amp; total === 0}}" class="card">当前没有可查看的方案。</view>
+  <view class="pager"><button data-direction="-1" bindtap="paginate" disabled="{{busy || offset === 0}}">上一页</button><text>{{total}} 项</text><button data-direction="1" bindtap="paginate" disabled="{{busy || offset + 20 >= total}}">下一页</button></view>
+  <button bindtap="load" disabled="{{busy}}">刷新方案</button><button wx:if="{{error}}" bindtap="login">返回登录</button>
+</view>

@@ -1,0 +1,125 @@
+@page "/education/study-tasks"
+@attribute [Authorize(EducationPermissions.LearningManage)]
+@inherits KnowPulseComponentBase
+@using KnowPulse.Education
+@using System.Text.Json
+@inject IEducationStudyTaskAppService Study
+@inject IEducationCurriculumAppService Curriculum
+@inject IEducationSchoolAppService SchoolApi
+@inject IPermissionChecker PermissionChecker
+@inject IJSRuntime JS
+@inject Volo.Abp.Users.ICurrentUser Account
+@inject Volo.Abp.MultiTenancy.ICurrentTenant Tenant
+<PageTitle>@L["EducationStudy:Title"]</PageTitle>
+<NavigationLock ConfirmExternalNavigation="@(Busy || Dirty || Pending != null)" OnBeforeInternalNavigation="LeaveAsync" />
+<h1 class="h4">@L["EducationStudy:Title"]</h1><p>@L["EducationStudy:Description"]</p>
+<p class="alert alert-info">@L["EducationStudy:EvidenceHint"]</p>
+@if (Error != null) { <div class="alert alert-danger" role="alert">@Error</div> }
+@if (Receipt != null) { <p class="alert alert-success" role="status">@L["EducationGrading:Receipt", Receipt]</p> }
+@if (StorageAttempted && !StorageReady && Pending == null) { <p class="alert alert-warning" role="alert">@L["EducationGrading:NoReceipt"] <button class="btn btn-sm btn-outline-secondary" disabled="@Busy" @onclick="AbandonAsync">@L["EducationReport:Abandon"]</button></p> }
+@if (Pending != null) { <div class="alert alert-info" role="status">@L["EducationGrading:Unknown"]
+    <button class="btn btn-sm btn-outline-primary" disabled="@Busy" @onclick="RecoverAsync">@L["EducationGrading:Recover"]</button>
+    <button class="btn btn-sm btn-outline-primary" disabled="@Busy" @onclick="(() => RunAsync(SendAsync))">@L["EducationReport:RetryCommand"]</button>
+    <button class="btn btn-sm btn-outline-secondary" disabled="@Busy" @onclick="AbandonAsync">@L["EducationReport:Abandon"]</button></div> }
+<p class="small text-muted">@L["EducationStudy:LocalReceiptHint"]</p>
+<div class="row g-3"><aside class="col-lg-4">
+    <button class="btn btn-primary mb-2" disabled="@Locked" @onclick="NewAsync">@L["EducationStudy:New"]</button>
+    <div class="list-group">@foreach (var item in Items) { <button class="list-group-item list-group-item-action" disabled="@Locked" @onclick="(() => OpenAsync(item.Id))">@item.Title<br /><small>@item.ClassName · @item.SubjectName · @item.EndsAtUtc.ToLocalTime().ToString("g")</small></button> }</div>
+    <div class="d-flex gap-2 mt-2"><button class="btn btn-sm btn-outline-secondary" disabled="@(Locked || Offset == 0)" @onclick="(() => PageAsync(-1))">@L["EducationPaper:Previous"]</button><button class="btn btn-sm btn-outline-secondary" disabled="@(Locked || Offset + 20 >= Total)" @onclick="(() => PageAsync(1))">@L["EducationPaper:Next"]</button></div>
+</aside><main class="col-lg-8">
+    @if (TaskId != Guid.Empty) {
+        <fieldset disabled="@Locked" @oninput="Changed" @onchange="Changed">
+            <label class="d-block mb-2">@L["EducationStudy:School"]<select class="form-select" @bind="SchoolId" @bind:after="SchoolChangedAsync" disabled="@(Root != null)"><option value="@Guid.Empty">@L["EducationStudy:Choose"]</option>@foreach (var school in Schools) { <option value="@school.Id">@school.Name</option> }</select></label>
+            <label class="d-block mb-2">@L["EducationStudy:TextbookSelection"]<select class="form-select" @bind="SelectionId" @bind:after="SelectionChangedAsync" disabled="@(Root != null)"><option value="@Guid.Empty">@L["EducationStudy:Choose"]</option>@foreach (var selection in Selections) { <option value="@selection.Id">@SelectionLabel(selection)</option> }</select></label>
+            @if (Book is { } book) { <fieldset class="border rounded p-2 mb-3"><legend class="float-none w-auto fs-6">@L["EducationStudy:KnowledgePoints"]</legend>@foreach (var point in book.Mappings) {
+                <label class="d-block"><input type="checkbox" checked="@Mappings.Contains(point.Id)" @onchange="(e => ToggleMapping(point.Id, e))" /> @book.Chapters.FirstOrDefault(x => x.Id == point.ChapterId)?.Title · @point.KnowledgePointCode · @point.KnowledgePointName · v@(point.RevisionNumber)</label>
+            }</fieldset> }
+            <label class="d-block mb-2">@L["EducationStudy:TaskTitle"]<input class="form-control" maxlength="256" @bind="Title" /></label>
+            <label class="d-block mb-2">@L["EducationStudy:Instructions"]<textarea class="form-control" rows="5" maxlength="8192" @bind="Instructions"></textarea></label>
+            <label class="d-block mb-2">@L["EducationStudy:Starts"]<input type="datetime-local" class="form-control" @bind="Starts" /></label>
+            <label class="d-block mb-2">@L["EducationStudy:Due"]<input type="datetime-local" class="form-control" @bind="Ends" /></label>
+            <label class="d-block mb-2">@L["EducationStudy:Minutes"]<input type="number" class="form-control" min="1" max="1440" @bind="Minutes" /></label>
+            <p>@L["EducationStudy:Recipients", RecipientIds.Count] @L[RecipientScope == EducationAssessmentRecipientScope.FullClass ? "EducationStudy:FullClass" : "EducationStudy:Selected"]
+                <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="FullClass">@L["EducationStudy:UseFullClass"]</button></p>
+            <button class="btn btn-primary" disabled="@(!StorageReady)" @onclick="SaveAsync">@L["EducationStudy:SaveDraft"]</button>
+        </fieldset>
+        @if (Root != null) {
+            <p class="small text-muted mt-3">@L["EducationStudy:MaterialDraftHint"]</p>
+            @if (CanMaterials) { <EducationMaterialSourcePicker @key="TaskId" Search="@(input => Study.GetMaterialSourcesAsync(TaskId, input))" PreviewSource="@(input => Study.PreviewMaterialSourceAsync(TaskId, input))" Selected="AddMaterial" Disabled="@(Locked || Materials.Count >= 10)" /> }
+            <ul>@foreach (var material in Materials) { <li class="mb-2">@material.Title · @L["EducationMaterial:SelectedFiles", material.AttachmentIds.Count] <button class="btn btn-sm btn-outline-danger" disabled="@Locked" @onclick="(() => RemoveMaterial(material))">@L["EducationGeneration:Remove"]</button></li> }</ul>
+            <TeachingMaterialReader @key="Root.Current.Id" ContextKey="@($"study-teacher:{TaskId}:{Root.Current.Id}")" Materials="@(Root.Current.Content?.Materials.Select(x => new EducationStudyMaterialDisplay(x.Id, x.Title)).ToList() ?? [])" ReadMaterial="@(id => Study.GetTeacherMaterialAsync(TaskId, Root.Current.Id, id))" DownloadMaterial="@((id, file) => Study.DownloadTeacherMaterialAsync(TaskId, Root.Current.Id, id, file))" Disabled="@(Locked || !CanMaterials)" />
+            <button class="btn btn-outline-primary my-2" disabled="@(Locked || Dirty || Root.Current.Kind != EducationStudyTaskRevisionKind.Draft)" @onclick="PreviewAsync">@L["EducationStudy:PreviewRoster"]</button>
+            @if (Roster is { } roster) { <p>@L["EducationStudy:RosterCount", roster.Students.Count]</p><fieldset disabled="@Locked">@foreach (var student in roster.Students) { <label class="d-block"><input type="checkbox" checked="@CheckedStudents.Contains(student.StudentUserId)" @onchange="(e => ToggleStudent(student.StudentUserId, e))" /> @student.StudentName · @student.AccountName</label> }<button class="btn btn-sm btn-outline-secondary mt-2" disabled="@(CheckedStudents.Count == 0)" @onclick="SelectedStudents">@L["EducationStudy:UseSelected"]</button></fieldset> }
+            <fieldset disabled="@Locked" class="my-3">
+                <label class="d-block">@L["EducationStudy:PublicReason"]<textarea class="form-control" maxlength="2000" @bind="Reason"></textarea></label><p class="small">@L["EducationStudy:ReasonHint"]</p>
+                <label class="d-block my-2"><input type="checkbox" @bind="ConfirmPublish" /> @L["EducationStudy:ConfirmPublish"]</label>
+                <button class="btn btn-success" disabled="@(!StorageReady || Dirty || Roster == null || !ConfirmPublish || Materials.Count == 0)" @onclick="PublishAsync">@L["EducationStudy:Publish"]</button>
+                @if (Root.PublishedRevisionId != null) { <label class="d-block my-2"><input type="checkbox" @bind="ConfirmWithdraw" /> @L["EducationStudy:ConfirmWithdraw"]</label><button class="btn btn-outline-danger" disabled="@(!StorageReady || !ConfirmWithdraw || string.IsNullOrWhiteSpace(Reason))" @onclick="WithdrawAsync">@L["EducationStudy:Withdraw"]</button> }
+            </fieldset>
+            @if (Root.LastPublishedRevisionId != null) { <a href="@($"/education/study-tasks/{TaskId}/progress")">@L["EducationStudy:Progress"]</a> }
+        }
+    }
+</main></div>
+@code {
+    private bool Busy, Dirty, StorageReady, StorageAttempted, ConfirmPublish, ConfirmWithdraw, CanMaterials;
+    private string? Error; private Guid? Receipt; private Guid TaskId, SchoolId, SelectionId; private EducationStudyTaskDto? Root;
+    private string Title = "", Instructions = "", Reason = ""; private DateTime Starts = DateTime.Now, Ends = DateTime.Now.AddDays(7); private int Minutes = 20;
+    private EducationAssessmentRecipientScope RecipientScope; private List<Guid> RecipientIds = []; private HashSet<Guid> Mappings = [], CheckedStudents = [];
+    private List<EducationStudyMaterial> Materials = []; private List<MySchoolDto> Schools = []; private List<TeacherTextbookSelectionDto> Selections = [];
+    private CurriculumContextDto? Context; private TextbookVersionDto? Book; private EducationStudyRosterDto? Roster; private List<EducationStudyTaskListDto> Items = [];
+    private int Offset; private long Total; private Command? Pending; private bool Locked => Busy || Pending != null;
+    private string StorageKey => $"education-study-teacher-v1:{Tenant.Id}:{Account.Id}";
+    protected override Task OnInitializedAsync() => RunAsync(async () => { Schools = (await SchoolApi.GetMySchoolsAsync()).Items.Where(x => x.Roles.Contains(SchoolMemberRole.Teacher)).ToList(); CanMaterials = await PermissionChecker.IsGrantedAsync(KnowPulsePermissions.KnowledgeBase.PersonalLibrary); await LoadListAsync(); });
+    protected override async Task OnAfterRenderAsync(bool firstRender) { if (StorageAttempted || Busy) return; StorageAttempted = true;
+        await RunAsync(async () => { var raw = await JS.InvokeAsync<string?>("sessionStorage.getItem", StorageKey); if (raw != null) { Pending = JsonSerializer.Deserialize<Command>(raw); ValidatePending(); } StorageReady = true; }); StateHasChanged(); }
+    private void Changed() { Dirty = true; Roster = null; ConfirmPublish = false; }
+    private void ToggleMapping(Guid id, ChangeEventArgs e) { if (e.Value is true) Mappings.Add(id); else Mappings.Remove(id); Changed(); }
+    private void ToggleStudent(Guid id, ChangeEventArgs e) { if (e.Value is true) CheckedStudents.Add(id); else CheckedStudents.Remove(id); }
+    private void FullClass() { RecipientScope = EducationAssessmentRecipientScope.FullClass; RecipientIds.Clear(); Changed(); }
+    private void SelectedStudents() { RecipientScope = EducationAssessmentRecipientScope.SelectedStudents; RecipientIds = CheckedStudents.Order().ToList(); Changed(); }
+    private void AddMaterial(EducationStudyMaterial value) { if (Locked || Materials.Count >= 10) return; Materials.Add(value); Changed(); }
+    private void RemoveMaterial(EducationStudyMaterial value) { Materials.Remove(value); Changed(); }
+    private string SelectionLabel(TeacherTextbookSelectionDto value) { var teaching = Context?.TeachingContexts.FirstOrDefault(x => x.Id == value.TeachingAssignmentId); return $"{teaching?.TermName} · {teaching?.ClassName} · {teaching?.SubjectName} · {value.TextbookTitle} · r{value.CatalogRevision}"; }
+    private async Task SchoolChangedAsync() { SelectionId = Guid.Empty; Book = null; Selections.Clear(); Mappings.Clear(); Context = null;
+        if (SchoolId != Guid.Empty) { Context = await Curriculum.GetContextAsync(SchoolId); Selections = (await Curriculum.GetMySelectionsAsync(SchoolId)).Items.Where(x => x.EndedAtUtc == null && x.TextbookStatus == TextbookVersionStatus.Published).ToList(); } Changed(); }
+    private async Task SelectionChangedAsync() { Book = null; Mappings.Clear(); var selection = Selections.FirstOrDefault(x => x.Id == SelectionId); if (selection != null) Book = await Curriculum.GetTextbookAsync(selection.TextbookVersionId); Changed(); }
+    private async Task LoadListAsync() { var page = await Study.GetListAsync(new() { SkipCount = Offset, MaxResultCount = 20 }); Items = page.Items.ToList(); Total = page.TotalCount; }
+    private async Task<bool> DiscardAsync() => !Dirty || await JS.InvokeAsync<bool>("confirm", L["EducationGrading:Discard"].Value);
+    private Task NewAsync() => RunAsync(async () => { if (!await DiscardAsync()) return; TaskId = Guid.NewGuid(); Root = null; SchoolId = SelectionId = Guid.Empty; Book = null; Selections.Clear(); Context = null;
+        Title = Instructions = Reason = ""; Starts = DateTime.Now; Ends = Starts.AddDays(7); Minutes = 20; Materials.Clear(); Mappings.Clear(); RecipientIds.Clear(); RecipientScope = EducationAssessmentRecipientScope.FullClass; Roster = null; Dirty = false; });
+    private Task OpenAsync(Guid id) => RunAsync(async () => { if (await DiscardAsync()) await LoadTaskAsync(id); });
+    private async Task LoadTaskAsync(Guid id) {
+        Root = null; Roster = null; Book = null; Materials.Clear(); Mappings.Clear(); var root = await Study.GetAsync(id); var revision = root.Current;
+        if (revision.Content == null && root.LastPublishedRevisionId is Guid previous) revision = await Study.GetOperationAsync(id, previous) ?? throw new InvalidOperationException(L["EducationGrading:NoReceipt"]);
+        var content = revision.Content ?? throw new InvalidOperationException(L["EducationStudy:Unavailable"]); TaskId = id; SchoolId = revision.Scope.SchoolId;
+        await SchoolChangedAsync(); SelectionId = revision.Scope.TeacherTextbookSelectionId; await SelectionChangedAsync();
+        Title = content.Title; Instructions = content.Instructions; Starts = content.StartsAtUtc.ToLocalTime(); Ends = content.EndsAtUtc.ToLocalTime(); Minutes = content.EstimatedMinutes;
+        Materials = content.Materials.ToList(); Mappings = revision.Scope.Mappings.Select(x => x.MappingId).ToHashSet(); RecipientScope = content.RecipientScope; RecipientIds = content.StudentUserIds.ToList(); Root = root; Dirty = ConfirmPublish = ConfirmWithdraw = false; Reason = "";
+    }
+    private Task PageAsync(int direction) => RunAsync(async () => { if (!await DiscardAsync()) return; Offset += direction * 20; Root = null; TaskId = Guid.Empty; Dirty = false; await LoadListAsync(); });
+    private Task PreviewAsync() => RunAsync(async () => { Roster = null; Roster = await Study.PreviewRecipientsAsync(TaskId); CheckedStudents = Roster.Students.Select(x => x.StudentUserId).ToHashSet(); });
+    private Task SaveAsync() => RunAsync(async () => { if (!StorageReady || Pending != null) return;
+        var content = new EducationStudyTaskContent { Title = Title, Instructions = Instructions, StartsAtUtc = Starts.ToUniversalTime(), EndsAtUtc = Ends.ToUniversalTime(), EstimatedMinutes = Minutes,
+            RecipientScope = RecipientScope, StudentUserIds = RecipientIds, Materials = Materials }; content.Validate();
+        await StartAsync(new() { Kind = "draft", TaskId = TaskId, AccountId = Account.Id, TenantId = Tenant.Id, Draft = new() { OperationId = Guid.NewGuid(), ExpectedRevisionId = Root?.Current.Id, ConcurrencyStamp = Root?.ConcurrencyStamp,
+            Scope = new() { TeacherTextbookSelectionId = SelectionId, TextbookKnowledgePointMappingIds = Mappings.Order().ToList() }, Content = content } }); });
+    private Task PublishAsync() => RunAsync(async () => { if (Root == null || Roster == null || Dirty) return; await StartAsync(new() { Kind = "publish", TaskId = TaskId, AccountId = Account.Id, TenantId = Tenant.Id,
+        Publish = new() { OperationId = Guid.NewGuid(), ExpectedRevisionId = Root.Current.Id, ConcurrencyStamp = Root.ConcurrencyStamp, RosterFingerprint = Roster.RosterFingerprint, PublicReason = Reason, ConfirmRecipientsMaterialsAndSafeText = ConfirmPublish } }); });
+    private Task WithdrawAsync() => RunAsync(async () => { if (Root == null || !await JS.InvokeAsync<bool>("confirm", L["EducationStudy:ConfirmWithdraw"].Value)) return;
+        await StartAsync(new() { Kind = "withdraw", TaskId = TaskId, AccountId = Account.Id, TenantId = Tenant.Id, Withdraw = new() { OperationId = Guid.NewGuid(), ExpectedRevisionId = Root.Current.Id,
+            ConcurrencyStamp = Root.ConcurrencyStamp, PublicReason = Reason, ConfirmStudentVisibleReason = ConfirmWithdraw } }); });
+    private Guid OperationId(Command c) => c.Kind switch { "draft" => c.Draft!.OperationId, "publish" => c.Publish!.OperationId, "withdraw" => c.Withdraw!.OperationId, _ => Guid.Empty };
+    private string Fingerprint(Command c) => c.Kind switch { "draft" => EducationStudyTaskFingerprint.Draft(c.TaskId, c.Draft!), "publish" => EducationStudyTaskFingerprint.Publish(c.TaskId, c.Publish!), "withdraw" => EducationStudyTaskFingerprint.Withdraw(c.TaskId, c.Withdraw!), _ => "" };
+    private void ValidatePending() { if (Pending is not { } p || p.TaskId == Guid.Empty || p.AccountId != Account.Id || p.TenantId != Tenant.Id ||
+        !(p.Kind == "draft" && p.Draft != null && p.Publish == null && p.Withdraw == null || p.Kind == "publish" && p.Publish != null && p.Draft == null && p.Withdraw == null || p.Kind == "withdraw" && p.Withdraw != null && p.Draft == null && p.Publish == null) || OperationId(p) == Guid.Empty) throw new InvalidOperationException(L["EducationGrading:NoReceipt"]); }
+    private async Task StartAsync(Command command) { if (Pending != null || !StorageReady) return; var raw = JsonSerializer.Serialize(command); await JS.InvokeVoidAsync("sessionStorage.setItem", StorageKey, raw); Pending = JsonSerializer.Deserialize<Command>(raw); await SendAsync(); }
+    private async Task SendAsync() { ValidatePending(); var p = Pending!; var result = p.Kind switch { "draft" => await Study.SaveDraftAsync(p.TaskId, p.Draft!), "publish" => await Study.PublishAsync(p.TaskId, p.Publish!), _ => await Study.WithdrawAsync(p.TaskId, p.Withdraw!) }; await FinishAsync(result); }
+    private Task RecoverAsync() => RunAsync(async () => { ValidatePending(); var p = Pending!; await FinishAsync(await Study.GetOperationAsync(p.TaskId, OperationId(p)) ?? throw new InvalidOperationException(L["EducationGrading:NoReceipt"])); });
+    private async Task FinishAsync(EducationStudyRevisionDto result) { ValidatePending(); var p = Pending!; if (result.TaskId != p.TaskId || result.Id != OperationId(p) || result.RequestFingerprint != Fingerprint(p)) throw new InvalidOperationException(L["EducationGrading:NoReceipt"]);
+        await JS.InvokeVoidAsync("sessionStorage.removeItem", StorageKey); Pending = null; Receipt = result.Id; await LoadTaskAsync(result.TaskId); await LoadListAsync(); }
+    private Task AbandonAsync() => RunAsync(async () => { if (!await JS.InvokeAsync<bool>("confirm", L["EducationReport:AbandonHint"].Value)) return; await JS.InvokeVoidAsync("sessionStorage.removeItem", StorageKey); Pending = null; StorageReady = true; Root = null; TaskId = Guid.Empty; Dirty = false; await LoadListAsync(); });
+    private async Task LeaveAsync(Microsoft.AspNetCore.Components.Routing.LocationChangingContext context) { if (Busy || (Dirty || Pending != null) && !await JS.InvokeAsync<bool>("confirm", L["EducationGrading:Discard"].Value)) context.PreventNavigation(); }
+    private async Task RunAsync(Func<Task> action) { if (Busy) return; Busy = true; Error = null; try { await action(); } catch (Exception ex) { Error = GetUserFriendlyErrorMessage(ex); } finally { Busy = false; } }
+    private sealed class Command { public string Kind { get; set; } = ""; public Guid TaskId { get; set; } public Guid? AccountId { get; set; } public Guid? TenantId { get; set; }
+        public SaveEducationStudyTaskDto? Draft { get; set; } public PublishEducationStudyTaskDto? Publish { get; set; } public WithdrawEducationStudyTaskDto? Withdraw { get; set; } }
+}

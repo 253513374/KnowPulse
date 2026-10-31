@@ -5,6 +5,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using KnowPulse.QuestionBank;
+using KnowPulse.RagAI;
 using Volo.Abp.DependencyInjection;
 using Volo.Abp.Domain.Repositories;
 using Volo.Abp.Linq;
@@ -64,16 +65,19 @@ public class QuestionSimilarityService : IQuestionSimilarityService, ITransientD
 
     private readonly IRepository<Question, Guid> _questionRepository;
     private readonly IAsyncQueryableExecuter _asyncExecuter;
+    private readonly KnowledgeSourceAccessGuard _sourceAccess;
 
     /// <summary>
     /// 创建相似题检测服务。
     /// </summary>
     public QuestionSimilarityService(
         IRepository<Question, Guid> questionRepository,
-        IAsyncQueryableExecuter asyncExecuter)
+        IAsyncQueryableExecuter asyncExecuter,
+        KnowledgeSourceAccessGuard sourceAccess)
     {
         _questionRepository = questionRepository;
         _asyncExecuter = asyncExecuter;
+        _sourceAccess = sourceAccess;
     }
 
     /// <summary>
@@ -99,7 +103,16 @@ public class QuestionSimilarityService : IQuestionSimilarityService, ITransientD
             return null;
         }
 
-        var best = questions
+        var visibleQuestions = new List<Question>();
+        foreach (var question in questions)
+        {
+            if (await _sourceAccess.CanReadQuestionAsync(question))
+            {
+                visibleQuestions.Add(question);
+            }
+        }
+
+        var best = visibleQuestions
             .Select(question => new
             {
                 Question = question,

@@ -1,5 +1,9 @@
 ﻿using Localization.Resources.AbpUi;
 using KnowPulse.Localization;
+using KnowPulse.HttpApi.Education;
+using KnowPulse.HttpApi.KnowledgeBase;
+using KnowPulse.HttpApi.WeChat;
+using Microsoft.AspNetCore.Mvc;
 using Volo.Abp.Account;
 using Volo.Abp.FeatureManagement;
 using Volo.Abp.Identity;
@@ -25,6 +29,9 @@ public class KnowPulseHttpApiModule : AbpModule
     public override void ConfigureServices(ServiceConfigurationContext context)
     {
         ConfigureLocalization();
+        Configure<MvcOptions>(options => options.Filters.Add<EducationStudentGrowthNoStoreFilter>());
+        Configure<MvcOptions>(options => options.Filters.Add<KnowledgeResponseNoStoreFilter>());
+        Configure<MvcOptions>(options => options.Filters.Add<WeChatAccountNoStoreFilter>());
     }
 
     private void ConfigureLocalization()
