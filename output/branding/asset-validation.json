@@ -1,0 +1,71 @@
+{
+  "passed": true,
+  "checks": [
+    {
+      "path": "src\\KnowPulse.Blazor.Client\\wwwroot\\images\\logo\\leptonx\\logo-dark.png",
+      "size": [
+        1469,
+        450
+      ],
+      "sha256": "25ed9e9a58108c74b627f30855bfad538995c11ff72058af9d71b2bf15b3b341"
+    },
+    {
+      "path": "src\\KnowPulse.Blazor.Client\\wwwroot\\images\\logo\\leptonx\\logo-light.png",
+      "size": [
+        1469,
+        450
+      ],
+      "sha256": "8b73a8c71a20090d836b2933e8b25db7ab1163a8039f7b97727b47420226c65d"
+    },
+    {
+      "path": "src\\KnowPulse.Blazor.Client\\wwwroot\\images\\logo\\leptonx\\logo-dark-thumbnail.png",
+      "size": [
+        450,
+        450
+      ],
+      "sha256": "b3f58e276f1a02745107613dc30273a2d23881faa994fe3a5fb1834468e962de"
+    },
+    {
+      "path": "src\\KnowPulse.Blazor.Client\\wwwroot\\images\\logo\\leptonx\\logo-light-thumbnail.png",
+      "size": [
+        450,
+        450
+      ],
+      "sha256": "b3f58e276f1a02745107613dc30273a2d23881faa994fe3a5fb1834468e962de"
+    },
+    {
+      "path": "src\\KnowPulse.HttpApi.Host\\wwwroot\\images\\logo\\leptonx\\logo-dark.png",
+      "size": [
+        1469,
+        450
+      ],
+      "sha256": "25ed9e9a58108c74b627f30855bfad538995c11ff72058af9d71b2bf15b3b341"
+    },
+    {
+      "path": "src\\KnowPulse.HttpApi.Host\\wwwroot\\images\\logo\\leptonx\\logo-light.png",
+      "size": [
+        1469,
+        450
+      ],
+      "sha256": "8b73a8c71a20090d836b2933e8b25db7ab1163a8039f7b97727b47420226c65d"
+    },
+    {
+      "path": "src\\KnowPulse.HttpApi.Host\\wwwroot\\images\\logo\\leptonx\\logo-dark-thumbnail.png",
+      "size": [
+        450,
+        450
+      ],
+      "sha256": "b3f58e276f1a02745107613dc30273a2d23881faa994fe3a5fb1834468e962de"
+    },
+    {
+      "path": "src\\KnowPulse.HttpApi.Host\\wwwroot\\images\\logo\\leptonx\\logo-light-thumbnail.png",
+      "size": [
+        450,
+        450
+      ],
+      "sha256": "b3f58e276f1a02745107613dc30273a2d23881faa994fe3a5fb1834468e962de"
+    }
+  ],
+  "manifestIconsVerified": true,
+  "sourceMatchesFigma": true
+}

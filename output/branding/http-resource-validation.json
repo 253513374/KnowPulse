@@ -1,0 +1,44 @@
+[
+  {
+    "path": "images/logo/leptonx/logo-light.png",
+    "status": 200,
+    "contentType": "image/png",
+    "bytes": 88836
+  },
+  {
+    "path": "images/logo/leptonx/logo-dark.png",
+    "status": 200,
+    "contentType": "image/png",
+    "bytes": 102752
+  },
+  {
+    "path": "images/logo/leptonx/logo-light-thumbnail.png",
+    "status": 200,
+    "contentType": "image/png",
+    "bytes": 10391
+  },
+  {
+    "path": "images/logo/leptonx/logo.svg",
+    "status": 200,
+    "contentType": "image/svg+xml",
+    "bytes": 578
+  },
+  {
+    "path": "favicon.ico",
+    "status": 200,
+    "contentType": "image/x-icon",
+    "bytes": 5807
+  },
+  {
+    "path": "icon-192.png",
+    "status": 200,
+    "contentType": "image/png",
+    "bytes": 3110
+  },
+  {
+    "path": "icon-512.png",
+    "status": 200,
+    "contentType": "image/png",
+    "bytes": 11844
+  }
+]

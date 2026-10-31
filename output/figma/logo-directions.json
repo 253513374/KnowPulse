@@ -1,0 +1,34 @@
+[
+  {
+    "id": "01",
+    "name": "书页星芒",
+    "tag": "简洁 · 易识别",
+    "description": "以双书页构成知识入口，金色星芒聚焦 AI，缩小后仍然清晰。",
+    "keywords": "知识学习 / 轻量 / 适合小程序头像",
+    "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"256\" height=\"256\" viewBox=\"0 0 256 256\"><path id=\"left-page\" d=\"M44 88 C67 82 96 91 120 109 L120 216 C95 197 72 192 46 196 Q39 197 39 189 L39 96 Q39 90 44 88Z\" fill=\"#0673F5\"/><path id=\"right-page\" d=\"M136 109 C160 91 189 82 212 88 Q217 90 217 96 L217 189 Q217 197 210 196 C184 192 161 197 136 216Z\" fill=\"#014CA8\"/><path id=\"ai-spark\" d=\"M128 29 Q134 54 162 62 Q134 70 128 95 Q122 70 94 62 Q122 54 128 29Z\" fill=\"#FAAC0F\"/></svg>"
+  },
+  {
+    "id": "02",
+    "name": "知识立方",
+    "tag": "结构化 · 企业感",
+    "description": "用立方体表达知识沉淀与模块化组织，中心星芒代表 AI 对知识的激活。",
+    "keywords": "企业知识库 / 稳定 / 数据与智能",
+    "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"256\" height=\"256\" viewBox=\"0 0 256 256\"><path id=\"top-face\" d=\"M128 29 L221 82 L128 136 L35 82Z\" fill=\"#0673F5\"/><path id=\"left-face\" d=\"M35 94 L121 144 L121 238 L35 188Z\" fill=\"#014CA8\"/><path id=\"right-face\" d=\"M135 144 L221 94 L221 188 L135 238Z\" fill=\"#0673F5\"/><path id=\"knowledge-core\" d=\"M128 51 L181 82 L128 113 L75 82Z\" fill=\"white\"/><path id=\"ai-core\" d=\"M128 61 Q132 76 151 82 Q132 88 128 103 Q124 88 105 82 Q124 76 128 61Z\" fill=\"#FAAC0F\"/><path id=\"knowledge-lines\" d=\"M56 130 L100 156 M56 156 L87 174\" fill=\"none\" stroke=\"white\" stroke-width=\"7\" stroke-linecap=\"round\"/></svg>"
+  },
+  {
+    "id": "03",
+    "name": "成长之树",
+    "tag": "成长 · 有温度",
+    "description": "知识从书本中生长为枝干与节点，表达员工成长、知识传承和持续学习。",
+    "keywords": "学习成长 / 知识传承 / 亲和力",
+    "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"256\" height=\"256\" viewBox=\"0 0 256 256\"><path id=\"knowledge-branches\" d=\"M128 183 V85 M128 151 L77 113 M128 131 L181 99\" fill=\"none\" stroke=\"#014CA8\" stroke-width=\"13\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><circle id=\"left-node\" cx=\"76\" cy=\"112\" r=\"19\" fill=\"#0673F5\"/><circle id=\"right-node\" cx=\"183\" cy=\"98\" r=\"19\" fill=\"#0673F5\"/><path id=\"ai-growth\" d=\"M128 28 Q135 52 158 60 Q135 68 128 92 Q121 68 98 60 Q121 52 128 28Z\" fill=\"#FAAC0F\"/><path id=\"left-book\" d=\"M37 183 C66 174 94 185 119 202 L119 228 C92 213 65 209 37 215Z\" fill=\"#0673F5\"/><path id=\"right-book\" d=\"M137 202 C162 185 190 174 219 183 L219 215 C191 209 164 213 137 228Z\" fill=\"#014CA8\"/></svg>"
+  },
+  {
+    "id": "04",
+    "name": "知脉字母标",
+    "tag": "品牌化 · 科技感",
+    "description": "将知脉拼音首字母 ZM 组合为几何字标，强化品牌识别和独特性。",
+    "keywords": "品牌识别 / 几何 / 技术产品",
+    "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"256\" height=\"256\" viewBox=\"0 0 256 256\"><path id=\"letter-z\" d=\"M31 79 H118 V104 L68 160 H119 V187 H28 V162 L78 106 H31Z\" fill=\"#0673F5\"/><path id=\"letter-m\" d=\"M132 187 V79 H157 L180 121 L203 79 H228 V187 H203 V125 L180 162 L157 125 V187Z\" fill=\"#014CA8\"/><path id=\"ai-spark\" d=\"M211 24 Q215 40 233 45 Q215 50 211 66 Q207 50 189 45 Q207 40 211 24Z\" fill=\"#FAAC0F\"/></svg>"
+  }
+]

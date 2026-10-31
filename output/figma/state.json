@@ -1,0 +1,16 @@
+{
+  "fileKey": "t3Oui0FU4YphtlOuPpo567",
+  "fileUrl": "https://www.figma.com/design/t3Oui0FU4YphtlOuPpo567",
+  "scope": "Enterprise learning homepage",
+  "pageId": "0:1",
+  "wrapperId": "3:2",
+  "componentAreaId": "3:3",
+  "collectionId": "VariableCollectionId:3:4",
+  "logoNodeId": "44:396",
+  "assistantNodeId": "4:439",
+  "completedSteps": ["discovery", "foundations", "wrapper", "composition", "editable-layers", "font-family", "brand-upload", "text-layout-repair", "screenshot"],
+  "pendingValidations": [],
+  "preview": "learning-home-new-logo.png",
+  "size": {"width": 1440, "height": 1200},
+  "validation": {"editableTextNodes": 75, "componentInstances": 38, "localComponents": 14, "fontFamily": "Noto Sans SC", "wholeUiRasterImages": 0}
+}

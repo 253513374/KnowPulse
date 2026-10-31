@@ -1,0 +1,24 @@
+{
+  "figmaFile": "t3Oui0FU4YphtlOuPpo567",
+  "markNodeId": "39:399",
+  "wordmarkNodeId": "4:246",
+  "color": "#0666F6",
+  "files": [
+    "src\\KnowPulse.Blazor.Client\\wwwroot\\images\\logo\\leptonx\\logo.svg",
+    "src\\KnowPulse.Blazor.Client\\wwwroot\\images\\logo\\leptonx\\logo-dark.svg",
+    "src\\KnowPulse.Blazor.Client\\wwwroot\\images\\logo\\leptonx\\logo-light.svg",
+    "src\\KnowPulse.Blazor.Client\\wwwroot\\images\\logo\\leptonx\\logo-dark.png",
+    "src\\KnowPulse.Blazor.Client\\wwwroot\\images\\logo\\leptonx\\logo-dark-thumbnail.png",
+    "src\\KnowPulse.Blazor.Client\\wwwroot\\images\\logo\\leptonx\\logo-light.png",
+    "src\\KnowPulse.Blazor.Client\\wwwroot\\images\\logo\\leptonx\\logo-light-thumbnail.png",
+    "src\\KnowPulse.HttpApi.Host\\wwwroot\\images\\logo\\leptonx\\logo.svg",
+    "src\\KnowPulse.HttpApi.Host\\wwwroot\\images\\logo\\leptonx\\logo-dark.svg",
+    "src\\KnowPulse.HttpApi.Host\\wwwroot\\images\\logo\\leptonx\\logo-light.svg",
+    "src\\KnowPulse.HttpApi.Host\\wwwroot\\images\\logo\\leptonx\\logo-dark.png",
+    "src\\KnowPulse.HttpApi.Host\\wwwroot\\images\\logo\\leptonx\\logo-dark-thumbnail.png",
+    "src\\KnowPulse.HttpApi.Host\\wwwroot\\images\\logo\\leptonx\\logo-light.png",
+    "src\\KnowPulse.HttpApi.Host\\wwwroot\\images\\logo\\leptonx\\logo-light-thumbnail.png",
+    "src\\KnowPulse.Blazor.Client\\wwwroot\\icon-192.png",
+    "src\\KnowPulse.Blazor.Client\\wwwroot\\icon-512.png"
+  ]
+}
