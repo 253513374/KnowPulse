@@ -17,6 +17,8 @@ using Microsoft.Extensions.Options;
 using Volo.Abp;
 using Volo.Abp.Application.Dtos;
 using Volo.Abp.Authorization;
+using Volo.Abp.Authorization.Permissions;
+using Volo.Abp.DependencyInjection;
 using Volo.Abp.Domain.Repositories;
 
 namespace KnowPulse.AiQuestioning;
@@ -26,7 +28,7 @@ namespace KnowPulse.AiQuestioning;
 /// 服务串联 MVP-1 RAG 检索、AI 模型调用、结构化校验、citation 落库、相似题提示和提交审核，
 /// 但始终只产出候选题或待审核题，不能绕过题库审核流直接生成正式考试题。
 /// </summary>
-[Authorize(KnowPulsePermissions.QuestionBank.AiGeneration)]
+[Authorize]
 public partial class AiQuestionGenerationAppService : KnowPulseAppService, IAiQuestionGenerationAppService
 {
     /// <summary>
@@ -84,6 +86,7 @@ public partial class AiQuestionGenerationAppService : KnowPulseAppService, IAiQu
     /// 查询当前 AI 出题模型配置。
     /// 该入口只暴露 alias、版本、限制和密钥环境变量名，不返回真实 key。
     /// </summary>
+    [Authorize(KnowPulsePermissions.QuestionBank.AiGeneration)]
     public virtual async Task<AiQuestionModelConfigurationDto> GetModelConfigurationAsync()
     {
         await CheckMvpPermissionAsync(KnowPulsePermissions.QuestionBank.AiGeneration);
@@ -115,9 +118,17 @@ public partial class AiQuestionGenerationAppService : KnowPulseAppService, IAiQu
     public virtual async Task<PagedResultDto<AiQuestionPromptTemplateDto>> GetPromptTemplatesAsync(
         GetAiQuestionPromptTemplateListInput input)
     {
-        await CheckMvpPermissionAsync(KnowPulsePermissions.QuestionBank.AiGeneration);
+        var canViewContent = await LazyServiceProvider.LazyGetRequiredService<IPermissionChecker>()
+            .IsGrantedAsync(KnowPulsePermissions.QuestionBank.PromptTemplates);
+        await CheckMvpPermissionAsync(canViewContent
+            ? KnowPulsePermissions.QuestionBank.PromptTemplates
+            : KnowPulsePermissions.QuestionBank.AiGeneration);
 
         var queryable = await _promptTemplateRepository.GetQueryableAsync();
+        if (!canViewContent)
+        {
+            queryable = queryable.Where(x => x.IsActive);
+        }
         if (!string.IsNullOrWhiteSpace(input.TemplateKey))
         {
             var templateKey = input.TemplateKey.Trim();
@@ -153,13 +164,23 @@ public partial class AiQuestionGenerationAppService : KnowPulseAppService, IAiQu
 
         return new PagedResultDto<AiQuestionPromptTemplateDto>(
             totalCount,
-            templates.Select(MapPromptTemplateToDto).ToList());
+            templates.Select(template =>
+            {
+                var dto = MapPromptTemplateToDto(template);
+                if (!canViewContent)
+                {
+                    dto.SystemPrompt = string.Empty;
+                    dto.UserPromptTemplate = string.Empty;
+                }
+                return dto;
+            }).ToList());
     }
 
     /// <summary>
     /// 分页查询 AI 出题模型调用日志。
     /// 日志只包含受控摘要、hash、状态和模型元数据，不返回完整 prompt 或完整模型响应。
     /// </summary>
+    [Authorize(KnowPulsePermissions.QuestionBank.AiGeneration)]
     public virtual async Task<PagedResultDto<AiQuestionModelCallLogDto>> GetCallLogsAsync(
         GetAiQuestionModelCallLogListInput input)
     {
@@ -229,6 +250,7 @@ public partial class AiQuestionGenerationAppService : KnowPulseAppService, IAiQu
     /// 分页查询 AI 出题任务。
     /// 查询结果会包含候选题和调用日志摘要，便于页面展示一次生成任务的完整审计链路。
     /// </summary>
+    [Authorize(KnowPulsePermissions.QuestionBank.AiGeneration)]
     public virtual async Task<PagedResultDto<AiQuestionGenerationTaskDto>> GetListAsync(GetAiQuestionGenerationTaskListInput input)
     {
         await CheckMvpPermissionAsync(KnowPulsePermissions.QuestionBank.AiGeneration);
@@ -281,6 +303,7 @@ public partial class AiQuestionGenerationAppService : KnowPulseAppService, IAiQu
     /// 查询单个 AI 出题任务详情。
     /// 返回值包含候选题 citation 和模型调用摘要，但不返回完整 prompt 或完整知识正文。
     /// </summary>
+    [Authorize(KnowPulsePermissions.QuestionBank.AiGeneration)]
     public virtual async Task<AiQuestionGenerationTaskDto> GetAsync(Guid id)
     {
         await CheckMvpPermissionAsync(KnowPulsePermissions.QuestionBank.AiGeneration);
@@ -291,6 +314,7 @@ public partial class AiQuestionGenerationAppService : KnowPulseAppService, IAiQu
     /// 查询单个 AI 候选题详情。
     /// 该入口用于前端局部刷新或未来候选题独立审核动作。
     /// </summary>
+    [Authorize(KnowPulsePermissions.QuestionBank.AiGeneration)]
     public virtual async Task<AiQuestionCandidateDto> GetCandidateAsync(Guid id)
     {
         await CheckMvpPermissionAsync(KnowPulsePermissions.QuestionBank.AiGeneration);
@@ -303,6 +327,7 @@ public partial class AiQuestionGenerationAppService : KnowPulseAppService, IAiQu
     /// 创建并同步执行 AI 出题任务。
     /// 输入数量和检索上下文数量会按配置截断，防止单次模型调用过大；生成结果先落入候选题表。
     /// </summary>
+    [Authorize(KnowPulsePermissions.QuestionBank.AiGeneration)]
     public virtual async Task<AiQuestionGenerationTaskDto> CreateAsync(CreateAiQuestionGenerationTaskDto input)
     {
         await CheckMvpPermissionAsync(KnowPulsePermissions.QuestionBank.AiGeneration);
@@ -345,6 +370,7 @@ public partial class AiQuestionGenerationAppService : KnowPulseAppService, IAiQu
     /// 重试已有 AI 出题任务。
     /// 重试会清理旧候选题并复用原任务约束和 prompt 模板，调用日志会继续保留作为失败/重试审计历史。
     /// </summary>
+    [Authorize(KnowPulsePermissions.QuestionBank.AiGeneration)]
     public virtual async Task<AiQuestionGenerationTaskDto> RetryAsync(Guid id)
     {
         await CheckMvpPermissionAsync(KnowPulsePermissions.QuestionBank.AiGeneration);
@@ -361,6 +387,7 @@ public partial class AiQuestionGenerationAppService : KnowPulseAppService, IAiQu
     /// 将 AI 候选题采纳为题库草稿。
     /// 草稿保留 AI 来源和 citation，但不会自动提交审核。
     /// </summary>
+    [Authorize(KnowPulsePermissions.QuestionBank.AiGeneration)]
     public virtual async Task<QuestionDto> AdoptCandidateAsDraftAsync(Guid candidateId)
     {
         await CheckMvpPermissionAsync(KnowPulsePermissions.QuestionBank.AiGeneration);
@@ -371,6 +398,7 @@ public partial class AiQuestionGenerationAppService : KnowPulseAppService, IAiQu
     /// <summary>
     /// 兼容旧版调用方：该入口现在只采纳为草稿，不再自动提交审核。
     /// </summary>
+    [Authorize(KnowPulsePermissions.QuestionBank.AiGeneration)]
     public virtual Task<QuestionDto> SubmitCandidateForReviewAsync(Guid candidateId, SubmitAiQuestionCandidateDto input)
     {
         return AdoptCandidateAsDraftAsync(candidateId);

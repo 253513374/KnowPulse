@@ -1,0 +1,75 @@
+@page "/teacher/materials/{Id:guid}"
+@attribute [Authorize(KnowPulsePermissions.KnowledgeBase.Items)]
+@inherits KnowPulseComponentBase
+@inject IKnowledgeManagementAppService Management
+@inject IKnowledgeItemAppService Knowledge
+@inject IPermissionChecker PermissionChecker
+@inject IJSRuntime JS
+
+<PageTitle>资料原文 · 知脉空间</PageTitle>
+<main class="teacher-page">
+    <TeacherPageHeader Title="资料原文" Description="显示当前发布版本。" />
+    @if (_error is not null)
+    {
+        <MudAlert Severity="Severity.Error" role="alert">@_error</MudAlert>
+    }
+    @if (_detail is null && _error is null)
+    {
+        <p role="status">正在读取资料…</p>
+    }
+    else if (_detail is not null)
+    {
+        var current = _detail.Versions.FirstOrDefault(x => x.Id == _detail.CurrentVersionId);
+        <MudPaper Class="teacher-panel" Elevation="0">
+            <h2>@_detail.Title</h2>
+            <p>@_detail.Summary</p>
+            @if (current is null) { <p>当前没有可查看的发布版本。</p> }
+            else
+            {
+                @if (!string.IsNullOrWhiteSpace(current.ContentText)) { <div class="teacher-pre">@current.ContentText</div> }
+                @foreach (var attachment in _attachments) { <MudButton Variant="Variant.Outlined" OnClick="() => DownloadAsync(attachment)" Disabled="_busy">下载 @attachment.FileName</MudButton> }
+            }
+            <MudButton Href="/teacher/answer">返回资料问答</MudButton>
+        </MudPaper>
+    }
+</main>
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+    [SupplyParameterFromQuery(Name = "version")] public Guid? VersionId { get; set; }
+    private KnowledgeManagementDetailDto? _detail;
+    private IReadOnlyList<KnowledgeAttachmentDto> _attachments = [];
+    private string? _error;
+    private bool _busy;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _detail = null; _attachments = []; _error = null;
+        try
+        {
+            _detail = await Management.GetAsync(Id);
+            if (VersionId.HasValue && _detail.CurrentVersionId != VersionId)
+            {
+                _detail = null;
+                _error = "该引用的版本已不是当前发布版本，请重新提问获取最新依据。";
+                return;
+            }
+            if (_detail.CurrentVersionId is Guid versionId && await PermissionChecker.IsGrantedAsync(KnowPulsePermissions.KnowledgeBase.Attachments))
+                _attachments = (await Knowledge.GetAttachmentsAsync(Id, versionId)).Items;
+        }
+        catch (Exception ex) { _detail = null; _error = GetUserFriendlyErrorMessage(ex); }
+    }
+
+    private async Task DownloadAsync(KnowledgeAttachmentDto attachment)
+    {
+        _busy = true; _error = null;
+        try
+        {
+            using var content = await Knowledge.DownloadAttachmentAsync(Id, attachment.KnowledgeVersionId, attachment.Id);
+            using var reference = new DotNetStreamReference(content.GetStream());
+            await JS.InvokeVoidAsync("knowPulse.downloadFileFromStream", attachment.FileName, attachment.ContentType, reference);
+        }
+        catch (Exception ex) { _error = GetUserFriendlyErrorMessage(ex); }
+        finally { _busy = false; }
+    }
+}

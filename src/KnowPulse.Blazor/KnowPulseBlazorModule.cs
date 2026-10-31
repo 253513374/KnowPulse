@@ -55,6 +55,8 @@ public class KnowPulseBlazorModule : AbpModule
                 bundle =>
                 {
                     bundle.AddFiles("/main.css");
+                    bundle.AddFiles("/css/admin.css");
+                    bundle.AddFiles("/css/rag-admin.css");
                     bundle.AddFiles(new BundleFile("/KnowPulse.Blazor.Client.styles.css", true));
                 }
             );

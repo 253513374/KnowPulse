@@ -9,7 +9,7 @@
 <PageTitle>我的题库 · 知脉空间</PageTitle>
 <main class="teacher-page" data-teacher-section="questions">
     <TeacherPageHeader Title="我的题库" Description="只管理自己的题目；草稿经本人确认后才能发布给学生。">
-        <Actions><MudButton Href="/teacher/questions/new" Variant="Variant.Outlined">手工建题</MudButton><MudButton Href="/teacher/generate" Variant="Variant.Filled" Color="Color.Primary">基于资料出题</MudButton></Actions>
+        <Actions><MudButton Href="/teacher/questions/new" Variant="Variant.Outlined">手工建题</MudButton>@if (_canGenerate) { <MudButton Href="/teacher/generate" Variant="Variant.Filled" Color="Color.Primary">基于资料出题</MudButton> }</Actions>
     </TeacherPageHeader>
     @if (_error is not null) { <MudAlert Severity="Severity.Error" role="alert">@_error</MudAlert> }
     @if (_canGenerate)
@@ -40,18 +40,18 @@
             <NoRecordsContent><MudText>@(_error is null ? "暂无符合条件的题目。可手工建题，也可基于资料生成。" : "列表未能加载，请重试。")</MudText></NoRecordsContent>
         </MudTable>
         <MvpPager SkipCount="_skip" TotalCount="_total" IsBusy="_busy" OnSkipCountChanged="PageAsync" />
-        <MudButton Href="/teacher/tasks/new" Variant="Variant.Filled" Color="Color.Primary">选择题目创建任务</MudButton>
+        @if (_canManageTasks) { <MudButton Href="/teacher/tasks/new" Variant="Variant.Filled" Color="Color.Primary">选择题目创建任务</MudButton> }
     </MudPaper>
 </main>
 @code {
     private IReadOnlyList<QuestionDto> _questions = [];
     private IReadOnlyList<AiQuestionGenerationTaskDto> _tasks = [];
     private QuestionWorklistKind? _filter = QuestionWorklistKind.Formal;
-    private bool _busy, _canGenerate;
+    private bool _busy, _canGenerate, _canManageTasks;
     private string? _keyword, _error;
     private int _skip, _taskSkip;
     private long _total, _taskTotal;
-    protected override async Task OnInitializedAsync() { _canGenerate = await PermissionChecker.IsGrantedAsync(KnowPulsePermissions.QuestionBank.AiGeneration); await LoadAsync(); }
+    protected override async Task OnInitializedAsync() { _canGenerate = await PermissionChecker.IsGrantedAsync(KnowPulsePermissions.QuestionBank.AiGeneration); _canManageTasks = await PermissionChecker.IsGrantedAsync(KnowPulsePermissions.Exam.Manage); await LoadAsync(); }
     private Task SearchAsync() => PageAsync(0);
     private async Task FilterAsync(QuestionWorklistKind? filter) { _filter = filter; await PageAsync(0); }
     private async Task PageAsync(int skip) { _skip = skip; await LoadAsync(); }

@@ -6,11 +6,11 @@
 
 <PageTitle>模型管理</PageTitle>
 
-<div class="rag-model-console">
-    <header class="rag-model-header">
+<div class="admin-page rag-admin-page rag-model-console">
+    <header class="admin-page-header rag-model-header">
         <div>
-            <h1>RAG 运行控制台 · 模型管理</h1>
-            <p>管理稳定 Alias、验证模型连通性，并控制不同业务用途的生效配置。</p>
+            <h1>@(ActiveSection == ModelWorkspaceSection.Catalog ? "AI 模型目录" : ActiveSection == ModelWorkspaceSection.Bindings ? "模型用途与健康" : "模型健康记录")</h1>
+            <p>维护模型部署信息，明确凭据配置与可用状态。</p>
         </div>
         <div class="rag-model-header-actions">
             @if (!string.IsNullOrWhiteSpace(Overview?.LiteLlmAdminUrl))
@@ -19,7 +19,15 @@
                     LiteLLM 控制台 <i class="fa fa-external-link-alt" aria-hidden="true"></i>
                 </a>
             }
-            <button class="kp-button kp-button--primary-outline" type="button" @onclick="ReloadAsync" disabled="@IsBusy">
+            @if (CanTest)
+            {
+                <button class="kp-button kp-button--secondary" type="button" @onclick="TestAllAsync" disabled="@IsBusy">检查全部模型</button>
+            }
+            @if (CanManage && ActiveSection == ModelWorkspaceSection.Catalog)
+            {
+                <button class="kp-button kp-button--primary" type="button" @onclick="NewModelAsync" disabled="@IsBusy">新增模型</button>
+            }
+            <button class="kp-button kp-button--secondary" type="button" @onclick="ReloadAsync" disabled="@IsBusy">
                 <i class="fa fa-sync-alt" aria-hidden="true"></i> 刷新
             </button>
         </div>
@@ -38,52 +46,21 @@
     @if (Overview == null)
     {
         <div class="rag-model-loading" role="status">
-            <span class="kp-spinner kp-spinner--sm" aria-hidden="true"></span>
-            正在读取模型配置
+            @if (IsBusy) { <span class="kp-spinner kp-spinner--sm" aria-hidden="true"></span><span>正在读取模型配置</span> }
+            else { <span>模型配置未能加载，请重试。</span> }
         </div>
     }
     else
     {
-        <section class="rag-usage-summary" aria-label="当前业务用途配置">
-            @foreach (var binding in Overview.Bindings.Where(x => x.Usage != AiModelUsage.SubjectiveScoring).OrderBy(x => x.Usage))
-            {
-                var deployment = Overview.Deployments.FirstOrDefault(x => x.Id == binding.DeploymentId);
-                <article class="rag-usage-card">
-                    <span class="rag-usage-icon @GetUsageIconCss(binding.Usage)">
-                        <i class="fa @GetUsageIcon(binding.Usage)" aria-hidden="true"></i>
-                    </span>
-                    <div class="rag-usage-copy">
-                        <div class="rag-usage-heading">
-                            <strong>@GetUsageText(binding.Usage)</strong>
-                            <span class="rag-model-status @GetHealthStatusCss(deployment?.HealthStatus ?? AiModelHealthStatus.Unknown)">
-                                <span aria-hidden="true"></span>@GetHealthText(deployment?.HealthStatus ?? AiModelHealthStatus.Unknown)
-                            </span>
-                        </div>
-                        <div class="rag-usage-alias">@binding.DeploymentAlias</div>
-                        <div class="rag-usage-version">业务版本 @binding.BusinessModelVersion</div>
-                    </div>
-                </article>
-            }
-        </section>
-
-        <nav class="rag-model-tabs" aria-label="模型管理分区">
-            <button type="button" class="@(ActiveSection == ModelWorkspaceSection.Bindings ? "is-active" : null)" @onclick="() => SelectSection(ModelWorkspaceSection.Bindings)">
-                <i class="fa fa-route" aria-hidden="true"></i> 用途配置
-            </button>
-            <button type="button" class="@(ActiveSection == ModelWorkspaceSection.Catalog ? "is-active" : null)" @onclick="() => SelectSection(ModelWorkspaceSection.Catalog)">
-                <i class="fa fa-cubes" aria-hidden="true"></i> 模型目录
-            </button>
-            <button type="button" class="@(ActiveSection == ModelWorkspaceSection.Health ? "is-active" : null)" @onclick="() => SelectSection(ModelWorkspaceSection.Health)">
-                <i class="fa fa-heartbeat" aria-hidden="true"></i> 健康记录
-            </button>
-        </nav>
+        <RagAdminTabs Active="@(ActiveSection.ToString().ToLowerInvariant())" />
 
         @if (ActiveSection == ModelWorkspaceSection.Bindings)
         {
+            <div class="rag-model-bindings-layout">
             <section class="rag-model-surface">
                 <div class="rag-model-section-heading">
                     <div>
-                        <h2>用途配置</h2>
+                        <h2>用途绑定</h2>
                         <p>业务代码只依赖稳定用途；切换默认模型前必须先完成健康检查。</p>
                     </div>
                     @if (CanTest)
@@ -94,8 +71,15 @@
                     }
                 </div>
 
+                <div class="rag-model-purpose-filter rag-field">
+                    <label for="model-purpose">用途</label>
+                    <select id="model-purpose" class="kp-select" @bind="SelectedUsage" disabled="@IsBusy">
+                        @foreach (var binding in BindingForms) { <option value="@binding.Usage">@GetUsageText(binding.Usage)</option> }
+                    </select>
+                </div>
+
                 <div class="rag-binding-list">
-                    @foreach (var binding in BindingForms)
+                    @foreach (var binding in BindingForms.Where(x => x.Usage == SelectedUsage))
                     {
                         var selectedDeployment = GetSelectedDeployment(binding);
                         var isChanging = binding.OriginalDeploymentId != binding.DeploymentId;
@@ -133,7 +117,7 @@
                                 <span class="rag-binding-hint @GetBindingHintCss(binding)">@GetBindingHint(binding)</span>
                             </div>
 
-                            <details class="rag-binding-advanced">
+                            <details class="rag-binding-advanced" open>
                                 <summary>高级参数</summary>
                                 <div class="rag-binding-advanced-grid">
                                     @if (binding.Usage != AiModelUsage.KnowledgeEmbedding)
@@ -154,6 +138,8 @@
                                 </div>
                             </details>
 
+                            <p class="rag-binding-notice">切换仅影响后续调用；历史记录保留当时的模型与业务版本。</p>
+
                             <div class="rag-binding-actions">
                                 @if (CanTest && selectedDeployment != null)
                                 {
@@ -167,6 +153,18 @@
                     }
                 </div>
             </section>
+            <aside class="rag-model-surface">
+                <div class="rag-model-section-heading"><h2>最近健康检查</h2></div>
+                <div class="rag-model-health-summary">
+                    @if (Overview.HealthSnapshots.Count == 0) { <p>尚未执行健康检查。检查模型后再切换默认配置。</p> }
+                    @foreach (var health in Overview.HealthSnapshots.OrderByDescending(x => x.CheckedTime).GroupBy(x => x.DeploymentId).Select(x => x.First()))
+                    {
+                        <div class="rag-model-health-item"><strong>@health.DeploymentAlias</strong><span class="rag-model-status @GetHealthStatusCss(health.Status)">@GetHealthText(health.Status)</span><small>@health.CheckedTime.ToLocalTime().ToString("MM-dd HH:mm") · @(health.LatencyMs.HasValue ? $"{health.LatencyMs} ms" : "无延迟记录")</small>@if (!string.IsNullOrWhiteSpace(health.FailureReason)) { <p>@health.FailureReason</p> }</div>
+                    }
+                    @if (CanTest) { <button class="kp-button kp-button--secondary" @onclick="TestAllAsync" disabled="@IsBusy">重新检查全部</button> }
+                </div>
+            </aside>
+            </div>
         }
         else if (ActiveSection == ModelWorkspaceSection.Catalog)
         {
@@ -174,18 +172,13 @@
                 <div class="rag-model-section-heading">
                     <div>
                         <h2>模型目录</h2>
-                        <p>维护稳定 Alias 与上游模型映射；密钥只通过环境变量读取。</p>
+                        <p>@Overview.Deployments.Count 个模型 · @Overview.Deployments.Count(x => x.IsActive) 个启用。密钥只通过环境变量读取。</p>
                     </div>
-                    @if (CanManage)
-                    {
-                        <button class="kp-button kp-button--sm kp-button--primary" type="button" @onclick="NewModelAsync">
-                            <i class="fa fa-plus" aria-hidden="true"></i> 新增模型
-                        </button>
-                    }
                 </div>
 
                 @if (ShowModelEditor)
                 {
+                    <MudDrawer Anchor="Anchor.Right" Variant="DrawerVariant.Temporary" @bind-Open="ShowModelEditor" Width="880px" Overlay="true" OverlayAutoClose="false" Class="rag-model-drawer">
                     <div class="rag-model-editor">
                         <div class="rag-model-editor-heading">
                             <div>
@@ -235,9 +228,14 @@
                                     <label for="model-env">Key 环境变量</label>
                                     <InputText id="model-env" class="kp-input" @bind-Value="ModelForm.ApiKeyEnvironmentVariable" disabled="@(!CanManage)" />
                                 </div>
-                                <div class="rag-field">
+                                <div class="rag-field rag-field--wide">
                                     <label for="model-base-url">Base URL</label>
                                     <InputText id="model-base-url" class="kp-input" @bind-Value="ModelForm.BaseUrl" disabled="@(!CanManage)" />
+                                </div>
+                                <div class="rag-field">
+                                    <label for="model-context-window">上下文窗口 Token</label>
+                                    <InputNumber id="model-context-window" class="kp-input" @bind-Value="ModelForm.ContextWindowTokens" min="1" step="1" disabled="@(!CanManage)" />
+                                    <ValidationMessage For="@(() => ModelForm.ContextWindowTokens)" />
                                 </div>
                                 @if (ModelForm.Capability == AiModelCapability.Embedding)
                                 {
@@ -254,6 +252,21 @@
                                         <InputNumber id="model-output" class="kp-input" @bind-Value="ModelForm.MaxOutputTokens" disabled="@(!CanManage)" />
                                     </div>
                                 }
+                                <div class="rag-field">
+                                    <label for="model-input-price">输入 Token 单价（USD）</label>
+                                    <InputNumber id="model-input-price" class="kp-input" @bind-Value="ModelForm.PromptTokenPriceUsd" min="0" step="any" disabled="@(!CanManage)" />
+                                    <ValidationMessage For="@(() => ModelForm.PromptTokenPriceUsd)" />
+                                </div>
+                                <div class="rag-field">
+                                    <label for="model-output-price">输出 Token 单价（USD）</label>
+                                    <InputNumber id="model-output-price" class="kp-input" @bind-Value="ModelForm.CompletionTokenPriceUsd" min="0" step="any" disabled="@(!CanManage)" />
+                                    <ValidationMessage For="@(() => ModelForm.CompletionTokenPriceUsd)" />
+                                </div>
+                                <div class="rag-field rag-field--wide">
+                                    <label for="model-description">部署说明</label>
+                                    <InputTextArea id="model-description" class="kp-input" @bind-Value="ModelForm.Description" rows="3" maxlength="@AiModelConsts.MaxDescriptionLength" disabled="@(!CanManage)" />
+                                    <ValidationMessage For="@(() => ModelForm.Description)" />
+                                </div>
                             </div>
                             <div class="rag-model-form-footer">
                                 <div class="kp-check kp-switch">
@@ -267,7 +280,14 @@
                             </div>
                         </EditForm>
                     </div>
+                    </MudDrawer>
                 }
+
+                <form class="rag-model-filter" @onsubmit="ApplyModelFilter" @onsubmit:preventDefault>
+                    <div class="rag-field"><label for="model-keyword">搜索模型</label><input id="model-keyword" class="kp-input" @bind="ModelKeyword" placeholder="模型别名 / 供应商 / 上游模型" /></div>
+                    <div class="rag-field"><label for="model-state">启用状态</label><select id="model-state" class="kp-select" @bind="ModelStateFilter"><option value="">全部状态</option><option value="true">已启用</option><option value="false">已停用</option></select></div>
+                    <button class="kp-button kp-button--primary" type="submit">查询</button><button class="kp-button kp-button--secondary" type="button" @onclick="ResetModelFilter">重置</button>
+                </form>
 
                 <div class="kp-table-wrap rag-model-table-wrap">
                     <table class="kp-table kp-table-align-middle kp-mb-0 rag-model-table">
@@ -275,14 +295,15 @@
                             <tr>
                                 <th>业务 Alias</th>
                                 <th>能力</th>
-                                <th>上游模型</th>
-                                <th>当前用途</th>
-                                <th>运行状态</th>
+                                <th>凭据环境变量</th>
+                                <th>健康状态</th>
+                                <th>启用</th>
                                 <th class="kp-text-end">操作</th>
                             </tr>
                         </thead>
                         <tbody>
-                            @foreach (var model in Overview.Deployments)
+                            @if (FilteredModels.Count == 0) { <tr><td colspan="6"><div class="rag-model-empty">暂无符合条件的模型。请调整筛选，或新增模型部署。</div></td></tr> }
+                            @foreach (var model in FilteredModels.Skip(ModelSkipCount).Take(10))
                             {
                                 <tr>
                                     <td>
@@ -291,14 +312,14 @@
                                     </td>
                                     <td>@GetCapabilityText(model.Capability)</td>
                                     <td>
-                                        <strong>@model.UpstreamModelName</strong>
-                                        <span>@model.ProviderType · @model.ApiKeyEnvironmentVariable</span>
+                                        <strong>@(model.ApiKeyEnvironmentVariable ?? "未配置")</strong>
+                                        <span>@model.ProviderType · @model.UpstreamModelName</span>
                                     </td>
-                                    <td>@GetModelUsageText(model.Id)</td>
                                     <td>
                                         <span class="rag-model-status @GetHealthStatusCss(model.HealthStatus)"><span aria-hidden="true"></span>@GetHealthText(model.HealthStatus)</span>
-                                        <span>@(model.IsActive ? "已启用" : "已停用")</span>
+                                        <span>@GetModelUsageText(model.Id)</span>
                                     </td>
+                                    <td>@(model.IsActive ? "已启用" : "已停用")</td>
                                     <td>
                                         <div class="rag-model-row-actions">
                                             @if (CanTest)
@@ -319,6 +340,7 @@
                         </tbody>
                     </table>
                 </div>
+                <MvpPager SkipCount="ModelSkipCount" PageSize="10" TotalCount="FilteredModels.Count" IsBusy="IsBusy" OnSkipCountChanged="ChangeModelPage" />
             </section>
         }
         else
@@ -378,7 +400,17 @@
     private AiModelCatalogOverviewDto? Overview { get; set; }
     private ModelFormModel ModelForm { get; set; } = new();
     private List<BindingFormModel> BindingForms { get; set; } = new();
-    private ModelWorkspaceSection ActiveSection { get; set; } = ModelWorkspaceSection.Bindings;
+    [SupplyParameterFromQuery(Name = "section")]
+    public string? Section { get; set; }
+
+    private ModelWorkspaceSection ActiveSection { get; set; } = ModelWorkspaceSection.Catalog;
+    private AiModelUsage SelectedUsage { get; set; } = AiModelUsage.RagAnswerChat;
+    private string? ModelKeyword { get; set; }
+    private string? ModelStateFilter { get; set; }
+    private int ModelSkipCount { get; set; }
+    private IReadOnlyList<AiModelDeploymentDto> FilteredModels => Overview?.Deployments.Where(x =>
+        (string.IsNullOrWhiteSpace(ModelKeyword) || x.Alias.Contains(ModelKeyword.Trim(), StringComparison.OrdinalIgnoreCase) || x.UpstreamModelName.Contains(ModelKeyword.Trim(), StringComparison.OrdinalIgnoreCase) || x.ProviderType.ToString().Contains(ModelKeyword.Trim(), StringComparison.OrdinalIgnoreCase)) &&
+        (!bool.TryParse(ModelStateFilter, out var active) || x.IsActive == active)).ToList() ?? [];
     private bool ShowModelEditor { get; set; }
     private bool CanManage { get; set; }
     private bool CanTest { get; set; }
@@ -395,12 +427,14 @@
         await ReloadAsync();
     }
 
-    private void SelectSection(ModelWorkspaceSection section)
+    protected override void OnParametersSet()
     {
-        ActiveSection = section;
-        ErrorMessage = null;
-        SuccessMessage = null;
+        ActiveSection = Section switch { "bindings" => ModelWorkspaceSection.Bindings, "health" => ModelWorkspaceSection.Health, _ => ModelWorkspaceSection.Catalog };
     }
+
+    private void ApplyModelFilter() => ModelSkipCount = 0;
+    private void ResetModelFilter() { ModelKeyword = null; ModelStateFilter = null; ModelSkipCount = 0; }
+    private void ChangeModelPage(int skipCount) => ModelSkipCount = skipCount;
 
     private async Task ReloadAsync()
     {
@@ -737,10 +771,13 @@
         [StringLength(AiModelConsts.MaxBaseUrlLength)]
         public string? BaseUrl { get; set; }
 
+        [Range(1, int.MaxValue, ErrorMessage = "上下文窗口 Token 必须大于 0。")]
         public int? ContextWindowTokens { get; set; }
         public int? MaxOutputTokens { get; set; }
         public int? EmbeddingDimension { get; set; }
+        [Range(0d, double.MaxValue, ErrorMessage = "输入单价不能为负数。")]
         public decimal? PromptTokenPriceUsd { get; set; }
+        [Range(0d, double.MaxValue, ErrorMessage = "输出单价不能为负数。")]
         public decimal? CompletionTokenPriceUsd { get; set; }
         public bool IsActive { get; set; } = true;
 

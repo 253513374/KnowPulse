@@ -99,6 +99,7 @@ public class TeachingKnowledgeAppServiceTests : KnowPulseEntityFrameworkCoreTest
         using (As(sharedTeacher))
         {
             await Should.ThrowAsync<AbpAuthorizationException>(() => _items.GetAsync(item.Id));
+            await Should.ThrowAsync<AbpAuthorizationException>(() => GetRequiredService<IKnowledgeManagementAppService>().GetAsync(item.Id));
             await Should.ThrowAsync<AbpAuthorizationException>(() => _generation.CreateAsync(new()
             {
                 KnowledgeScope = "讲义", KnowledgeItemIds = [item.Id]
@@ -127,6 +128,7 @@ public class TeachingKnowledgeAppServiceTests : KnowPulseEntityFrameworkCoreTest
         {
             (await _items.GetListAsync(new() { MaxResultCount = 100 })).Items.ShouldNotContain(x => x.Id == item.Id);
             await Should.ThrowAsync<AbpAuthorizationException>(() => _items.GetAsync(item.Id));
+            await Should.ThrowAsync<AbpAuthorizationException>(() => GetRequiredService<IKnowledgeManagementAppService>().GetAsync(item.Id));
             await Should.ThrowAsync<AbpAuthorizationException>(() => _items.GetVersionsAsync(item.Id));
             await Should.ThrowAsync<AbpAuthorizationException>(() => _items.CreateVersionAsync(item.Id, new() { Title = "越权" }));
             await Should.ThrowAsync<AbpAuthorizationException>(() => _items.DeleteAsync(item.Id));

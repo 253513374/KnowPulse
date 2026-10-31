@@ -4,15 +4,19 @@
 @inject IPositionAppService PositionAppService
 @inject IDepartmentAppService DepartmentAppService
 
-<PageTitle>岗位</PageTitle>
+<PageTitle>岗位管理 · 组织与人员</PageTitle>
 
-<div class="kp-flex kp-flex-wrap kp-align-center kp-justify-between kp-gap-2 kp-mb-3">
+<div class="admin-page">
+
+<header class="admin-page-header">
     <div>
-        <h1 class="kp-heading-4 kp-mb-1">岗位</h1>
-        <div class="kp-text-muted kp-text-small">Organization / Positions</div>
+        <h1>组织与人员</h1>
+        <p class="kp-text-muted">维护岗位及其所属部门与安全等级。</p>
     </div>
     <button class="kp-button kp-button--secondary kp-button--sm" type="button" @onclick="LoadAsync" disabled="@IsBusy">刷新</button>
-</div>
+</header>
+
+<OrganizationNav />
 
 @if (!string.IsNullOrWhiteSpace(ErrorMessage))
 {
@@ -29,6 +33,7 @@
                 <h2 class="kp-heading-6 kp-mb-3">@FormTitle</h2>
                 <EditForm Model="@FormModel" OnValidSubmit="@SaveAsync">
                     <DataAnnotationsValidator />
+                    <ValidationSummary role="alert" />
 
                     <div class="kp-mb-3">
                         <label class="kp-label" for="position-code">编码</label>
@@ -124,6 +129,8 @@
             <MvpPager SkipCount="SkipCount" PageSize="PageSize" TotalCount="TotalCount" IsBusy="IsBusy" OnSkipCountChanged="ChangePageAsync" />
         </div>
     </div>
+</div>
+
 </div>
 
 @code {

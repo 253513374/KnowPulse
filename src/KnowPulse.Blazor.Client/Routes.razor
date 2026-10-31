@@ -1,23 +1,72 @@
 @using Volo.Abp.AspNetCore.Components.Web.MudBlazorLeptonXLiteTheme.Themes.MudBlazorLeptonXLite
 @using Volo.Abp.AspNetCore.Components.WebAssembly.MudBlazorLeptonXLiteTheme.Themes.MudBlazorLeptonXLite
 @using Volo.Abp.AspNetCore.Components.WebAssembly.WebApp
+@inject NavigationManager Navigation
+<CascadingAuthenticationState>
 <Router AppAssembly="typeof(Program).Assembly" AdditionalAssemblies="WebAppAdditionalAssembliesHelper.GetAssemblies<KnowPulseBlazorClientModule>()">
     <Found Context="routeData">
-        <AuthorizeRouteView RouteData="routeData" DefaultLayout="typeof(MainLayout)">
-            <NotAuthorized Context="authenticationState">
-                @if (authenticationState.User.Identity?.IsAuthenticated == true)
-                {
-                    <main class="teacher-page">
-                        <KpStatePanel Kind="KpStateKind.Error" Title="无权访问" Description="当前账号没有此页面的访问权限。请返回教师工作区继续操作。">
-                            <Actions><MudButton Href="/" Color="Color.Primary" Variant="Variant.Filled">返回教师工作区</MudButton></Actions>
-                        </KpStatePanel>
-                    </main>
-                }
-                else
-                {
-                    <WebAssemblyRedirectToLogin />
-                }
-            </NotAuthorized>
-        </AuthorizeRouteView>
+        @if (TeachingRedirect?.StartsWith("/teacher/tasks/new", StringComparison.OrdinalIgnoreCase) == true)
+        {
+            <LegacyTeachingRedirect Destination="TeachingRedirect" />
+        }
+        else if (TeacherLegacyRedirect is not null || TeachingRedirect is not null)
+        {
+            <AuthorizeView Policy="@AdminNavigation.AccessPolicy">
+                <Authorized>
+                    <WorkspaceRouteView RouteData="routeData" IsManagementRoute="true" />
+                </Authorized>
+                <NotAuthorized>
+                    <AuthorizeView Policy="@TeacherLegacyPermission" Context="teacherState">
+                        <Authorized><LegacyTeachingRedirect Destination="@(TeacherLegacyRedirect ?? TeachingRedirect!)" /></Authorized>
+                        <NotAuthorized>
+                            @if (teacherState.User.Identity?.IsAuthenticated == true)
+                            {
+                                <main class="teacher-page"><KpStatePanel Kind="KpStateKind.Error" Title="无访问权限" Description="当前账号没有此页面的访问权限。" /></main>
+                            }
+                            else
+                            {
+                                <WebAssemblyRedirectToLogin />
+                            }
+                        </NotAuthorized>
+                    </AuthorizeView>
+                </NotAuthorized>
+            </AuthorizeView>
+        }
+        else if (IsManagementRoute)
+        {
+            <AuthorizeView Policy="@AdminNavigation.AccessPolicy">
+                <Authorized>
+                    <WorkspaceRouteView RouteData="routeData" IsManagementRoute="true" />
+                </Authorized>
+                <NotAuthorized Context="authenticationState">
+                    @if (authenticationState.User.Identity?.IsAuthenticated == true)
+                    {
+                        <main class="teacher-page">
+                            <KpStatePanel Kind="KpStateKind.Error" Title="无访问权限" Description="当前账号没有平台管理权限。">
+                                <Actions><MudButton Href="/" Color="Color.Primary" Variant="Variant.Filled">返回教师工作区</MudButton></Actions>
+                            </KpStatePanel>
+                        </main>
+                    }
+                    else
+                    {
+                        <WebAssemblyRedirectToLogin />
+                    }
+                </NotAuthorized>
+            </AuthorizeView>
+        }
+        else
+        {
+            <WorkspaceRouteView RouteData="routeData" />
+        }
     </Found>
 </Router>
+</CascadingAuthenticationState>
+
+@code {
+    private bool IsManagementRoute => AdminNavigation.IsManagementPath(Navigation.ToBaseRelativePath(Navigation.Uri));
+    private string? TeachingRedirect => AdminNavigation.GetTeachingRedirect(Navigation.ToBaseRelativePath(Navigation.Uri));
+    private string? TeacherLegacyRedirect => AdminNavigation.GetTeacherLegacyRedirect(Navigation.ToBaseRelativePath(Navigation.Uri));
+    private string TeacherLegacyPermission => TeacherLegacyRedirect?.StartsWith("/teacher/materials/", StringComparison.OrdinalIgnoreCase) == true
+        ? KnowPulsePermissions.KnowledgeBase.Items
+        : TeacherLegacyRedirect is not null ? KnowPulsePermissions.QuestionBank.Questions : KnowPulsePermissions.Exam.Manage;
+}

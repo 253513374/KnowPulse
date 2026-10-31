@@ -1,0 +1,27 @@
+@namespace KnowPulse.Blazor.Client.Pages.Rag
+
+<nav class="rag-admin-tabs" aria-label="AI 管理分区">
+    <AuthorizeView Policy="@KnowPulsePermissions.AiModels.View">
+        <Authorized>
+            <a class="@GetClass("catalog")" href="/rag/models" aria-current="@GetCurrent("catalog")">模型目录</a>
+            <a class="@GetClass("bindings")" href="/rag/models?section=bindings" aria-current="@GetCurrent("bindings")">用途与健康</a>
+            <a class="@GetClass("health")" href="/rag/models?section=health" aria-current="@GetCurrent("health")">健康记录</a>
+        </Authorized>
+    </AuthorizeView>
+    <AuthorizeView Policy="@KnowPulsePermissions.QuestionBank.PromptTemplates">
+        <Authorized>
+            <a class="@GetClass("prompts")" href="/rag/prompt-templates" aria-current="@GetCurrent("prompts")">Prompt 版本</a>
+        </Authorized>
+    </AuthorizeView>
+    <AuthorizeView Policy="@KnowPulsePermissions.Rag.AuditLogs">
+        <Authorized><a class="@GetClass("audit")" href="/rag/audit-logs" aria-current="@GetCurrent("audit")">调用审计</a></Authorized>
+    </AuthorizeView>
+</nav>
+
+@code {
+    [Parameter]
+    public string Active { get; set; } = string.Empty;
+
+    private string? GetClass(string section) => Active == section ? "is-active" : null;
+    private string? GetCurrent(string section) => Active == section ? "page" : null;
+}

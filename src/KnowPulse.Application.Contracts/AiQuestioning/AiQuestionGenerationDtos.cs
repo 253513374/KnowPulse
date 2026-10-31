@@ -310,7 +310,7 @@ public class AiQuestionGenerationTaskDto : FullAuditedEntityDto<Guid>
 
 /// <summary>
 /// AI 出题 prompt 模板 DTO。
-/// 模板内容只返回给有 AI 出题权限的管理端，用于审查版本和排障。
+/// 完整模板内容只返回给获模板查看授权的用户。
 /// </summary>
 public class AiQuestionPromptTemplateDto : FullAuditedEntityDto<Guid>
 {

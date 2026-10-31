@@ -61,6 +61,7 @@
     "Permission:QuestionBank.Questions": "管理题目",
     "Permission:QuestionBank.Reviews": "审核题目",
     "Permission:QuestionBank.AiGeneration": "AI 候选题生成",
+    "Permission:QuestionBank.PromptTemplates": "查看 AI 出题提示词模板",
     "Permission:Exam": "考试",
     "Permission:Exam.Manage": "管理考试",
     "Permission:Exam.Participate": "参加考试",

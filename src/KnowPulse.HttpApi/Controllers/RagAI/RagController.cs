@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Threading;
 using System.Threading.Tasks;
 using KnowPulse.Permissions;
 using KnowPulse.RagAI;
@@ -13,7 +14,7 @@ namespace KnowPulse.Controllers.RagAI;
 /// 搜索、问答和审计日志分别使用独立权限，避免普通问答用户读取审计记录或绕过应用服务安全边界。
 /// </summary>
 [Route("api/ai/rag")]
-public class RagController : KnowPulseController
+public class RagController : KnowPulseController, IKnowledgeRetriever, IRagAnswerService, IRagCallLogAppService
 {
     private readonly IKnowledgeRetriever _knowledgeRetriever;
     private readonly IRagAnswerService _answerService;
@@ -37,10 +38,12 @@ public class RagController : KnowPulseController
     /// </summary>
     [Authorize(KnowPulsePermissions.Rag.Search)]
     [HttpPost("search")]
-    public Task<IReadOnlyList<RetrievedChunk>> SearchAsync([FromBody] RagSearchRequest input)
+    public Task<IReadOnlyList<RetrievedChunk>> SearchAsync(
+        [FromBody] RagSearchRequest request,
+        CancellationToken cancellationToken = default)
     {
         // HTTP 层只负责稳定 API 路由和权限标记；真正的身份匹配、Qdrant 粗过滤和 PostgreSQL 二次校验在应用服务中完成。
-        return _knowledgeRetriever.SearchAsync(input);
+        return _knowledgeRetriever.SearchAsync(request, cancellationToken);
     }
 
     /// <summary>
@@ -48,10 +51,12 @@ public class RagController : KnowPulseController
     /// </summary>
     [Authorize(KnowPulsePermissions.Rag.Answer)]
     [HttpPost("answer")]
-    public Task<RagAnswerResult> AnswerAsync([FromBody] RagAnswerRequest input)
+    public Task<RagAnswerResult> AnswerAsync(
+        [FromBody] RagAnswerRequest request,
+        CancellationToken cancellationToken = default)
     {
         // 问答入口返回回答和 citation，不暴露内部 prompt 或未授权候选 chunk。
-        return _answerService.AnswerAsync(input);
+        return _answerService.AnswerAsync(request, cancellationToken);
     }
 
     /// <summary>
@@ -59,7 +64,7 @@ public class RagController : KnowPulseController
     /// </summary>
     [Authorize(KnowPulsePermissions.Rag.AuditLogs)]
     [HttpGet("call-logs")]
-    public Task<PagedResultDto<RagCallLogDto>> GetCallLogsAsync([FromQuery] GetRagCallLogListInput input)
+    public Task<PagedResultDto<RagCallLogDto>> GetListAsync([FromQuery] GetRagCallLogListInput input)
     {
         // 审计查询单独授权，避免普通问答用户读取其他用户的调用记录。
         return _callLogAppService.GetListAsync(input);

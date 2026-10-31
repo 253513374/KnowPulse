@@ -1,0 +1,97 @@
+@using System.Linq
+@using Volo.Abp.Users
+@using Microsoft.Extensions.Configuration
+@using Volo.Abp.AspNetCore.Components.Web.MudBlazorLeptonXLiteTheme.Themes.MudBlazorLeptonXLite
+@layout MainLayout
+@inherits LayoutComponentBase
+@implements IDisposable
+@inject NavigationManager Navigation
+@inject IPermissionChecker PermissionChecker
+@inject ICurrentUser CurrentUser
+@inject IConfiguration Configuration
+
+<div class="admin-shell">
+    <a class="admin-skip-link" href="#admin-content">跳转到主要内容</a>
+    @if (_menuOpen)
+    {
+        <button class="admin-menu-backdrop" aria-label="关闭导航" @onclick="CloseMenu"></button>
+    }
+    <aside id="admin-sidebar" class="admin-sidebar @(_menuOpen ? "is-open" : null)" aria-label="平台管理导航" @onkeydown="OnMenuKeyDown">
+        <a class="admin-brand" href="/admin">
+            <img src="/images/teaching/brand-mark.svg" width="32" height="32" alt="" />
+            <strong>知脉空间</strong>
+        </a>
+        <span class="admin-workspace-label">平台管理后台</span>
+        <nav>
+            @foreach (var group in _items.GroupBy(item => item.Group))
+            {
+                <div class="admin-nav-group">
+                    <span class="admin-nav-label">@group.Key</span>
+                    @foreach (var item in group)
+                    {
+                        var selected = item.Title == CurrentTitle;
+                        <a href="@item.Url" class="admin-nav-link @(selected ? "is-active" : null)"
+                           aria-current="@(selected ? "page" : null)" @onclick="CloseMenu">@item.Title</a>
+                    }
+                </div>
+            }
+        </nav>
+        <div class="admin-sidebar-foot">
+            <strong>按授权管理资料</strong>
+            <span>管理权限不改变资料归属。</span>
+        </div>
+        <span class="admin-workspace-label">@DisplayName · 平台管理</span>
+    </aside>
+    <div class="admin-stage" inert="@_menuOpen">
+        <header class="admin-topbar">
+            <button class="admin-menu-toggle kp-button" aria-label="打开平台导航" aria-controls="admin-sidebar" aria-expanded="@_menuOpen" @onclick="() => _menuOpen = !_menuOpen">☰</button>
+            <span class="admin-breadcrumb">平台管理 / @CurrentTitle</span>
+            <div class="admin-topbar-actions">
+                <span class="admin-scope-label">当前授权范围</span>
+                @if (_teacherUrl is not null) { <a href="@_teacherUrl">教师工作区 ↗</a> }
+                <a class="admin-account" href="@AccountUrl" title="管理我的账号">
+                    <span class="admin-avatar" aria-hidden="true">@DisplayName[..1]</span><span>@DisplayName</span>
+                </a>
+            </div>
+        </header>
+        <main id="admin-content" class="admin-content" tabindex="-1">
+            @Body
+        </main>
+    </div>
+</div>
+
+@code {
+    private AdminNavigationItem[] _items = [];
+    private string? _teacherUrl;
+    private bool _menuOpen;
+    private string CurrentSection => AdminNavigation.GetSectionUrl(Navigation.ToBaseRelativePath(Navigation.Uri));
+    private string CurrentTitle => AdminNavigation.Items.FirstOrDefault(item => item.Url == CurrentSection)?.Title ?? "运营概览";
+    private string DisplayName => !string.IsNullOrWhiteSpace(CurrentUser.Name) ? CurrentUser.Name : !string.IsNullOrWhiteSpace(CurrentUser.UserName) ? CurrentUser.UserName : "当前用户";
+    private string AccountUrl => (Configuration["AuthServer:Authority"] ?? string.Empty).TrimEnd('/') + "/Account/Manage";
+
+    protected override async Task OnInitializedAsync()
+    {
+        Navigation.LocationChanged += OnLocationChanged;
+        _items = await AdminNavigation.GetVisibleItemsAsync(PermissionChecker);
+        if (await PermissionChecker.IsGrantedAsync(KnowPulsePermissions.KnowledgeBase.Items)) _teacherUrl = "/teacher/materials";
+        else if (await PermissionChecker.IsGrantedAsync(KnowPulsePermissions.Rag.Answer)) _teacherUrl = "/teacher/answer";
+        else if (await PermissionChecker.IsGrantedAsync(KnowPulsePermissions.QuestionBank.Questions)) _teacherUrl = "/teacher/questions";
+        else if (await PermissionChecker.IsGrantedAsync(KnowPulsePermissions.QuestionBank.AiGeneration)) _teacherUrl = "/teacher/generate";
+        else if (await PermissionChecker.IsGrantedAsync(KnowPulsePermissions.Exam.Manage)) _teacherUrl = "/teacher/tasks";
+    }
+
+    private void CloseMenu() => _menuOpen = false;
+
+    private void OnMenuKeyDown(KeyboardEventArgs args)
+    {
+        if (args.Key == "Escape") CloseMenu();
+    }
+
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs args)
+    {
+        _menuOpen = false;
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose() => Navigation.LocationChanged -= OnLocationChanged;
+}

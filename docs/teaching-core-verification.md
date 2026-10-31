@@ -17,7 +17,9 @@ API Host 自动加载 `src/KnowPulse.HttpApi.Host/appsettings.secrets.json`；�
 
 小程序使用 `wx.login` 获取 code，向 `/connect/token` 提交 `grant_type=wechat`、`client_id=KnowPulse_MiniProgram`、code 和 `scope=KnowPulse profile roles`，随后通过带 Bearer 的 `/api/account/my-profile` 获取显示名称，通过 `/api/abp/application-configuration?includeLocalizationResources=false` 确认稳定用户 ID（标准 ProfileDto 没有 ID）。客户端不包含 AppSecret、正确答案夹具或本地计分；微信未配置、凭证失败和 401 均不能创建本地身份。
 
-教师入口为 `/teacher/materials`、`/teacher/shared`、`/teacher/generate`、`/teacher/questions`、`/teacher/students` 和 `/teacher/tasks`。小程序仅保留答题、我的两个导航。
+教师入口为 `/teacher/materials`、`/teacher/shared`、`/teacher/answer`、`/teacher/generate`、`/teacher/questions`、`/teacher/students` 和 `/teacher/tasks`。小程序仅保留答题、我的两个导航。
+
+教师资料问答需要 `KnowPulse.Rag.Answer`。新环境的数据种子会授予默认 `teacher` 角色；现有环境需在角色权限页面显式授予此权限，或在确认目标数据库、迁移与备份影响后执行数据库迁移和种子。重启应用不会自动更新已有角色。平台 Prompt 正文查看另需 `KnowPulse.QuestionBank.PromptTemplates`；普通教师出题只读取启用模板的摘要。
 
 复现本轮已建立的隔离环境时，在后端仓库根目录启动 API Host；此命令不执行迁移：
 

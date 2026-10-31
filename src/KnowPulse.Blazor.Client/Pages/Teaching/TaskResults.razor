@@ -1,38 +1,51 @@
 @page "/teacher/tasks/{Id:guid}/results"
 @page "/teacher/tasks/{Id:guid}/students/{AttemptId:guid}"
+@page "/exam/management/{Id:guid}/results"
+@page "/exam/management/{Id:guid}/students/{AttemptId:guid}"
 @attribute [Authorize(KnowPulsePermissions.Exam.Manage)]
 @inherits KnowPulseComponentBase
 @inject IExamAppService Exams
+@inject NavigationManager Navigation
 
-<PageTitle>任务结果 · 知脉空间</PageTitle>
-<main class="teacher-page" data-teacher-section="tasks">
-    <TeacherPageHeader Title="@(_result?.Plan.Name ?? "任务结果")" Description="接收名单在发布时固定，只查看本任务的作答与结果。">
-        <Actions><MudButton Href="/teacher/tasks" Variant="Variant.Outlined">返回任务列表</MudButton><MudButton OnClick="LoadAsync" Disabled="_busy">刷新</MudButton></Actions>
-    </TeacherPageHeader>
+<PageTitle>@(IsAdministration ? "考试结果 · 平台管理" : "任务结果 · 知脉空间")</PageTitle>
+<div class="@(IsAdministration ? "admin-page" : "teacher-page")" role="@(IsAdministration ? null : "main")" data-teacher-section="@(IsAdministration ? null : "tasks")">
+    @if (IsAdministration)
+    {
+        <header class="admin-page-header">
+            <div><h1>@(_result?.Plan.Name ?? "考试结果")</h1><p class="kp-text-muted">查看本计划的固定接收名单、作答和结果。</p></div>
+            <div class="admin-toolbar"><MudButton Href="@ListPath" Variant="Variant.Outlined">返回考试计划</MudButton><MudButton OnClick="LoadAsync" Disabled="_busy">刷新</MudButton></div>
+        </header>
+    }
+    else
+    {
+        <TeacherPageHeader Title="@(_result?.Plan.Name ?? "任务结果")" Description="接收名单在发布时固定，只查看本任务的作答与结果。">
+            <Actions><MudButton Href="/teacher/tasks" Variant="Variant.Outlined">返回任务列表</MudButton><MudButton OnClick="LoadAsync" Disabled="_busy">刷新</MudButton></Actions>
+        </TeacherPageHeader>
+    }
     @if (_error is not null) { <MudAlert Severity="Severity.Error" role="alert">@_error</MudAlert> }
     @if (_busy) { <MudProgressLinear Indeterminate="true" /> }
     @if (_result is not null)
     {
-        <div class="teacher-metrics">
-            <div class="teacher-metric"><span>已指派</span><strong>@_result.Recipients.Count 人</strong></div>
-            <div class="teacher-metric"><span>已提交</span><strong>@_result.Recipients.Count(x => x.Status is ExamAttemptStatus.Submitted or ExamAttemptStatus.Scored) 人</strong></div>
-            <div class="teacher-metric"><span>进行中</span><strong>@_result.Recipients.Count(x => x.Status == ExamAttemptStatus.InProgress) 人</strong></div>
-            <div class="teacher-metric"><span>未开始</span><strong>@_result.Recipients.Count(x => x.Status is null or ExamAttemptStatus.NotStarted) 人</strong></div>
+        <div class="@(IsAdministration ? "admin-metrics" : "teacher-metrics")">
+            <div class="@(IsAdministration ? "admin-metric" : "teacher-metric")"><span>已指派</span><strong>@_result.Recipients.Count 人</strong></div>
+            <div class="@(IsAdministration ? "admin-metric" : "teacher-metric")"><span>已提交</span><strong>@_result.Recipients.Count(x => x.Status is ExamAttemptStatus.Submitted or ExamAttemptStatus.Scored) 人</strong></div>
+            <div class="@(IsAdministration ? "admin-metric" : "teacher-metric")"><span>进行中</span><strong>@_result.Recipients.Count(x => x.Status == ExamAttemptStatus.InProgress) 人</strong></div>
+            <div class="@(IsAdministration ? "admin-metric" : "teacher-metric")"><span>未开始</span><strong>@_result.Recipients.Count(x => x.Status is null or ExamAttemptStatus.NotStarted) 人</strong></div>
         </div>
-        <MudPaper Class="teacher-panel" Elevation="0">
+        <MudPaper Class="@PanelClass" Elevation="0">
             <h2>接收名单与结果</h2>
             <MudTable T="ExamRecipientResultDto" Items="_result.Recipients" Elevation="0" Hover="true">
                 <HeaderContent><MudTh>学生</MudTh><MudTh>作答状态</MudTh><MudTh>提交时间</MudTh><MudTh>得分</MudTh><MudTh>操作</MudTh></HeaderContent>
                 <RowTemplate>
                     <MudTd>@context.DisplayName</MudTd><MudTd>@StatusText(context.Status)</MudTd><MudTd>@(context.SubmittedTime.HasValue ? TeacherTime.FormatExamUtc(context.SubmittedTime.Value) : "—")</MudTd><MudTd>@(context.ObtainedScore?.ToString("0.##") ?? "—")</MudTd>
-                    <MudTd>@if (context.AttemptId.HasValue && context.Status is ExamAttemptStatus.Submitted or ExamAttemptStatus.Scored) { <MudButton Color="Color.Primary" Href="@($"/teacher/tasks/{Id}/students/{context.AttemptId}")">查看作答</MudButton> } else { <span class="teacher-muted">等待提交</span> }</MudTd>
+                    <MudTd>@if (context.AttemptId.HasValue && context.Status is ExamAttemptStatus.Submitted or ExamAttemptStatus.Scored) { <MudButton Color="Color.Primary" Href="@($"{ListPath}/{Id}/students/{context.AttemptId}")">查看作答</MudButton> } else { <span class="teacher-muted">等待提交</span> }</MudTd>
                 </RowTemplate>
             </MudTable>
             <MudAlert Severity="Severity.Info">“未开始”只表示尚未开始作答，不表示学生未看到任务或消息未送达。</MudAlert>
         </MudPaper>
         @if (_attempt is not null)
         {
-            <MudPaper Class="teacher-panel" Elevation="0">
+            <MudPaper Class="@PanelClass" Elevation="0">
                 <h2>@(_result.Recipients.FirstOrDefault(x => x.AttemptId == _attempt.Id)?.DisplayName) 的作答详情</h2>
                 <p>得分：@(_attempt.Score?.ObtainedScore.ToString("0.##") ?? "未评分") / @(_attempt.Paper?.TotalScore ?? 0)</p>
                 @foreach (var question in (_attempt.Paper?.Questions ?? []).OrderBy(x => x.DisplayOrder))
@@ -48,7 +61,7 @@
                 }
             </MudPaper>
         }
-        <MudPaper Class="teacher-panel" Elevation="0">
+        <MudPaper Class="@PanelClass" Elevation="0">
             <h2>任务说明</h2><p>@_result.Plan.Description</p>
             <p class="teacher-muted">资料、题库或学生名单后续变化，不会改写本任务的题目快照与既有成绩。</p>
             <MudExpansionPanels Elevation="0"><MudExpansionPanel Text="查看发布时题目快照">
@@ -56,10 +69,13 @@
             </MudExpansionPanel></MudExpansionPanels>
         </MudPaper>
     }
-</main>
+</div>
 @code {
     [Parameter] public Guid Id { get; set; }
     [Parameter] public Guid? AttemptId { get; set; }
+    private bool IsAdministration => Navigation.ToBaseRelativePath(Navigation.Uri).StartsWith("exam/management/", StringComparison.OrdinalIgnoreCase);
+    private string ListPath => IsAdministration ? "/exam/management" : "/teacher/tasks";
+    private string PanelClass => IsAdministration ? "admin-panel" : "teacher-panel";
     private ExamPlanResultsDto? _result;
     private ExamAttemptDto? _attempt;
     private string? _error;

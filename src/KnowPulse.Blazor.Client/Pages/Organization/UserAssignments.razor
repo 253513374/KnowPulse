@@ -7,15 +7,19 @@
 @inject IJobLevelAppService JobLevelAppService
 
 @* 用户组织关系页：维护用户与部门、岗位、职级、安全等级和主关系之间的绑定。 *@
-<PageTitle>用户组织关系</PageTitle>
+<PageTitle>人员归属 · 组织与人员</PageTitle>
 
-<div class="kp-flex kp-flex-wrap kp-align-center kp-justify-between kp-gap-2 kp-mb-3">
+<div class="admin-page">
+
+<header class="admin-page-header">
     <div>
-        <h1 class="kp-heading-4 kp-mb-1">用户组织关系</h1>
-        <div class="kp-text-muted kp-text-small">Organization / User Assignments</div>
+        <h1>组织与人员</h1>
+        <p class="kp-text-muted">维护用户的部门、岗位、职级与主归属。</p>
     </div>
     <button class="kp-button kp-button--secondary kp-button--sm" type="button" @onclick="LoadAsync" disabled="@IsBusy">刷新</button>
-</div>
+</header>
+
+<OrganizationNav />
 
 @if (!string.IsNullOrWhiteSpace(ErrorMessage))
 {
@@ -33,6 +37,7 @@
                 <h2 class="kp-heading-6 kp-mb-3">@FormTitle</h2>
                 <EditForm Model="@FormModel" OnValidSubmit="@SaveAsync">
                     <DataAnnotationsValidator />
+                    <ValidationSummary role="alert" />
 
                     <div class="kp-mb-3">
                         <label class="kp-label" for="assignment-user">用户 ID</label>
@@ -190,6 +195,8 @@
             <MvpPager SkipCount="SkipCount" PageSize="PageSize" TotalCount="TotalCount" IsBusy="IsBusy" OnSkipCountChanged="ChangePageAsync" />
         </div>
     </div>
+</div>
+
 </div>
 
 @code {

@@ -30,7 +30,13 @@ public class AiQuestionGenerationApiContractTests
         typeof(AiQuestionGenerationController)
             .GetCustomAttribute<AuthorizeAttribute>()!
             .Policy
-            .ShouldBe(KnowPulsePermissions.QuestionBank.AiGeneration);
+            .ShouldBeNull();
+
+        var actions = typeof(AiQuestionGenerationController).GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly);
+        foreach (var action in actions.Where(x => x.Name != nameof(AiQuestionGenerationController.GetPromptTemplatesAsync)))
+        {
+            action.GetCustomAttribute<AuthorizeAttribute>()!.Policy.ShouldBe(KnowPulsePermissions.QuestionBank.AiGeneration);
+        }
     }
 
     /// <summary>

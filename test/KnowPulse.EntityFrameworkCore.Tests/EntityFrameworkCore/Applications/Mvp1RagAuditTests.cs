@@ -1,11 +1,13 @@
 using System;
 using System.Linq;
+using System.Security.Claims;
 using System.Threading.Tasks;
 using KnowPulse.KnowledgeBase;
 using KnowPulse.KnowledgeIndexing;
 using KnowPulse.RagAI;
 using Shouldly;
 using Volo.Abp.Domain.Repositories;
+using Volo.Abp.Security.Claims;
 using Xunit;
 
 namespace KnowPulse.EntityFrameworkCore.Applications;
@@ -106,6 +108,28 @@ public class Mvp1RagAuditTests : KnowPulseEntityFrameworkCoreTestBase
         log.Citations[0].QuotePreview.ShouldNotContain(sensitiveTail);
         log.QuerySummary.ShouldNotContain(sensitiveTail);
         (log.FailureReason ?? string.Empty).ShouldNotContain(sensitiveTail);
+
+        using (GetRequiredService<ICurrentPrincipalAccessor>().Change(new ClaimsPrincipal(new ClaimsIdentity([
+            new Claim(AbpClaimTypes.UserId, Guid.NewGuid().ToString()),
+            new Claim(AbpClaimTypes.Role, "admin")
+        ], "Test"))))
+        {
+            var otherUserLogs = await _callLogAppService.GetListAsync(new GetRagCallLogListInput
+            {
+                UserId = CurrentUserId,
+                KnowledgeVersionId = chunk.KnowledgeVersionId,
+                CallType = RagCallType.Answer,
+                StartTime = windowStart,
+                EndTime = windowEnd,
+                MaxResultCount = 50
+            });
+            var otherUserLog = otherUserLogs.Items.Single();
+            otherUserLog.Status.ShouldBe(RagCallStatus.Succeeded);
+            otherUserLog.CitationCount.ShouldBe(1);
+            otherUserLog.QuerySummary.ShouldBeEmpty();
+            otherUserLog.Citations.ShouldBeEmpty();
+            otherUserLog.FailureReason.ShouldBeNull();
+        }
     }
 
     /// <summary>

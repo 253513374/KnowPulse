@@ -5,26 +5,23 @@
 @inject IKnowledgeItemAppService KnowledgeItemAppService
 @inject IKnowledgeCategoryAppService CategoryAppService
 @inject IKnowledgeIndexJobAppService IndexJobAppService
-@inject IDepartmentAppService DepartmentAppService
-@inject IPositionAppService PositionAppService
-@inject IIdentityRoleAppService IdentityRoleAppService
-@inject IIdentityUserAppService IdentityUserAppService
 @inject IPermissionChecker PermissionChecker
 @inject NavigationManager NavigationManager
 
 @* 知识上传引导页：面向运营人员完成从内容选择、可见范围确认到发布索引的主流程。 *@
 <PageTitle>上传知识</PageTitle>
 
-<div class="kp-flex kp-flex-wrap kp-align-center kp-justify-between kp-gap-2 kp-mb-3">
+<div class="admin-page knowledge-upload-page">
+<header class="admin-page-header">
     <div>
-        <h1 class="kp-heading-4 kp-mb-1">上传知识</h1>
-        <div class="kp-text-muted kp-text-small">KnowledgeBase / Upload</div>
+        <h1>上传知识@(CurrentStep == UploadStep.Publish ? " · 发布确认" : string.Empty)</h1>
+        <div class="kp-text-muted kp-text-small">确认内容、访问范围和版本。发布后会继续处理索引。</div>
     </div>
     <div class="kp-flex kp-flex-wrap kp-gap-2">
         <button class="kp-button kp-button--secondary kp-button--sm" type="button" @onclick="ViewAdvanced" disabled="@IsBusy">知识管理</button>
         <button class="kp-button kp-button--secondary kp-button--sm" type="button" @onclick="ResetWizard" disabled="@IsBusy">重新开始</button>
     </div>
-</div>
+</header>
 
 @if (!string.IsNullOrWhiteSpace(ErrorMessage))
 {
@@ -42,7 +39,7 @@
 @if (!HasRequiredWritePermissions)
 {
     <div class="kp-alert kp-alert--warning" role="status">
-        当前账号缺少知识版本权限，页面可以预览流程，但无法保存草稿或发布知识。
+        当前账号缺少知识版本或访问策略权限，可以预览流程，无法保存草稿或发布知识。
     </div>
 }
 
@@ -84,9 +81,9 @@
     </div>
 </div>
 
-<div class="kp-grid kp-grid-gap-3">
+<div class="kp-grid kp-grid-gap-3 knowledge-upload-grid">
     <div class="kp-col-xl-8">
-        <div class="kp-card">
+        <div class="admin-panel kp-card">
             <div class="kp-card__body">
                 @if (IsLoading)
                 {
@@ -230,123 +227,34 @@
                 }
                 else if (CurrentStep == UploadStep.Visibility)
                 {
-                    <div class="kp-mb-3">
-                        <h2 class="kp-heading-5 kp-mb-1">确认可见范围</h2>
-                        <div class="kp-text-muted kp-text-small">默认全员可见。限制范围需要权限范围管理能力。</div>
+                    <h2 class="kp-heading-5 kp-mb-1">确认可见范围</h2>
+                    <p class="kp-text-muted">新资料默认仅自己可见。可以另外授予有效教师读取和出题使用权。</p>
+                    <div class="knowledge-visibility-options">
+                        <label class="knowledge-upload-choice @(!ShareWithTeachers ? "is-selected" : null)">
+                            <input class="kp-check__input" type="radio" name="visibility-mode" checked="@(!ShareWithTeachers)" @onchange="() => ShareWithTeachers = false" disabled="@IsBusy" />
+                            <strong>仅自己</strong><span>资料原件由当前账号维护。</span>
+                        </label>
+                        <label class="knowledge-upload-choice @(ShareWithTeachers ? "is-selected" : null)">
+                            <input class="kp-check__input" type="radio" name="visibility-mode" checked="@ShareWithTeachers" @onchange="() => ShareWithTeachers = true" disabled="@(IsBusy || !CanUseRestrictedScopes)" />
+                            <strong>指定教师可见</strong><span>共享对象可以读取当前发布版并用于出题。</span>
+                        </label>
                     </div>
-
-                    <div class="kp-grid kp-grid-gap-3 kp-mb-3">
-                        <div class="kp-col-md-6">
-                            <label class="@GetVisibilityChoiceCss(KnowledgePermissionScopeType.All)" for="visibility-all">
-                                <div class="kp-check">
-                                    <input id="visibility-all" class="kp-check__input" type="radio" name="visibility-mode" checked="@(CurrentScopeType == KnowledgePermissionScopeType.All)" @onchange="() => SelectVisibility(KnowledgePermissionScopeType.All)" />
-                                    <span class="kp-check__label kp-text-semibold">全员可见</span>
-                                </div>
-                                <div class="kp-text-muted kp-text-small kp-mt-2">发布或保存草稿时持久化一条显式全员访问规则。</div>
-                            </label>
-                        </div>
-                        <div class="kp-col-md-6">
-                            <label class="@GetRestrictedChoiceCss()" for="visibility-restricted">
-                                <div class="kp-check">
-                                    <input id="visibility-restricted" class="kp-check__input" type="radio" name="visibility-mode" checked="@(CurrentScopeType != KnowledgePermissionScopeType.All)" disabled="@(!CanUseRestrictedScopes)" @onchange="() => SelectVisibility(KnowledgePermissionScopeType.Department)" />
-                                    <span class="kp-check__label kp-text-semibold">限制范围</span>
-                                </div>
-                                <div class="kp-text-muted kp-text-small kp-mt-2">发布前明确选择部门、岗位、角色或指定用户规则。</div>
-                            </label>
-                        </div>
-                    </div>
-
-                    @if (CurrentScopeType == KnowledgePermissionScopeType.All)
+                    @if (ShareWithTeachers)
                     {
-                        <div class="kp-alert kp-alert--warning" role="status">
-                            发布后该知识默认全员可见。请确认内容不包含只允许部分岗位或部门查看的信息。
+                        <div class="admin-toolbar kp-mt-3">
+                            <div class="knowledge-teacher-search"><label class="kp-label" for="upload-teacher-filter">搜索有效教师</label><input id="upload-teacher-filter" class="kp-input" @bind="TeacherFilterText" @bind:event="oninput" disabled="@IsBusy" /></div>
+                            <button class="kp-button kp-button--secondary" type="button" @onclick="SearchTeachersAsync" disabled="@IsBusy">查找</button>
                         </div>
-                    }
-                    else if (!CanUseRestrictedScopes)
-                    {
-                        <div class="kp-alert kp-alert--warning" role="status">
-                            当前无法加载或配置限制范围，请改为全员可见，或到知识管理中由管理员补充权限范围。
+                        <div class="knowledge-teacher-options">
+                            @foreach (var teacher in TeacherList)
+                            {
+                                <label class="kp-check"><input class="kp-check__input" type="checkbox" checked="@SharedTeachers.ContainsKey(teacher.Id)" @onchange="args => SelectTeacher(teacher, args.Value is true)" disabled="@IsBusy" /><span>@teacher.DisplayName（@teacher.UserName）</span></label>
+                            }
+                            @if (TeacherList.Count == 0) { <p class="kp-text-muted">没有匹配的有效教师，请调整关键词。</p> }
                         </div>
+                        <p class="kp-help">已选择 @SharedTeachers.Count 位教师；当前账号的访问权始终保留。</p>
                     }
-                    else
-                    {
-                        <div class="kp-grid kp-grid-gap-3">
-                            <div class="kp-col-md-6">
-                                <label class="kp-label" for="upload-scope-type">范围类型</label>
-                                <select id="upload-scope-type" class="kp-select" value="@Form.ScopeTypeText" @onchange="OnScopeTypeChanged" disabled="@IsBusy">
-                                    <option value="@KnowledgePermissionScopeType.Department">部门</option>
-                                    <option value="@KnowledgePermissionScopeType.Position">岗位</option>
-                                    <option value="@KnowledgePermissionScopeType.Role">角色</option>
-                                    <option value="@KnowledgePermissionScopeType.User">指定用户</option>
-                                </select>
-                            </div>
-                            <div class="kp-col-md-6">
-                                <label class="kp-label" for="upload-min-security">最低安全等级</label>
-                                <input id="upload-min-security" type="number" min="0" class="kp-input" @bind="Form.MinimumSecurityLevel" disabled="@IsBusy" />
-                            </div>
-                        </div>
-
-                        @if (CurrentScopeType == KnowledgePermissionScopeType.Department)
-                        {
-                            <div class="kp-mt-3">
-                                <label class="kp-label" for="upload-scope-department">部门</label>
-                                <select id="upload-scope-department" class="kp-select" @bind="Form.TargetIdText" disabled="@IsBusy">
-                                    <option value="">选择部门</option>
-                                    @foreach (var department in DepartmentList)
-                                    {
-                                        <option value="@department.Id">@department.Name</option>
-                                    }
-                                </select>
-                            </div>
-                        }
-                        else if (CurrentScopeType == KnowledgePermissionScopeType.Position)
-                        {
-                            <div class="kp-mt-3">
-                                <label class="kp-label" for="upload-scope-position">岗位</label>
-                                <select id="upload-scope-position" class="kp-select" @bind="Form.TargetIdText" disabled="@IsBusy">
-                                    <option value="">选择岗位</option>
-                                    @foreach (var position in PositionList)
-                                    {
-                                        <option value="@position.Id">@position.Name</option>
-                                    }
-                                </select>
-                            </div>
-                        }
-                        else if (CurrentScopeType == KnowledgePermissionScopeType.Role)
-                        {
-                            <div class="kp-mt-3">
-                                <label class="kp-label" for="upload-scope-role">角色</label>
-                                <select id="upload-scope-role" class="kp-select" @bind="Form.TargetIdText" disabled="@IsBusy">
-                                    <option value="">选择角色</option>
-                                    @foreach (var role in RoleList)
-                                    {
-                                        <option value="@role.Id">@role.Name</option>
-                                    }
-                                </select>
-                            </div>
-                        }
-                        else if (CurrentScopeType == KnowledgePermissionScopeType.User)
-                        {
-                            <div class="kp-mt-3">
-                                <label class="kp-label" for="upload-user-filter">用户搜索</label>
-                                <div class="kp-input-group">
-                                    <input id="upload-user-filter" class="kp-input" @bind="UserFilterText" @bind:event="oninput" disabled="@IsBusy" />
-                                    <button class="kp-button kp-button--secondary" type="button" @onclick="LoadUsersAsync" disabled="@IsBusy">搜索</button>
-                                </div>
-                            </div>
-                            <div class="kp-mt-3">
-                                <label class="kp-label" for="upload-scope-user">用户</label>
-                                <select id="upload-scope-user" class="kp-select" @bind="Form.TargetIdText" disabled="@IsBusy">
-                                    <option value="">选择用户</option>
-                                    @foreach (var user in UserList)
-                                    {
-                                        <option value="@user.Id">@GetUserDisplayName(user)</option>
-                                    }
-                                </select>
-                            </div>
-                        }
-                    }
-
+                    <div class="kp-alert kp-alert--info kp-mt-3" role="status">共享不允许修改或删除你的原件。管理员权限不会改变资料归属。</div>
                     <div class="kp-flex kp-flex-wrap kp-justify-between kp-gap-2 kp-mt-4">
                         <button class="kp-button kp-button--secondary" type="button" @onclick="GoBack" disabled="@IsBusy">上一步</button>
                         <button class="kp-button kp-button--primary" type="button" @onclick="GoNext" disabled="@IsBusy">下一步</button>
@@ -382,12 +290,17 @@
                         </div>
                     </div>
 
-                    @if (CurrentScopeType == KnowledgePermissionScopeType.All)
-                    {
-                        <div class="kp-alert kp-alert--warning" role="status">
-                            本次发布将默认全员可见。确认无敏感内容后再发布。
-                        </div>
-                    }
+                    <div class="knowledge-content-preview kp-mb-3">
+                        @if (!string.IsNullOrWhiteSpace(Form.ContentText))
+                        {
+                            <h3>正文预览</h3><div class="knowledge-preview-text">@Form.ContentText</div>
+                        }
+                        @if (SelectedFile is not null)
+                        {
+                            <table class="kp-table"><thead><tr><th>附件</th><th>大小</th><th>处理方式</th></tr></thead><tbody><tr><td>@SelectedFile.Name</td><td>@FormatFileSize(SelectedFile.Size)</td><td>@RagCoverageText</td></tr></tbody></table>
+                        }
+                    </div>
+                    <div class="kp-alert kp-alert--info" role="status">@VisibilityStepSummary；资料所有者为当前账号。发布后索引仍需实际完成，才能用于问答。</div>
 
                     @if (SourceMode == UploadSourceMode.AttachmentOnly)
                     {
@@ -407,7 +320,7 @@
                         <button class="kp-button kp-button--secondary" type="button" @onclick="GoBack" disabled="@IsBusy">上一步</button>
                         <div class="kp-flex kp-flex-wrap kp-gap-2">
                             <button class="kp-button kp-button--primary-outline" type="button" @onclick="SaveDraftAsync" disabled="@(IsBusy || !HasRequiredWritePermissions)">保存草稿</button>
-                            <button class="kp-button kp-button--primary" type="button" @onclick="PublishAsync" disabled="@(IsBusy || !HasRequiredWritePermissions)">发布并创建索引</button>
+                            <button class="kp-button kp-button--primary" type="button" @onclick="PublishAsync" disabled="@(IsBusy || !HasRequiredWritePermissions)">确认发布并开始索引</button>
                         </div>
                     </div>
                 }
@@ -463,6 +376,10 @@
                         </div>
                     }
 
+                    @if (ResultKind == UploadResultKind.Published && CanManageIndexJobs)
+                    {
+                        <button class="kp-button kp-button--secondary kp-mb-3" type="button" @onclick="RefreshIndexAsync" disabled="@IsBusy">刷新索引状态</button>
+                    }
                     <div class="kp-flex kp-flex-wrap kp-gap-2">
                         @if (ResultKind == UploadResultKind.Failed || HasIndexFailure)
                         {
@@ -485,7 +402,7 @@
                         }
                         else
                         {
-                            <button class="kp-button kp-button--primary" type="button" @onclick="GoToRag" disabled="@IsBusy">去问答验证</button>
+                            <button class="kp-button kp-button--primary" type="button" @onclick="GoToRag" disabled="@(IsBusy || LatestIndexJob?.Status != KnowledgeIndexJobStatus.Indexed)">去问答验证</button>
                             <button class="kp-button kp-button--primary-outline" type="button" @onclick="ResetWizard" disabled="@IsBusy">继续上传下一份</button>
                             <button class="kp-button kp-button--secondary" type="button" @onclick="ViewAdvanced" disabled="@IsBusy">查看高级管理</button>
                         }
@@ -496,9 +413,9 @@
     </div>
 
     <div class="kp-col-xl-4">
-        <div class="kp-card kp-mb-3">
+        <div class="admin-panel kp-card kp-mb-3">
             <div class="kp-card__body">
-                <h2 class="kp-heading-6 kp-mb-3">当前状态</h2>
+                <h2 class="kp-heading-6 kp-mb-3">发布范围与版本</h2>
                 <div class="knowledge-upload-summary">
                     <div class="knowledge-upload-summary-item">
                         <span class="kp-text-muted">步骤</span>
@@ -517,6 +434,10 @@
                         <span class="knowledge-upload-summary-value">@VisibilityStepSummary</span>
                     </div>
                     <div class="knowledge-upload-summary-item">
+                        <span class="kp-text-muted">资料所有者</span>
+                        <span class="knowledge-upload-summary-value">当前账号</span>
+                    </div>
+                    <div class="knowledge-upload-summary-item">
                         <span class="kp-text-muted">附件权限</span>
                         <span class="knowledge-upload-summary-value">@(CanUploadAttachment ? "可上传" : "不可上传")</span>
                     </div>
@@ -528,7 +449,7 @@
             </div>
         </div>
 
-        <div class="kp-card">
+        <div class="admin-panel kp-card">
             <div class="kp-card__body">
                 <h2 class="kp-heading-6 kp-mb-3">文件规则</h2>
                 <div class="kp-text-small kp-text-muted">
@@ -542,6 +463,8 @@
     </div>
 </div>
 
+</div>
+
 @code {
     private const int MaxTitleLength = 256;
     private const int MaxSummaryLength = 1024;
@@ -550,10 +473,9 @@
     private const long MaxIndexableTextBytes = 128 * 1024;
 
     private readonly List<KnowledgeCategoryDto> CategoryList = new();
-    private readonly List<DepartmentDto> DepartmentList = new();
-    private readonly List<PositionDto> PositionList = new();
-    private readonly List<IdentityRoleDto> RoleList = new();
-    private readonly List<IdentityUserDto> UserList = new();
+    private readonly List<KnowledgeShareTeacherDto> TeacherList = new();
+    private readonly Dictionary<Guid, KnowledgeShareTeacherDto> SharedTeachers = new();
+    private bool ShareWithTeachers;
 
     private UploadFormModel Form { get; set; } = new();
     private UploadStep CurrentStep { get; set; } = UploadStep.Content;
@@ -571,16 +493,15 @@
     private bool CanManagePermissionScopes { get; set; }
     private bool CanManageIndexJobs { get; set; }
     private bool ScopeTargetsLoadFailed { get; set; }
-    private string? UserFilterText { get; set; }
+    private string? TeacherFilterText { get; set; }
     private string? ErrorMessage { get; set; }
     private string? LookupWarningMessage { get; set; }
     private string? FailureStageText { get; set; }
     private string? FailureReasonText { get; set; }
 
-    private bool HasRequiredWritePermissions => CanCreateVersion;
+    private bool HasRequiredWritePermissions => CanCreateVersion && CanManagePermissionScopes;
     private bool CanUseRestrictedScopes => CanManagePermissionScopes && !ScopeTargetsLoadFailed;
     private bool HasIndexFailure => LatestIndexJob?.Status == KnowledgeIndexJobStatus.Failed;
-    private KnowledgePermissionScopeType CurrentScopeType => ParseScopeType(Form.ScopeTypeText);
     private string ContentStepSummary => SourceMode switch
     {
         UploadSourceMode.BodyText => string.IsNullOrWhiteSpace(Form.ContentText) ? "正文输入" : $"正文 {Form.ContentText.Length} 字",
@@ -590,9 +511,9 @@
         _ => "未选择"
     };
     private string InfoStepSummary => string.IsNullOrWhiteSpace(Form.Title) ? "未填写标题" : Form.Title;
-    private string VisibilityStepSummary => CurrentScopeType == KnowledgePermissionScopeType.All
-        ? "全员可见"
-        : $"{GetScopeTypeText(CurrentScopeType)}：{GetSelectedScopeTargetText()}";
+    private string VisibilityStepSummary => ShareWithTeachers
+        ? $"本人及指定教师：{string.Join("、", SharedTeachers.Values.Select(x => x.DisplayName))}"
+        : "仅自己";
     private string PublishStepSummary => ResultKind == null ? "等待确认" : ResultStepSummary;
     private string ResultStepSummary => ResultKind switch
     {
@@ -648,7 +569,7 @@
             CanManageIndexJobs = await PermissionChecker.IsGrantedAsync(KnowPulsePermissions.KnowledgeIndexing.IndexJobs);
 
             await LoadCategoriesAsync();
-            await LoadScopeTargetsAsync();
+            await LoadTeachersAsync();
         }
         catch (Exception ex)
         {
@@ -679,50 +600,29 @@
         }
     }
 
-    private async Task LoadScopeTargetsAsync()
+    private async Task LoadTeachersAsync()
     {
-        if (!CanManagePermissionScopes)
-        {
-            return;
-        }
-
+        if (!CanManagePermissionScopes) return;
         try
         {
-            var departments = await DepartmentAppService.GetListAsync(new PagedAndSortedResultRequestDto { MaxResultCount = 100 });
-            var positions = await PositionAppService.GetListAsync(new PagedAndSortedResultRequestDto { MaxResultCount = 100 });
-            var roles = await IdentityRoleAppService.GetListAsync(new GetIdentityRolesInput { MaxResultCount = 100 });
-
-            DepartmentList.Clear();
-            DepartmentList.AddRange(departments.Items.OrderBy(x => x.Code));
-            PositionList.Clear();
-            PositionList.AddRange(positions.Items.OrderBy(x => x.Code));
-            RoleList.Clear();
-            RoleList.AddRange(roles.Items.OrderBy(x => x.Name));
-            await LoadUsersCoreAsync();
+            var teachers = await KnowledgeItemAppService.SearchShareTeachersAsync(TeacherFilterText);
+            TeacherList.Clear();
+            TeacherList.AddRange(teachers.Items);
+            ScopeTargetsLoadFailed = false;
         }
         catch (Exception ex)
         {
             ScopeTargetsLoadFailed = true;
-            AppendLookupWarning($"限制范围候选项加载失败，本次只能按全员可见上传：{GetUserFriendlyErrorMessage(ex)}");
-            SelectVisibility(KnowledgePermissionScopeType.All);
+            AppendLookupWarning($"共享教师加载失败，可以按仅自己可见保存：{GetUserFriendlyErrorMessage(ex)}");
         }
     }
 
-    private async Task LoadUsersAsync()
-    {
-        await RunBusyAsync(LoadUsersCoreAsync);
-    }
+    private Task SearchTeachersAsync() => RunBusyAsync(LoadTeachersAsync);
 
-    private async Task LoadUsersCoreAsync()
+    private void SelectTeacher(KnowledgeShareTeacherDto teacher, bool selected)
     {
-        var users = await IdentityUserAppService.GetListAsync(new GetIdentityUsersInput
-        {
-            MaxResultCount = 100,
-            Filter = UserFilterText
-        });
-
-        UserList.Clear();
-        UserList.AddRange(users.Items.OrderBy(x => x.UserName));
+        if (selected) SharedTeachers[teacher.Id] = teacher;
+        else SharedTeachers.Remove(teacher.Id);
     }
 
     private void SelectSourceMode(UploadSourceMode sourceMode)
@@ -733,23 +633,6 @@
         {
             SelectedFile = null;
         }
-    }
-
-    private void SelectVisibility(KnowledgePermissionScopeType scopeType)
-    {
-        if (scopeType != KnowledgePermissionScopeType.All && !CanUseRestrictedScopes)
-        {
-            return;
-        }
-
-        Form.ScopeTypeText = scopeType.ToString();
-        Form.TargetIdText = null;
-    }
-
-    private void OnScopeTypeChanged(ChangeEventArgs args)
-    {
-        Form.ScopeTypeText = args.Value?.ToString() ?? KnowledgePermissionScopeType.Department.ToString();
-        Form.TargetIdText = null;
     }
 
     private void OnFileSelected(InputFileChangeEventArgs args)
@@ -817,6 +700,7 @@
 
     private async Task ExecuteCreationAsync(bool publish)
     {
+        if (IsBusy) return;
         ErrorMessage = null;
         ResultKind = null;
         FailureStageText = null;
@@ -872,31 +756,35 @@
                 await UploadSelectedFileAsync(item.Id, version.Id);
             }
 
-            var accessPolicy = new CreateKnowledgePermissionScopeDto
+            var accessPolicies = new List<CreateKnowledgePermissionScopeDto>
             {
-                ScopeType = CurrentScopeType,
-                TargetId = CurrentScopeType == KnowledgePermissionScopeType.All
-                    ? null
-                    : ParseNullableGuid(Form.TargetIdText),
-                MinimumSecurityLevel = Form.MinimumSecurityLevel
+                new() { ScopeType = KnowledgePermissionScopeType.User, TargetId = item.OwnerTeacherId }
             };
+            if (ShareWithTeachers)
+            {
+                accessPolicies.AddRange(SharedTeachers.Keys.Select(id => new CreateKnowledgePermissionScopeDto
+                {
+                    ScopeType = KnowledgePermissionScopeType.User,
+                    TargetId = id
+                }));
+            }
 
             if (publish)
             {
                 FailureStageText = "确认访问策略、发布并创建索引";
-                await KnowledgeItemAppService.PublishVersionWithAccessPolicyAsync(item.Id, new PublishKnowledgeVersionInput
+                var result = await KnowledgeItemAppService.PublishVersionWithAccessPolicyAsync(item.Id, new PublishKnowledgeVersionInput
                 {
                     KnowledgeVersionId = version.Id,
-                    PermissionScopes = [accessPolicy]
+                    PermissionScopes = accessPolicies
                 });
                 ResultKind = UploadResultKind.Published;
-                await LoadLatestIndexJobAsync(version.Id);
+                LatestIndexJob = result.IndexJob;
             }
             else
             {
-                // 草稿也保留显式访问策略，方便后续从详情页直接确认发布。
                 FailureStageText = "保存访问策略";
-                await KnowledgeItemAppService.CreatePermissionScopeAsync(item.Id, accessPolicy);
+                foreach (var policy in accessPolicies)
+                    await KnowledgeItemAppService.CreatePermissionScopeAsync(item.Id, policy);
                 ResultKind = UploadResultKind.DraftSaved;
             }
 
@@ -964,6 +852,10 @@
         LatestIndexJob = result.Items.OrderByDescending(x => x.CreationTime).FirstOrDefault();
     }
 
+    private Task RefreshIndexAsync() => CreatedVersionId.HasValue
+        ? RunBusyAsync(() => LoadLatestIndexJobAsync(CreatedVersionId.Value))
+        : Task.CompletedTask;
+
     private async Task RetryIndexAsync()
     {
         if (LatestIndexJob == null || !CanManageIndexJobs)
@@ -998,9 +890,9 @@
             return false;
         }
 
-        if (!CanCreateVersion)
+        if (!HasRequiredWritePermissions)
         {
-            ErrorMessage = "缺少知识版本权限，无法创建版本或发布知识。";
+            ErrorMessage = "缺少知识版本或访问策略权限，无法保存或发布知识。";
             return false;
         }
 
@@ -1111,23 +1003,12 @@
 
     private bool ValidateVisibilityStep()
     {
-        if (CurrentScopeType == KnowledgePermissionScopeType.All)
+        if (!ShareWithTeachers) return true;
+        if (!CanUseRestrictedScopes || SharedTeachers.Count == 0)
         {
-            return true;
-        }
-
-        if (!CanUseRestrictedScopes)
-        {
-            ErrorMessage = "当前无法配置限制范围，请选择全员可见。";
+            ErrorMessage = "请选择至少一位有效教师，或改为仅自己可见。";
             return false;
         }
-
-        if (ParseNullableGuid(Form.TargetIdText) == null)
-        {
-            ErrorMessage = "请选择可见范围目标。";
-            return false;
-        }
-
         return true;
     }
 
@@ -1142,6 +1023,8 @@
     private void ResetWizard()
     {
         Form = new UploadFormModel();
+        ShareWithTeachers = false;
+        SharedTeachers.Clear();
         CurrentStep = UploadStep.Content;
         SourceMode = UploadSourceMode.BodyText;
         ResultKind = null;
@@ -1223,59 +1106,6 @@
     private string GetChoiceCss(UploadSourceMode sourceMode)
     {
         return SourceMode == sourceMode ? "knowledge-upload-choice is-selected" : "knowledge-upload-choice";
-    }
-
-    private string GetVisibilityChoiceCss(KnowledgePermissionScopeType scopeType)
-    {
-        return CurrentScopeType == scopeType ? "knowledge-upload-choice is-selected" : "knowledge-upload-choice";
-    }
-
-    private string GetRestrictedChoiceCss()
-    {
-        var css = CurrentScopeType == KnowledgePermissionScopeType.All
-            ? "knowledge-upload-choice"
-            : "knowledge-upload-choice is-selected";
-
-        return CanUseRestrictedScopes ? css : $"{css} kp-text-muted";
-    }
-
-    private string GetSelectedScopeTargetText()
-    {
-        var targetId = ParseNullableGuid(Form.TargetIdText);
-        if (targetId == null)
-        {
-            return "未选择";
-        }
-
-        return CurrentScopeType switch
-        {
-            KnowledgePermissionScopeType.Department => DepartmentList.FirstOrDefault(x => x.Id == targetId.Value)?.Name ?? targetId.Value.ToString("N"),
-            KnowledgePermissionScopeType.Position => PositionList.FirstOrDefault(x => x.Id == targetId.Value)?.Name ?? targetId.Value.ToString("N"),
-            KnowledgePermissionScopeType.Role => RoleList.FirstOrDefault(x => x.Id == targetId.Value)?.Name ?? $"角色 {targetId.Value:N}",
-            KnowledgePermissionScopeType.User => UserList.FirstOrDefault(x => x.Id == targetId.Value) is { } user ? GetUserDisplayName(user) : $"用户 {targetId.Value:N}",
-            _ => targetId.Value.ToString("N")
-        };
-    }
-
-    private static string GetUserDisplayName(IdentityUserDto user)
-    {
-        var displayName = string.Join(" ", new[] { user.Name, user.Surname }.Where(x => !string.IsNullOrWhiteSpace(x)));
-        return string.IsNullOrWhiteSpace(displayName)
-            ? $"{user.UserName} ({user.Email})"
-            : $"{displayName} / {user.UserName} ({user.Email})";
-    }
-
-    private static string GetScopeTypeText(KnowledgePermissionScopeType scopeType)
-    {
-        return scopeType switch
-        {
-            KnowledgePermissionScopeType.All => "全员",
-            KnowledgePermissionScopeType.Department => "部门",
-            KnowledgePermissionScopeType.Position => "岗位",
-            KnowledgePermissionScopeType.Role => "角色",
-            KnowledgePermissionScopeType.User => "指定用户",
-            _ => scopeType.ToString()
-        };
     }
 
     private static string GetStepText(UploadStep step)
@@ -1366,13 +1196,6 @@
         return extension is ".pdf" or ".doc" or ".docx" or ".ppt" or ".pptx" or ".xls" or ".xlsx" or ".html" or ".htm" or ".csv" or ".json" or ".xml";
     }
 
-    private static KnowledgePermissionScopeType ParseScopeType(string? value)
-    {
-        return Enum.TryParse<KnowledgePermissionScopeType>(value, out var scopeType)
-            ? scopeType
-            : KnowledgePermissionScopeType.All;
-    }
-
     private static Guid? ParseNullableGuid(string? value)
     {
         return Guid.TryParse(value, out var id) ? id : null;
@@ -1414,8 +1237,5 @@
         public string? Summary { get; set; }
         public string VersionTitle { get; set; } = "初始版本";
         public string? ContentText { get; set; }
-        public string ScopeTypeText { get; set; } = KnowledgePermissionScopeType.All.ToString();
-        public string? TargetIdText { get; set; }
-        public int? MinimumSecurityLevel { get; set; }
     }
 }

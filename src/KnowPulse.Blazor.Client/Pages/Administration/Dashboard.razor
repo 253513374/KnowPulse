@@ -1,0 +1,173 @@
+@page "/admin"
+@attribute [Authorize(AdminNavigation.AccessPolicy)]
+@inherits KnowPulseComponentBase
+@inject IPermissionChecker PermissionChecker
+@inject IKnowledgeManagementAppService KnowledgeManagement
+@inject IKnowledgeIndexJobAppService IndexJobs
+@inject IKnowledgeFeedbackAppService Feedback
+@inject IQuestionAppService Questions
+@inject IAiModelCatalogAppService Models
+
+<PageTitle>运营概览 · 平台管理后台</PageTitle>
+
+<div class="admin-page">
+    <header class="admin-page-header">
+        <div><h1>运营概览</h1><p>从待办开始，让每一份知识都可以可靠地使用。</p></div>
+        <MudButton Variant="Variant.Outlined" Disabled="_isLoading" OnClick="LoadAsync">@(_isLoading ? "刷新中…" : "刷新")</MudButton>
+    </header>
+
+    @foreach (var error in _errors)
+    {
+        <div class="admin-notice error" role="alert">@error</div>
+    }
+
+    <section class="admin-metrics" aria-label="当前授权范围的运营指标" aria-busy="@_isLoading">
+        @if (_canReview)
+        {
+            <a class="admin-metric" href="/question-bank/reviews"><span>待审核题目</span><strong>@Count(_reviewCount)</strong><small>检查题目、答案与资料依据</small></a>
+        }
+        @if (_canIndex)
+        {
+            <a class="admin-metric" href="/knowledge/index-jobs"><span>需处理索引</span><strong>@Count(_indexSummary is null ? null : _indexSummary.FailedCount + _indexSummary.StaleCount)</strong><small>@IndexDescription</small></a>
+        }
+        @if (_canFeedback)
+        {
+            <a class="admin-metric" href="/knowledge/feedback"><span>待处理反馈</span><strong>@Count(_feedbackCount)</strong><small>包含待接手与处理中的反馈</small></a>
+        }
+        @if (_canKnowledge)
+        {
+            <a class="admin-metric" href="/knowledge"><span>待发布草稿</span><strong>@Count(_knowledge?.Overview.DraftCount)</strong><small>保留草稿与原附件</small></a>
+        }
+    </section>
+
+    <div class="admin-overview-grid">
+        <section class="admin-panel" aria-busy="@_isLoading">
+            <div class="admin-panel-heading"><h2>需要你处理</h2><span>优先处理阻塞项</span></div>
+            @if (_isLoading)
+            {
+                <KpStatePanel Kind="KpStateKind.Loading" Title="正在读取运营待办" Description="只查询当前账号获授权的数据。" />
+            }
+            else if (_todos.Count == 0)
+            {
+                <KpStatePanel Title="@(_errors.Count == 0 ? "当前没有待处理事项" : "部分运营数据暂不可用")"
+                              Description="@(_errors.Count == 0 ? "可以使用右侧入口继续维护知识与题目。" : "请点击刷新重试，或打开对应页面查看详情。")" />
+            }
+            else
+            {
+                <div class="kp-table-wrap">
+                    <table class="kp-table">
+                        <thead><tr><th>事项</th><th>状态</th><th>下一步</th></tr></thead>
+                        <tbody>
+                            @foreach (var todo in _todos.Take(6))
+                            {
+                                <tr><td>@todo.Title</td><td><span class="admin-badge @todo.Tone">@todo.Status</span></td><td><a href="@todo.Url">@todo.Action</a></td></tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+            <p class="admin-notice">失败任务与修订草稿会保留原始记录，便于后续追溯。</p>
+        </section>
+        <aside class="admin-panel">
+            <h2>常用入口</h2>
+            <div class="admin-quick-links">
+                @if (_canIndex)
+                {
+                    <MudButton Href="/knowledge/index-jobs" Color="Color.Primary" Variant="Variant.Filled">处理索引任务</MudButton>
+                }
+                @if (_canReview)
+                {
+                    <MudButton Href="/question-bank/reviews" Variant="Variant.Outlined">审核题目</MudButton>
+                }
+                @if (_canModels)
+                {
+                    <MudButton Href="/rag/models" Variant="Variant.Outlined">查看模型健康</MudButton>
+                }
+            </div>
+            <h3>最近运行</h3>
+            @if (_canIndex)
+            {
+                <div class="admin-detail-row"><span>最近索引成功</span><span>@(_indexSummary?.LastIndexedTime?.ToLocalTime().ToString("MM-dd HH:mm") ?? "暂无记录")</span></div>
+            }
+            @if (_canModels)
+            {
+                <div class="admin-detail-row"><span>模型目录</span><span>@(_modelSummary is null ? "暂不可用" : $"{_modelSummary.Deployments.Count} 个模型 · {_modelSummary.Deployments.Count(x => x.IsActive)} 个启用")</span></div>
+            }
+            <p class="admin-notice">当前显示你可管理的内容与受控历史记录。</p>
+        </aside>
+    </div>
+</div>
+
+@code {
+    private readonly List<string> _errors = [];
+    private readonly List<OverviewTodo> _todos = [];
+    private bool _isLoading;
+    private bool _canReview;
+    private bool _canIndex;
+    private bool _canFeedback;
+    private bool _canKnowledge;
+    private bool _canModels;
+    private long? _reviewCount;
+    private long? _feedbackCount;
+    private KnowledgeManagementListResultDto? _knowledge;
+    private KnowledgeIndexJobOperationalSummaryDto? _indexSummary;
+    private AiModelCatalogOverviewDto? _modelSummary;
+    private string IndexDescription => _indexSummary is null ? "等待读取运行状态" : $"{_indexSummary.FailedCount} 个失败 · {_indexSummary.StaleCount} 个卡住";
+
+    protected override async Task OnInitializedAsync()
+    {
+        _canReview = await PermissionChecker.IsGrantedAsync(KnowPulsePermissions.QuestionBank.Reviews)
+            && await PermissionChecker.IsGrantedAsync(KnowPulsePermissions.QuestionBank.Questions);
+        _canIndex = await PermissionChecker.IsGrantedAsync(KnowPulsePermissions.KnowledgeIndexing.IndexJobs);
+        _canFeedback = await PermissionChecker.IsGrantedAsync(KnowPulsePermissions.KnowledgeBase.Feedback);
+        _canKnowledge = await PermissionChecker.IsGrantedAsync(KnowPulsePermissions.KnowledgeBase.Items);
+        _canModels = await PermissionChecker.IsGrantedAsync(KnowPulsePermissions.AiModels.View);
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        if (_isLoading) return;
+        _isLoading = true;
+        _errors.Clear();
+        _todos.Clear();
+        _reviewCount = null;
+        _feedbackCount = null;
+        _knowledge = null;
+        _indexSummary = null;
+        _modelSummary = null;
+
+        var queries = new List<Task>();
+        if (_canKnowledge) queries.Add(ReadAsync("知识", async () =>
+        {
+            _knowledge = await KnowledgeManagement.GetListAsync(new GetKnowledgeManagementListInput { Status = KnowledgeManagementStatus.NeedsAttention, MaxResultCount = 3 });
+            _todos.AddRange(_knowledge.Items.Select(item => new OverviewTodo(item.Title, "需要处理", "error", $"/knowledge/{item.Id}", "查看详情")));
+        }));
+        if (_canIndex) queries.Add(ReadAsync("索引运行", async () => _indexSummary = await IndexJobs.GetOperationalSummaryAsync()));
+        if (_canReview) queries.Add(ReadAsync("题目审核", async () =>
+        {
+            var result = await Questions.GetListAsync(new GetQuestionListInput { Status = QuestionStatus.PendingReview, MaxResultCount = 2 });
+            _reviewCount = result.TotalCount;
+            _todos.AddRange(result.Items.Select(item => new OverviewTodo(item.Title, "待审核", "warning", "/question-bank/reviews", "复核题目")));
+        }));
+        if (_canFeedback) queries.Add(ReadAsync("知识反馈", async () =>
+        {
+            var submitted = await Feedback.GetListAsync(new GetKnowledgeFeedbackListInput { Status = KnowledgeFeedbackStatus.Submitted, MaxResultCount = 1 });
+            var processing = await Feedback.GetListAsync(new GetKnowledgeFeedbackListInput { Status = KnowledgeFeedbackStatus.Processing, MaxResultCount = 1 });
+            _feedbackCount = submitted.TotalCount + processing.TotalCount;
+            _todos.AddRange(submitted.Items.Concat(processing.Items).Select(item => new OverviewTodo(item.Title, "待修订", "warning", "/knowledge/feedback", "处理反馈")));
+        }));
+        if (_canModels) queries.Add(ReadAsync("模型目录", async () => _modelSummary = await Models.GetOverviewAsync()));
+        await Task.WhenAll(queries);
+        _isLoading = false;
+    }
+
+    private async Task ReadAsync(string area, Func<Task> query)
+    {
+        try { await query(); }
+        catch (Exception exception) { _errors.Add($"{area}：{GetUserFriendlyErrorMessage(exception)}"); }
+    }
+
+    private static string Count(long? count) => count?.ToString() ?? "—";
+    private sealed record OverviewTodo(string Title, string Status, string Tone, string Url, string Action);
+}

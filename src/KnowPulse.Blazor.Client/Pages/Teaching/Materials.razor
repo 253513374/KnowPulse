@@ -7,6 +7,7 @@
 @inject NavigationManager Navigation
 @inject IJSRuntime JS
 @inject IDialogService Dialogs
+@using System.Net
 
 <PageTitle>@(_shared ? "共享资料" : "我的资料") · 知脉空间</PageTitle>
 <NavigationLock OnBeforeInternalNavigation="ConfirmNavigationAsync" ConfirmExternalNavigation="HasUnsavedContent" />
@@ -68,7 +69,7 @@
             @if (!_shared)
             {
                 <MudButton Variant="Variant.Outlined" OnClick="EditContentAsync" Disabled="@(_busy || _editing)">@(_detail.Versions.Any(x => x.Status == KnowledgeVersionStatus.Draft) ? "继续处理草稿" : "修订资料正文")</MudButton>
-                <MudExpansionPanels Elevation="0"><MudExpansionPanel Text="修改资料信息"><MudTextField T="string" Immediate="true" Label="资料标题" @bind-Value="_detail.Title" MaxLength="256" Variant="Variant.Outlined" /><MudTextField T="string" Immediate="true" Label="简要说明" @bind-Value="_detail.Summary" MaxLength="1024" Variant="Variant.Outlined" /><MudButton OnClick="SaveMetadataAsync" Disabled="_busy" Color="Color.Primary">保存资料信息</MudButton></MudExpansionPanel></MudExpansionPanels>
+                <MudExpansionPanels Elevation="0"><MudExpansionPanel Text="修改资料信息"><MudTextField T="string" Immediate="true" Label="资料标题" @bind-Value="_metadataTitle" MaxLength="256" Variant="Variant.Outlined" Disabled="_busy" /><MudTextField T="string" Immediate="true" Label="简要说明" @bind-Value="_metadataSummary" MaxLength="1024" Variant="Variant.Outlined" Disabled="_busy" /><MudButton OnClick="SaveMetadataAsync" Disabled="_busy" Color="Color.Primary">保存资料信息</MudButton></MudExpansionPanel></MudExpansionPanels>
                 <MudButton Variant="Variant.Outlined" OnClick="OpenSharingAsync" Disabled="_busy">共享设置</MudButton>
                 @if (_detail.Status == KnowledgeManagementStatus.NeedsAttention) { <MudButton Variant="Variant.Outlined" OnClick="RetryProcessingAsync" Disabled="_busy">重新处理</MudButton> }
                 @if (_sharing)
@@ -95,11 +96,16 @@
     private KnowledgeManagementDetailDto? _detail;
     private KnowledgeManagementStatus? _status;
     private Guid? _savedItemId, _savedVersionId;
+    private Guid? _editCategoryId;
+    private bool _editIsActive = true;
     private IBrowserFile? _file;
     private bool _shared, _busy, _editing, _fileUploaded, _sharing;
     private string? _keyword, _error, _success, _title, _summary, _content, _teacherKeyword;
     private int _skip;
     private long _total;
+    private Guid? _metadataItemId;
+    private string? _metadataTitle, _metadataSummary, _loadedMetadataTitle, _loadedMetadataSummary;
+    private bool HasUnsavedMetadata => _metadataItemId.HasValue && (_metadataTitle != _loadedMetadataTitle || _metadataSummary != _loadedMetadataSummary);
     private bool HasUnsavedContent => _editing && (!string.IsNullOrWhiteSpace(_title) || !string.IsNullOrWhiteSpace(_content) || _file is not null);
     private async Task ConfirmNavigationAsync(LocationChangingContext context)
     {
@@ -112,12 +118,19 @@
     private async Task PageAsync(int skip) { _skip = skip; await LoadAsync(); }
     private async Task LoadAsync()
     {
+        var detailId = _detail?.Id;
+        _detail = null; _attachments = [];
         _busy = true; _error = null;
-        try { var result = await Management.GetListAsync(new() { SharedOnly = _shared, OwnOnly = !_shared, Keyword = _keyword, Status = _status, SkipCount = _skip, MaxResultCount = 20 }); _items = result.Items; _overview = result.Overview; _total = result.TotalCount; }
-        catch (Exception ex) { _error = GetUserFriendlyErrorMessage(ex); }
+        try
+        {
+            var result = await Management.GetListAsync(new() { SharedOnly = _shared, OwnOnly = !_shared, Keyword = _keyword, Status = _status, SkipCount = _skip, MaxResultCount = 20 });
+            _items = result.Items; _overview = result.Overview; _total = result.TotalCount;
+            if (detailId.HasValue) await ReadDetailAsync(detailId.Value);
+        }
+        catch (Exception ex) { HandleReadError(ex); }
         finally { _busy = false; }
     }
-    private void NewMaterial() { _editing = true; _detail = null; _sharing = false; _savedItemId = _savedVersionId = null; _title = _summary = _content = null; _file = null; _fileUploaded = false; _retainedAttachments.Clear(); _copiedAttachments.Clear(); _error = _success = null; }
+    private void NewMaterial() { _editing = true; _detail = null; _sharing = false; _savedItemId = _savedVersionId = null; _editCategoryId = null; _editIsActive = true; _title = _summary = _content = null; _file = null; _fileUploaded = false; _retainedAttachments.Clear(); _copiedAttachments.Clear(); _error = _success = null; }
     private async Task EditContentAsync()
     {
         if (_detail is null) return;
@@ -128,6 +141,7 @@
                 ?? _detail.Versions.FirstOrDefault(x => x.Id == _detail.CurrentVersionId);
             var attachments = version is null ? [] : (await Knowledge.GetAttachmentsAsync(_detail.Id, version.Id)).Items;
             _savedItemId = _detail.Id;
+            _editCategoryId = _detail.CategoryId; _editIsActive = _detail.IsActive;
             _savedVersionId = version?.Status == KnowledgeVersionStatus.Draft ? version.Id : null;
             _title = _detail.Title; _summary = _detail.Summary; _content = version?.ContentText;
             _file = null; _fileUploaded = false; _editing = true; _success = null;
@@ -156,7 +170,7 @@
         try
         {
             if (!_savedItemId.HasValue) _savedItemId = (await Knowledge.CreateAsync(new() { Title = _title.Trim(), Summary = _summary })).Id;
-            else await Knowledge.UpdateAsync(_savedItemId.Value, new() { Title = _title.Trim(), Summary = _summary, CategoryId = _detail?.CategoryId, IsActive = _detail?.IsActive ?? true });
+            else await Knowledge.UpdateAsync(_savedItemId.Value, new() { Title = _title.Trim(), Summary = _summary, CategoryId = _editCategoryId, IsActive = _editIsActive });
             var versionInput = new CreateKnowledgeVersionDto { Title = _title.Trim(), ContentText = _content };
             if (!_savedVersionId.HasValue) _savedVersionId = (await Knowledge.CreateVersionAsync(_savedItemId.Value, versionInput)).Id;
             else await Knowledge.UpdateDraftVersionAsync(_savedItemId.Value, _savedVersionId.Value, versionInput);
@@ -187,15 +201,33 @@
     }
     private async Task OpenAsync(Guid id)
     {
-        _busy = true; _error = null; _sharing = false; _detail = null; _attachments = [];
+        _busy = true; _error = null;
+        if (_metadataItemId != id) { _sharing = false; _shareIds.Clear(); }
+        _detail = null; _attachments = [];
         try
         {
-            _detail = await Management.GetAsync(id);
-            var version = _detail.CurrentVersionId ?? _detail.Versions.OrderByDescending(x => x.VersionNumber).FirstOrDefault()?.Id;
-            if (version.HasValue) _attachments = (await Knowledge.GetAttachmentsAsync(id, version.Value)).Items;
+            await ReadDetailAsync(id);
         }
-        catch (Exception ex) { _error = GetUserFriendlyErrorMessage(ex); }
+        catch (Exception ex) { HandleReadError(ex); }
         finally { _busy = false; }
+    }
+    private void HandleReadError(Exception ex)
+    {
+        if (TryGetStatusCode(ex) is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden or HttpStatusCode.NotFound) { _sharing = false; _shareIds.Clear(); }
+        _error = GetUserFriendlyErrorMessage(ex);
+    }
+    private async Task ReadDetailAsync(Guid id)
+    {
+        var detail = await Management.GetAsync(id);
+        var version = detail.CurrentVersionId ?? detail.Versions.OrderByDescending(x => x.VersionNumber).FirstOrDefault()?.Id;
+        var attachments = version.HasValue ? (await Knowledge.GetAttachmentsAsync(id, version.Value)).Items : [];
+        if (_metadataItemId != id || !HasUnsavedMetadata)
+        {
+            _metadataTitle = detail.Title; _metadataSummary = detail.Summary;
+        }
+        _metadataItemId = id;
+        _loadedMetadataTitle = detail.Title; _loadedMetadataSummary = detail.Summary;
+        _detail = detail; _attachments = attachments;
     }
     private async Task DownloadAsync(KnowledgeAttachmentDto attachment)
     {
@@ -212,9 +244,9 @@
     }
     private async Task SaveMetadataAsync()
     {
-        if (_detail is null || string.IsNullOrWhiteSpace(_detail.Title)) { _error = "资料标题不能为空。"; return; }
+        if (_detail is null || string.IsNullOrWhiteSpace(_metadataTitle)) { _error = "资料标题不能为空。"; return; }
         _busy = true; _error = null;
-        try { await Knowledge.UpdateAsync(_detail.Id, new() { Title = _detail.Title.Trim(), Summary = _detail.Summary, CategoryId = _detail.CategoryId, IsActive = _detail.IsActive }); _success = "资料信息已保存。"; await LoadAsync(); }
+        try { await Knowledge.UpdateAsync(_detail.Id, new() { Title = _metadataTitle.Trim(), Summary = _metadataSummary, CategoryId = _detail.CategoryId, IsActive = _detail.IsActive }); _loadedMetadataTitle = _metadataTitle; _loadedMetadataSummary = _metadataSummary; _success = "资料信息已保存。"; await LoadAsync(); }
         catch (Exception ex) { _error = GetUserFriendlyErrorMessage(ex); }
         finally { _busy = false; }
     }
@@ -238,7 +270,7 @@
     {
         if (_detail is null) return;
         _busy = true; _error = null;
-        try { var id = _detail.Id; await Knowledge.SetSharedTeachersAsync(id, new() { TeacherIds = _shareIds.ToList() }); _success = "共享设置已保存。原件仍只允许你修改。"; await OpenAsync(id); await LoadAsync(); }
+        try { await Knowledge.SetSharedTeachersAsync(_detail.Id, new() { TeacherIds = _shareIds.ToList() }); _success = "共享设置已保存。原件仍只允许你修改。"; _sharing = false; await LoadAsync(); }
         catch (Exception ex) { _error = GetUserFriendlyErrorMessage(ex); }
         finally { _busy = false; }
     }
@@ -246,7 +278,7 @@
     {
         if (_detail is null) return;
         _busy = true; _error = null;
-        try { var id = _detail.Id; await Knowledge.RetryProcessingAsync(id); _success = "已提交重新处理请求，请稍后刷新查看结果。"; await OpenAsync(id); }
+        try { await Knowledge.RetryProcessingAsync(_detail.Id); _success = "已提交重新处理请求，请稍后刷新查看结果。"; _sharing = false; await LoadAsync(); }
         catch (Exception ex) { _error = GetUserFriendlyErrorMessage(ex); }
         finally { _busy = false; }
     }

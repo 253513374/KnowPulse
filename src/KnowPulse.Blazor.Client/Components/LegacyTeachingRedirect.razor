@@ -1,0 +1,7 @@
+@inject NavigationManager Navigation
+
+@code {
+    [Parameter, EditorRequired] public string Destination { get; set; } = default!;
+
+    protected override void OnParametersSet() => Navigation.NavigateTo(Destination, replace: true);
+}

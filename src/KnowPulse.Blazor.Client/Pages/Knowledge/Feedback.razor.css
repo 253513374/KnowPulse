@@ -2,7 +2,7 @@
     display: flex;
     align-items: flex-start;
     padding: .85rem 1rem;
-    border: 1px solid #e7eaee;
+    border: 1px solid #e5eaf2;
     border-radius: .75rem;
     background: #fbfcfd;
 }
@@ -30,8 +30,8 @@
 
 .feedback-workflow-step small { font-size: .7rem; }
 
-.feedback-workflow-step.is-current { color: #0d6efd; }
-.feedback-workflow-step.is-current > span { border-color: #0d6efd; color: #fff; background: #0d6efd; }
+.feedback-workflow-step.is-current { color: #1366f0; }
+.feedback-workflow-step.is-current > span { border-color: #1366f0; color: #fff; background: #1366f0; }
 .feedback-workflow-step.is-done { color: #198754; }
 .feedback-workflow-step.is-done > span { border-color: #198754; color: #fff; background: #198754; }
 .feedback-workflow-step.is-closed { color: #8a929b; }
@@ -95,3 +95,25 @@
     .feedback-workflow-step small { font-size: .62rem; }
     .feedback-revision-summary { align-items: flex-start; flex-direction: column; }
 }
+
+.feedback-grid { display: grid; grid-template-columns: minmax(0, 1.94fr) minmax(20rem, 1fr); align-items: start; gap: 1.5rem; }
+.feedback-panel-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; padding: 1.5rem 1.5rem 0; }
+.feedback-panel-heading h2 { margin: 0; font-size: 1.125rem; font-weight: 700; }
+.feedback-panel-heading > span { color: #52627a; font-size: .75rem; }
+.feedback-grid .kp-card__body { padding: 1.5rem; }
+.feedback-grid th { background: #f6f8fc; color: #52627a; font-size: .8125rem; font-weight: 500; }
+.feedback-grid td { padding: 1rem; font-size: .8125rem; }
+.feedback-grid .kp-table { min-width: 570px; }
+.feedback-grid .kp-table-row--active { background: #eef4ff; }
+.feedback-chain { padding: 1.5rem; }
+.feedback-chain h3 { margin: 0 0 .75rem; font-size: 1rem; font-weight: 500; }
+.feedback-chain p { margin: 0; color: #52627a; font-size: .875rem; }
+.feedback-detail-column .feedback-workflow { flex-wrap: wrap; gap: .5rem; }
+.feedback-detail-column .feedback-workflow-line { min-width: .25rem; }
+.feedback-detail-column .feedback-workflow-step { min-width: 3rem; }
+.feedback-detail-column .feedback-action-card { border-radius: .5rem; }
+@media (max-width: 1199.98px) { .feedback-grid { grid-template-columns: 1fr; } }
+
+.feedback-page .admin-panel { padding: 0; gap: 0; }
+.feedback-list-column .kp-table-wrap { margin-inline: 1.5rem; }
+.feedback-list-column ::deep .kp-pager { margin-inline: 1.5rem; }

@@ -3,15 +3,19 @@
 @inherits KnowPulseComponentBase
 @inject IJobLevelAppService JobLevelAppService
 
-<PageTitle>职级</PageTitle>
+<PageTitle>职级管理 · 组织与人员</PageTitle>
 
-<div class="kp-flex kp-flex-wrap kp-align-center kp-justify-between kp-gap-2 kp-mb-3">
+<div class="admin-page">
+
+<header class="admin-page-header">
     <div>
-        <h1 class="kp-heading-4 kp-mb-1">职级</h1>
-        <div class="kp-text-muted kp-text-small">Organization / Job Levels</div>
+        <h1>组织与人员</h1>
+        <p class="kp-text-muted">维护职级排序、安全等级与启用状态。</p>
     </div>
     <button class="kp-button kp-button--secondary kp-button--sm" type="button" @onclick="LoadAsync" disabled="@IsBusy">刷新</button>
-</div>
+</header>
+
+<OrganizationNav />
 
 @if (!string.IsNullOrWhiteSpace(ErrorMessage))
 {
@@ -28,6 +32,7 @@
                 <h2 class="kp-heading-6 kp-mb-3">@FormTitle</h2>
                 <EditForm Model="@FormModel" OnValidSubmit="@SaveAsync">
                     <DataAnnotationsValidator />
+                    <ValidationSummary role="alert" />
 
                     <div class="kp-mb-3">
                         <label class="kp-label" for="job-level-code">编码</label>
@@ -117,6 +122,8 @@
             <MvpPager SkipCount="SkipCount" PageSize="PageSize" TotalCount="TotalCount" IsBusy="IsBusy" OnSkipCountChanged="ChangePageAsync" />
         </div>
     </div>
+</div>
+
 </div>
 
 @code {

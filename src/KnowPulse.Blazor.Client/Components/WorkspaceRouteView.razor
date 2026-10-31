@@ -1,0 +1,30 @@
+@using Volo.Abp.AspNetCore.Components.Web.MudBlazorLeptonXLiteTheme.Themes.MudBlazorLeptonXLite
+@using Volo.Abp.AspNetCore.Components.WebAssembly.MudBlazorLeptonXLiteTheme.Themes.MudBlazorLeptonXLite
+@using Volo.Abp.AspNetCore.Components.WebAssembly.WebApp
+
+<AuthorizeRouteView RouteData="RouteData" DefaultLayout="@(IsManagementRoute ? typeof(AdminLayout) : typeof(MainLayout))">
+    <NotAuthorized Context="authenticationState">
+        @if (authenticationState.User.Identity?.IsAuthenticated == true)
+        {
+            <main class="@(IsManagementRoute ? "admin-page" : "teacher-page")">
+                <KpStatePanel Kind="KpStateKind.Error" Title="无访问权限" Description="当前账号没有此页面的访问权限。请使用已授权的功能，或联系管理员分配权限。">
+                    <Actions>
+                        <AuthorizeView Policy="@AdminNavigation.AccessPolicy" Context="managementState">
+                            <Authorized><MudButton Href="/admin" Color="Color.Primary" Variant="Variant.Filled">返回管理概览</MudButton></Authorized>
+                            <NotAuthorized><MudButton Href="/" Color="Color.Primary" Variant="Variant.Filled">返回教师工作区</MudButton></NotAuthorized>
+                        </AuthorizeView>
+                    </Actions>
+                </KpStatePanel>
+            </main>
+        }
+        else
+        {
+            <WebAssemblyRedirectToLogin />
+        }
+    </NotAuthorized>
+</AuthorizeRouteView>
+
+@code {
+    [Parameter, EditorRequired] public RouteData RouteData { get; set; } = default!;
+    [Parameter] public bool IsManagementRoute { get; set; }
+}

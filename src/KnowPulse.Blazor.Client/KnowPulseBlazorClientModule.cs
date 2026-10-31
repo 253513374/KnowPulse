@@ -1,9 +1,11 @@
 ﻿using System;
 using System.Net.Http;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Components.WebAssembly.Hosting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using KnowPulse.Blazor.Client.Menus;
+using KnowPulse.Blazor.Client.Components;
 using OpenIddict.Abstractions;
 using Volo.Abp.AspNetCore.Components.Web.Theming.MudBlazor.Routing;
 using Volo.Abp.AspNetCore.Components.WebAssembly.MudBlazorLeptonXLiteTheme;
@@ -36,6 +38,10 @@ public class KnowPulseBlazorClientModule : AbpModule
         ConfigureHttpClient(context, environment);
         ConfigureRouter(context);
         ConfigureMenu(context);
+
+        Configure<AuthorizationOptions>(options => options.AddPolicy(AdminNavigation.AccessPolicy,
+            policy => policy.RequireAuthenticatedUser().AddRequirements(new AdminAccessRequirement())));
+        context.Services.AddTransient<IAuthorizationHandler, AdminAccessHandler>();
 
         context.Services.AddMapperlyObjectMapper<KnowPulseBlazorClientModule>();
     }

@@ -25,6 +25,7 @@
   </Folder>
   <Folder Name="/test/">
     <Project Path="test/KnowPulse.Application.Tests/KnowPulse.Application.Tests.csproj" />
+    <Project Path="test/KnowPulse.Blazor.Tests/KnowPulse.Blazor.Tests.csproj" />
     <Project Path="test/KnowPulse.Domain.Tests/KnowPulse.Domain.Tests.csproj" />
     <Project Path="test/KnowPulse.EntityFrameworkCore.Tests/KnowPulse.EntityFrameworkCore.Tests.csproj" />
     <Project Path="test/KnowPulse.HttpApi.Client.ConsoleTestApp/KnowPulse.HttpApi.Client.ConsoleTestApp.csproj" />

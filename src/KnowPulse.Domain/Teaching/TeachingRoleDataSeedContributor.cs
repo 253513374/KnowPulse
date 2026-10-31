@@ -31,6 +31,7 @@ public class TeachingRoleDataSeedContributor(
             "KnowPulse.KnowledgeBase", "KnowPulse.KnowledgeBase.Items", "KnowPulse.KnowledgeBase.Versions",
             "KnowPulse.KnowledgeBase.Attachments", "KnowPulse.KnowledgeBase.PermissionScopes",
             "KnowPulse.QuestionBank", "KnowPulse.QuestionBank.Questions", "KnowPulse.QuestionBank.AiGeneration",
+            "KnowPulse.Rag", "KnowPulse.Rag.Answer",
             "KnowPulse.Exam", "KnowPulse.Exam.Manage", "KnowPulse.Exam.Results"
         ], context.TenantId);
         await permissions.SeedAsync("R", "student", ["KnowPulse.Exam", "KnowPulse.Exam.Participate"], context.TenantId);

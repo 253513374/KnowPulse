@@ -4,21 +4,23 @@
 @inject IQuestionAppService QuestionAppService
 @inject NavigationManager Navigation
 
-<PageTitle>题目审核</PageTitle>
+<PageTitle>题目复核 · 平台管理</PageTitle>
 
-<QuestionBankFlowNav ActiveStage="review" />
-
-<div class="kp-flex kp-flex-wrap kp-align-start kp-justify-between kp-gap-3 kp-mb-3">
+<div class="admin-page qb-review-page">
+<header class="admin-page-header">
     <div>
-        <h1 class="kp-heading-4 kp-mb-1">题目审核</h1>
-        <div class="kp-text-muted kp-text-small">按内容、答案和依据三项完成复核，再决定是否进入正式题库。</div>
+        <h1>题目复核</h1>
+        <p class="kp-text-muted">核对内容、答案与来源依据，保留明确的审核结论。</p>
     </div>
     <a class="kp-button kp-button--secondary kp-button--sm" href="/question-bank/reviews">返回审核队列</a>
-</div>
+</header>
 
 @if (!string.IsNullOrWhiteSpace(ErrorMessage))
 {
-    <div class="kp-alert kp-alert--error" role="alert">@ErrorMessage</div>
+    <div class="kp-alert kp-alert--error" role="alert">
+        @ErrorMessage
+        <button class="kp-button kp-button--secondary kp-button--sm" type="button" @onclick="LoadAsync" disabled="@(IsLoading || IsBusy)">重新加载</button>
+    </div>
 }
 
 @if (IsLoading)
@@ -54,7 +56,7 @@ else
                             <h2 class="kp-heading-5 kp-mb-1">@Question.Title</h2>
                             <div class="kp-text-muted kp-text-small">@GetTypeText(Question.Type) / @GetDifficultyText(Question.Difficulty) / @GetSourceText(Question.CreationSource)</div>
                         </div>
-                        <span class="kp-badge kp-bg-info kp-align-self-start">待审核</span>
+                        <span class="kp-badge kp-bg-info kp-align-self-start">@(Question.Status == QuestionStatus.PendingReview ? "待审核" : "已处理")</span>
                     </div>
 
                     <div class="kp-mt-4">
@@ -64,7 +66,7 @@ else
 
                     @if (Question.Options.Count > 0)
                     {
-                        <div class="kp-list kp-list--flush kp-mt-3">
+                        <div class="kp-list kp-list--flush kp-mt-3 qb-question-options">
                             @foreach (var option in Question.Options.OrderBy(x => x.DisplayOrder))
                             {
                                 <div class="kp-list__item kp-px-0"><span class="kp-text-semibold">@option.OptionKey.</span> @option.Content</div>
@@ -74,8 +76,10 @@ else
 
                     <div class="kp-grid kp-grid-gap-3 kp-mt-1">
                         <div class="kp-col-md-6">
-                            <div class="kp-text-muted kp-text-small">标准答案</div>
-                            <div class="kp-text-semibold">@string.Join(", ", Question.Answers.OrderBy(x => x.DisplayOrder).Select(x => x.Value))</div>
+                            <div class="qb-reference-answer">
+                                <span>参考答案：</span>
+                                <strong>@string.Join(", ", Question.Answers.OrderBy(x => x.DisplayOrder).Select(x => x.Value))</strong>
+                            </div>
                         </div>
                         <div class="kp-col-md-6">
                             <div class="kp-text-muted kp-text-small">知识点</div>
@@ -104,7 +108,7 @@ else
                     {
                         @foreach (var source in Question.Sources)
                         {
-                            <div class="kp-border kp-rounded kp-p-3 kp-mt-2">
+                            <div class="kp-border kp-rounded kp-p-3 kp-mt-2 qb-source-excerpt">
                                 <div class="kp-text-semibold">@(source.SourceTitle ?? source.ManualSourceDescription ?? "题目来源")</div>
                                 @if (!string.IsNullOrWhiteSpace(source.SourceExcerpt))
                                 {
@@ -121,15 +125,15 @@ else
         <div class="kp-col-xl-4">
             <div class="kp-card kp-mb-3 qb-decision-card">
                 <div class="kp-card__body">
-                    <h2 class="kp-heading-6">审核决策</h2>
+                    <h2 class="kp-heading-6">审核结论</h2>
                     <label class="kp-label kp-mt-2" for="review-comment">审核意见</label>
-                    <textarea id="review-comment" class="kp-input" rows="6" @bind="ReviewComment" @bind:event="oninput" placeholder="说明通过结论，或清楚写出需要修改的内容"></textarea>
+                    <textarea id="review-comment" class="kp-input" rows="4" @bind="ReviewComment" @bind:event="oninput" placeholder="请填写审核意见、退回或驳回原因"></textarea>
                     <div class="kp-help">退回或不采用时必须填写原因，出题人会据此处理。</div>
 
                     <div class="kp-grid-display kp-gap-2 kp-mt-3">
-                        <button class="kp-button kp-button--success" type="button" @onclick="ApproveAsync" disabled="@IsBusy"><i class="fa-solid fa-check kp-me-1"></i>通过并加入正式题库</button>
-                        <button class="kp-button kp-button--warning" type="button" @onclick="ReturnAsync" disabled="@IsBusy"><i class="fa-solid fa-rotate-left kp-me-1"></i>退回给出题人修改</button>
-                        <button class="kp-button kp-button--danger-outline" type="button" @onclick="RejectAsync" disabled="@IsBusy">不采用此题</button>
+                        <button class="kp-button kp-button--primary" type="button" @onclick="ApproveAsync" disabled="@(IsBusy || Question.Status != QuestionStatus.PendingReview)">通过审核</button>
+                        <button class="kp-button kp-button--secondary" type="button" @onclick="ReturnAsync" disabled="@(IsBusy || Question.Status != QuestionStatus.PendingReview)">退回修改</button>
+                        <button class="kp-button kp-button--danger-outline qb-reject" type="button" @onclick="RejectAsync" disabled="@(IsBusy || Question.Status != QuestionStatus.PendingReview)">驳回题目</button>
                     </div>
                 </div>
             </div>
@@ -137,6 +141,10 @@ else
             <div class="kp-card">
                 <div class="kp-card__body">
                     <h2 class="kp-heading-6">操作记录</h2>
+                    @if (Question.Reviews.Count == 0)
+                    {
+                        <p class="kp-text-muted kp-text-small">暂无审核记录。</p>
+                    }
                     @foreach (var review in Question.Reviews.OrderByDescending(x => x.ReviewTime))
                     {
                         <div class="kp-border-start kp-ps-3 kp-mb-3">
@@ -153,6 +161,7 @@ else
         </div>
     </div>
 }
+</div>
 
 @code {
     [Parameter]
@@ -167,9 +176,13 @@ else
     private bool HasAnalysis => !string.IsNullOrWhiteSpace(Question?.Analysis);
     private bool HasEvidence => Question?.Sources.Count > 0;
 
-    protected override async Task OnInitializedAsync()
+    protected override Task OnParametersSetAsync() => LoadAsync();
+
+    private async Task LoadAsync()
     {
         IsLoading = true;
+        ErrorMessage = null;
+        Question = null;
         try
         {
             Question = await QuestionAppService.GetAsync(Id);

@@ -1,0 +1,156 @@
+@page "/rag/audit-logs"
+@attribute [Authorize(KnowPulsePermissions.Rag.AuditLogs)]
+@inherits KnowPulseComponentBase
+@inject IRagCallLogAppService RagCallLogAppService
+@inject IAiQuestionGenerationAppService AiQuestionGenerationAppService
+@inject IPermissionChecker PermissionChecker
+
+<PageTitle>调用审计</PageTitle>
+
+<div class="admin-page rag-admin-page">
+    <header class="admin-page-header"><div><h1>调用审计</h1><p>定位调用版本、检索依据和失败原因，按审计权限查看记录。</p></div><button class="kp-button kp-button--secondary" @onclick="LoadAsync" disabled="@IsLoading">刷新记录</button></header>
+    <RagAdminTabs Active="audit" />
+
+    @if (IsCheckingPermissions)
+    {
+        <div class="admin-panel rag-admin-panel rag-admin-empty" role="status">正在检查审计权限</div>
+    }
+    else if (!CanViewRag && !CanViewAi)
+    {
+        <div class="admin-panel rag-admin-panel rag-admin-empty"><strong>暂无调用审计权限</strong><p>请联系管理员核对 RAG 审计或 AI 出题日志权限。</p></div>
+    }
+    else
+    {
+        @if (ErrorMessage is not null)
+        {
+            <div class="kp-alert kp-alert--error" role="alert">@ErrorMessage <button class="kp-button kp-button--sm kp-button--secondary" @onclick="LoadAsync" disabled="@IsLoading">重试</button></div>
+        }
+        <section class="admin-panel rag-admin-panel">
+            <div class="rag-admin-panel-heading"><h2>调用记录</h2><span>共 @TotalCount 条 · 按当前权限查询</span></div>
+            <div class="rag-admin-tabs">
+                @if (CanViewRag) { <button class="kp-button @(ShowAiLogs ? "kp-button--secondary" : "kp-button--primary")" @onclick="() => SelectSourceAsync(false)" disabled="@IsLoading">RAG 调用审计</button> }
+                @if (CanViewAi) { <button class="kp-button @(!ShowAiLogs ? "kp-button--secondary" : "kp-button--primary")" @onclick="() => SelectSourceAsync(true)" disabled="@IsLoading">AI 出题日志</button> }
+            </div>
+            <form class="admin-toolbar rag-admin-toolbar rag-admin-content" @onsubmit="SearchAsync" @onsubmit:preventDefault>
+                <div class="rag-admin-field rag-admin-search"><label for="audit-version">模型业务版本</label><input id="audit-version" class="kp-input" @bind="ModelVersion" placeholder="输入完整版本标识" /></div>
+                <div class="rag-admin-field"><label for="audit-status">调用状态</label><select id="audit-status" class="kp-select" @bind="StatusFilter"><option value="">全部状态</option>@foreach (var status in Enum.GetValues<RagCallStatus>()) { <option value="@status">@GetStatusText(status)</option> }</select></div>
+                @if (ShowAiLogs)
+                {
+                    <div class="rag-admin-field"><label for="audit-prompt">Prompt 版本</label><input id="audit-prompt" class="kp-input" @bind="PromptVersion" placeholder="全部版本" /></div>
+                }
+                else
+                {
+                    <div class="rag-admin-field"><label for="audit-type">调用类型</label><select id="audit-type" class="kp-select" @bind="CallTypeFilter"><option value="">全部类型</option>@foreach (var type in Enum.GetValues<RagCallType>()) { <option value="@type">@type</option> }</select></div>
+                }
+                <button class="kp-button kp-button--primary" type="submit" disabled="@IsLoading">查询</button><button class="kp-button kp-button--secondary" type="button" @onclick="ResetAsync" disabled="@IsLoading">重置</button>
+            </form>
+            <div class="kp-table-wrap"><table class="kp-table rag-admin-table"><thead><tr><th>查询摘要 / 调用编号</th><th>模型 / 版本</th><th>状态</th><th>Token / 成本</th><th>耗时</th><th>时间</th><th>操作</th></tr></thead><tbody>
+                @if (IsLoading)
+                {
+                    <tr><td colspan="7"><div class="rag-admin-empty" role="status"><span class="kp-spinner kp-spinner--sm" aria-hidden="true"></span> 正在加载调用记录</div></td></tr>
+                }
+                else if ((ShowAiLogs ? AiLogs.Count : RagLogs.Count) == 0)
+                {
+                    <tr><td colspan="7"><div class="rag-admin-empty"><strong>@(ErrorMessage is null ? "没有匹配的调用记录" : "调用记录未能加载")</strong><p>@(ErrorMessage is null ? "调整模型版本或状态筛选后再试。" : "筛选条件已保留，请重试。")</p></div></td></tr>
+                }
+                else if (ShowAiLogs)
+                {
+                    @foreach (var log in AiLogs)
+                    {
+                        <tr><td><strong>@log.QuerySummary</strong><small>@log.Id</small></td><td>@log.ModelName<small>@log.ModelVersion · Prompt @log.PromptVersion</small></td><td><span class="rag-admin-badge @GetStatusClass(log.Status)">@GetStatusText(log.Status)</span></td><td>@log.TotalTokenCount.ToString("N0")<small>未提供成本估算</small></td><td>@log.ExecutionDurationMs.ToString("N0") ms</td><td>@log.CreationTime.ToLocalTime().ToString("MM-dd HH:mm")</td><td><button class="kp-button kp-button--link kp-button--sm" @onclick="() => SelectAiLog(log)">查看摘要</button></td></tr>
+                    }
+                }
+                else
+                {
+                    @foreach (var log in RagLogs)
+                    {
+                        <tr><td><strong>@log.QuerySummary</strong><small>@log.Id</small></td><td>@log.ModelName<small>@log.ModelVersion</small></td><td><span class="rag-admin-badge @GetStatusClass(log.Status)">@GetStatusText(log.Status)</span></td><td>@log.TotalTokenCount.ToString("N0") / $@log.EstimatedCostUsd.ToString("0.0000")</td><td>@log.ExecutionDurationMs.ToString("N0") ms</td><td>@log.CreationTime.ToLocalTime().ToString("MM-dd HH:mm")</td><td><button class="kp-button kp-button--link kp-button--sm" @onclick="() => SelectRagLog(log)">查看详情</button></td></tr>
+                    }
+                }
+            </tbody></table></div>
+            <MvpPager SkipCount="SkipCount" PageSize="PageSize" TotalCount="TotalCount" IsBusy="IsLoading" OnSkipCountChanged="ChangePageAsync" />
+            @if (SelectedRagLog is not null)
+            {
+                <div class="rag-admin-detail"><h3>调用详情</h3><dl><dt>调用编号</dt><dd>@SelectedRagLog.Id</dd><dt>查询摘要</dt><dd>@SelectedRagLog.QuerySummary</dd><dt>查询 Hash</dt><dd>@SelectedRagLog.QueryHash</dd><dt>检索 / 引用</dt><dd>@SelectedRagLog.RetrievedChunkCount 个分块 / @SelectedRagLog.CitationCount 处引用</dd><dt>置信度</dt><dd>@(SelectedRagLog.Confidence?.ToString("P0") ?? "未提供") · @(SelectedRagLog.NeedHumanReview ? "需要人工复核" : "无需人工复核")</dd><dt>失败阶段</dt><dd>@(SelectedRagLog.FailureStage ?? "—")</dd><dt>失败摘要</dt><dd>@(SelectedRagLog.FailureReason ?? "—")</dd></dl>
+                    <div class="rag-admin-citations">@foreach (var citation in SelectedRagLog.Citations.OrderBy(x => x.Rank)) { <div class="rag-admin-citation"><strong>@citation.Rank · @citation.SourceTitle</strong><p>@citation.QuotePreview</p><p>版本 @citation.KnowledgeVersionId · 分块 @citation.ChunkId</p></div> }</div>
+                </div>
+            }
+            @if (SelectedAiLog is not null)
+            {
+                <div class="rag-admin-detail"><h3>AI 出题调用摘要</h3><dl><dt>关联任务</dt><dd>@SelectedAiLog.TaskId</dd><dt>查询 Hash</dt><dd>@SelectedAiLog.QueryHash</dd><dt>输入 / 输出 Token</dt><dd>@SelectedAiLog.PromptTokenCount.ToString("N0") / @SelectedAiLog.CompletionTokenCount.ToString("N0")</dd><dt>授权分块 / 候选题</dt><dd>@SelectedAiLog.RetrievedChunkCount / @SelectedAiLog.CandidateCount</dd><dt>失败阶段</dt><dd>@(SelectedAiLog.FailureStage ?? "—")</dd><dt>失败摘要</dt><dd>@(SelectedAiLog.FailureReason ?? "—")</dd></dl></div>
+            }
+            <p class="rag-admin-note">RAG 显示当前租户的技术记录；仅本人调用显示问题摘要与引用。AI 出题日志仅显示本人及受控历史任务。</p>
+        </section>
+    }
+</div>
+
+@code {
+    private const int PageSize = 10;
+    private IReadOnlyList<RagCallLogDto> RagLogs { get; set; } = [];
+    private IReadOnlyList<AiQuestionModelCallLogDto> AiLogs { get; set; } = [];
+    private RagCallLogDto? SelectedRagLog { get; set; }
+    private AiQuestionModelCallLogDto? SelectedAiLog { get; set; }
+    private string? ModelVersion { get; set; }
+    private string? PromptVersion { get; set; }
+    private RagCallStatus? StatusFilter { get; set; }
+    private RagCallType? CallTypeFilter { get; set; }
+    private bool CanViewRag { get; set; }
+    private bool CanViewAi { get; set; }
+    private bool ShowAiLogs { get; set; }
+    private bool IsCheckingPermissions { get; set; } = true;
+    private bool IsLoading { get; set; }
+    private int SkipCount { get; set; }
+    private long TotalCount { get; set; }
+    private string? ErrorMessage { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        CanViewRag = await PermissionChecker.IsGrantedAsync(KnowPulsePermissions.Rag.AuditLogs);
+        CanViewAi = await PermissionChecker.IsGrantedAsync(KnowPulsePermissions.QuestionBank.AiGeneration);
+        ShowAiLogs = !CanViewRag;
+        IsCheckingPermissions = false;
+        await LoadAsync();
+    }
+
+    private Task SearchAsync() { SkipCount = 0; return LoadAsync(); }
+    private Task ChangePageAsync(int skipCount) { SkipCount = skipCount; return LoadAsync(); }
+    private Task ResetAsync() { ModelVersion = null; PromptVersion = null; StatusFilter = null; CallTypeFilter = null; return SearchAsync(); }
+    private Task SelectSourceAsync(bool ai) { ShowAiLogs = ai; return ResetAsync(); }
+    private void SelectRagLog(RagCallLogDto log) { SelectedRagLog = log; SelectedAiLog = null; }
+    private void SelectAiLog(AiQuestionModelCallLogDto log) { SelectedAiLog = log; SelectedRagLog = null; }
+
+    private async Task LoadAsync()
+    {
+        if (ShowAiLogs ? !CanViewAi : !CanViewRag) return;
+        IsLoading = true;
+        ErrorMessage = null;
+        SelectedRagLog = null;
+        SelectedAiLog = null;
+        try
+        {
+            if (ShowAiLogs)
+            {
+                var result = await AiQuestionGenerationAppService.GetCallLogsAsync(new GetAiQuestionModelCallLogListInput { ModelVersion = ModelVersion?.Trim(), PromptVersion = PromptVersion?.Trim(), Status = StatusFilter, SkipCount = SkipCount, MaxResultCount = PageSize });
+                AiLogs = result.Items;
+                TotalCount = result.TotalCount;
+            }
+            else
+            {
+                var result = await RagCallLogAppService.GetListAsync(new GetRagCallLogListInput { ModelVersion = ModelVersion?.Trim(), Status = StatusFilter, CallType = CallTypeFilter, SkipCount = SkipCount, MaxResultCount = PageSize });
+                RagLogs = result.Items;
+                TotalCount = result.TotalCount;
+            }
+        }
+        catch (Exception exception)
+        {
+            RagLogs = [];
+            AiLogs = [];
+            TotalCount = 0;
+            ErrorMessage = GetUserFriendlyErrorMessage(exception);
+        }
+        finally { IsLoading = false; }
+    }
+
+    private static string GetStatusText(RagCallStatus status) => status switch { RagCallStatus.Succeeded => "成功", RagCallStatus.NoContext => "无可用依据", RagCallStatus.Denied => "访问被拒绝", _ => "失败" };
+    private static string GetStatusClass(RagCallStatus status) => status switch { RagCallStatus.Succeeded => "is-success", RagCallStatus.NoContext => "is-warning", _ => "is-error" };
+}

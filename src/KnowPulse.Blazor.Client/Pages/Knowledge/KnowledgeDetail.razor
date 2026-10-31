@@ -7,10 +7,11 @@
 @inject IKnowledgeIndexJobAppService IndexJobAppService
 @inject IPermissionChecker PermissionChecker
 @inject NavigationManager NavigationManager
+@inject Volo.Abp.Users.ICurrentUser CurrentAccount
 
 <PageTitle>@(Detail?.Title ?? "知识详情")</PageTitle>
 
-<div class="knowledge-detail-page">
+<div class="admin-page knowledge-detail-page">
     <button class="knowledge-back-link" type="button" @onclick="BackToList">
         <i class="fas fa-arrow-left" aria-hidden="true"></i>返回知识列表
     </button>
@@ -36,14 +37,14 @@
     }
     else if (Detail != null)
     {
-        <header class="knowledge-detail-header">
+        <header class="admin-page-header knowledge-detail-header">
             <div class="knowledge-detail-title">
                 <span class="knowledge-detail-file @GetFileClass(Detail.Status)">
                     <i class="fas fa-file-lines" aria-hidden="true"></i>
                 </span>
                 <div>
                     <div class="kp-flex kp-flex-wrap kp-align-center kp-gap-2">
-                        <h1 class="kp-heading-3 kp-mb-0">@Detail.Title</h1>
+                        <h1>@Detail.Title</h1>
                         <span class="knowledge-detail-status @GetStatusClass(Detail.Status)">
                             <i aria-hidden="true"></i>@GetStatusText(Detail.Status)
                         </span>
@@ -58,48 +59,71 @@
                 <button class="kp-button kp-button--secondary" type="button" @onclick="OpenAdvanced">
                     <i class="fas fa-sliders kp-me-2" aria-hidden="true"></i>高级维护
                 </button>
-                <button class="kp-button kp-button--primary" type="button" @onclick="OpenRevision">
-                    <i class="fas fa-file-circle-plus kp-me-2" aria-hidden="true"></i>创建修订
-                </button>
+                @if (CanManageVersions && CanEditKnowledge)
+                {
+                    <button class="kp-button kp-button--primary" type="button" @onclick="OpenRevision">创建修订</button>
+                }
             </div>
         </header>
 
         <nav class="knowledge-detail-tabs" aria-label="知识详情导航">
-            <button class="@GetTabClass(DetailTab.Overview)" type="button" @onclick="() => ActiveTab = DetailTab.Overview">概览</button>
-            <button class="@GetTabClass(DetailTab.Versions)" type="button" @onclick="() => ActiveTab = DetailTab.Versions">
+            <button class="@GetTabClass(DetailTab.Overview)" aria-pressed="@(ActiveTab == DetailTab.Overview)" type="button" @onclick="() => ActiveTab = DetailTab.Overview">概览</button>
+            <button class="@GetTabClass(DetailTab.Versions)" aria-pressed="@(ActiveTab == DetailTab.Versions)" type="button" @onclick="() => ActiveTab = DetailTab.Versions">
                 内容与版本 <span>@Detail.VersionCount</span>
             </button>
-            <button class="@GetTabClass(DetailTab.Access)" type="button" @onclick="() => ActiveTab = DetailTab.Access">访问策略</button>
-            <button class="@GetTabClass(DetailTab.Index)" type="button" @onclick="() => ActiveTab = DetailTab.Index">检索状态</button>
-            <button class="@GetTabClass(DetailTab.Feedback)" type="button" @onclick="() => ActiveTab = DetailTab.Feedback">
+            <button class="@GetTabClass(DetailTab.Access)" aria-pressed="@(ActiveTab == DetailTab.Access)" type="button" @onclick="() => ActiveTab = DetailTab.Access">访问策略</button>
+            <button class="@GetTabClass(DetailTab.Index)" aria-pressed="@(ActiveTab == DetailTab.Index)" type="button" @onclick="() => ActiveTab = DetailTab.Index">检索状态</button>
+            <button class="@GetTabClass(DetailTab.Feedback)" aria-pressed="@(ActiveTab == DetailTab.Feedback)" type="button" @onclick="() => ActiveTab = DetailTab.Feedback">
                 反馈与修订
                 @if (Detail.PendingFeedbackCount > 0)
                 {
                     <span class="tab-attention">@Detail.PendingFeedbackCount</span>
                 }
             </button>
-            <button class="@GetTabClass(DetailTab.Activity)" type="button" @onclick="() => ActiveTab = DetailTab.Activity">活动记录</button>
+            <button class="@GetTabClass(DetailTab.Activity)" aria-pressed="@(ActiveTab == DetailTab.Activity)" type="button" @onclick="() => ActiveTab = DetailTab.Activity">活动记录</button>
         </nav>
 
         @if (ActiveTab == DetailTab.Overview)
         {
             <div class="knowledge-detail-grid">
                 <div class="knowledge-detail-main">
-                    <section class="kp-card knowledge-detail-card">
+                    <section class="admin-panel kp-card knowledge-detail-card">
                         <div class="kp-card__header kp-flex kp-align-center kp-justify-between kp-gap-3">
-                            <div><h2 class="kp-heading-6 kp-mb-1">知识概览</h2><small class="kp-text-muted">当前生效的业务事实</small></div>
-                            <button class="kp-button kp-button--link kp-button--sm" type="button" @onclick="OpenAdvanced">编辑信息</button>
+                            <div><h2 class="kp-heading-6 kp-mb-1">当前发布内容</h2><small class="kp-text-muted">内容发布与问答可用性分别确认</small></div>
+                            @if (CanEditKnowledge)
+                            {
+                                <button class="kp-button kp-button--link kp-button--sm" type="button" @onclick="OpenAdvanced">编辑信息</button>
+                            }
                         </div>
                         <div class="knowledge-definition-grid">
                             <div><small>分类</small><strong>@Detail.CategoryName</strong></div>
-                            <div><small>创建人</small><strong>@FormatUser(Detail.CreatorId)</strong></div>
+                            <div><small>资料归属</small><strong>@OwnershipText</strong></div>
                             <div><small>当前版本</small><strong>@GetCurrentVersionText(Detail)</strong></div>
                             <div><small>访问范围</small><strong><i class="fas @(Detail.IsAccessRestricted ? "fa-lock" : "fa-earth-asia") kp-me-2" aria-hidden="true"></i>@Detail.AccessScopeText</strong></div>
                             <div class="span-two"><small>摘要</small><p>@(string.IsNullOrWhiteSpace(Detail.Summary) ? "暂未填写摘要。" : Detail.Summary)</p></div>
                         </div>
+                        @if (Detail.Status == KnowledgeManagementStatus.NeedsAttention)
+                        {
+                            <div class="kp-alert kp-alert--warning knowledge-content-alert" role="status">内容发布与索引处理分别记录。@Detail.StatusReason</div>
+                        }
+                        @if (CurrentPublishedVersion is { } currentVersion && !string.IsNullOrWhiteSpace(currentVersion.ContentText))
+                        {
+                            <div class="knowledge-current-content">@currentVersion.ContentText</div>
+                        }
+                        <div class="knowledge-version-overview">
+                            <table class="kp-table kp-table-align-middle kp-mb-0">
+                                <thead><tr><th>版本</th><th>状态</th><th>说明</th><th>操作</th></tr></thead>
+                                <tbody>
+                                    @foreach (var version in Detail.Versions.OrderByDescending(x => x.VersionNumber).Take(3))
+                                    {
+                                        <tr><td>v@version.VersionNumber</td><td>@GetVersionStatusText(version)</td><td>@version.Title</td><td><button class="kp-button kp-button--link kp-button--sm" type="button" @onclick="() => ActiveTab = DetailTab.Versions">查看</button></td></tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
                     </section>
 
-                    <section class="kp-card knowledge-detail-card">
+                    <section class="admin-panel kp-card knowledge-detail-card">
                         <div class="kp-card__header kp-flex kp-align-center kp-justify-between kp-gap-3">
                             <div><h2 class="kp-heading-6 kp-mb-1">问答可用性</h2><small class="kp-text-muted">版本生命周期与索引任务保持独立，页面合成为一个健康状态。</small></div>
                             <span class="knowledge-detail-status @GetStatusClass(Detail.Status)">
@@ -142,11 +166,11 @@
                                         <p>@Detail.LatestIndexFailureReason</p>
                                     }
                                 </div>
-                                @if (CanManageIndexJobs && Detail.LatestIndexStatus == KnowledgeIndexJobStatus.Failed)
+                                @if (CanManageIndexJobs && CanEditKnowledge && Detail.LatestIndexStatus == KnowledgeIndexJobStatus.Failed)
                                 {
                                     <button class="kp-button kp-button--danger-outline kp-button--sm" type="button" @onclick="RetryLatestAsync" disabled="@IsBusy">重试索引</button>
                                 }
-                                else if (CanManageIndexJobs && Detail.CurrentVersionId.HasValue)
+                                else if (CanManageIndexJobs && CanEditKnowledge && Detail.CurrentVersionId.HasValue)
                                 {
                                     <button class="kp-button kp-button--primary-outline kp-button--sm" type="button" @onclick="ReindexCurrentAsync" disabled="@IsBusy">重建索引</button>
                                 }
@@ -154,7 +178,7 @@
                         }
                     </section>
 
-                    <section class="kp-card knowledge-detail-card">
+                    <section class="admin-panel kp-card knowledge-detail-card">
                         <div class="kp-card__header kp-flex kp-align-center kp-justify-between kp-gap-3">
                             <div><h2 class="kp-heading-6 kp-mb-1">最近反馈</h2><small class="kp-text-muted">修订动作回到当前知识上下文。</small></div>
                             <button class="kp-button kp-button--link kp-button--sm" type="button" @onclick="() => ActiveTab = DetailTab.Feedback">查看全部</button>
@@ -179,7 +203,7 @@
                 </div>
 
                 <aside class="knowledge-detail-side">
-                    <section class="kp-card knowledge-detail-card">
+                    <section class="admin-panel kp-card knowledge-detail-card">
                         <div class="kp-card__header"><h2 class="kp-heading-6 kp-mb-0">当前状态</h2></div>
                         <div class="knowledge-health-list">
                             <div><span class="health-success"><i class="fas fa-arrow-up-from-bracket" aria-hidden="true"></i></span><p><small>业务生命周期</small><strong>@GetCurrentVersionText(Detail)</strong></p></div>
@@ -189,7 +213,7 @@
                         </div>
                     </section>
 
-                    <section class="kp-card knowledge-detail-card">
+                    <section class="admin-panel kp-card knowledge-detail-card">
                         <div class="kp-card__header kp-flex kp-align-center kp-justify-between">
                             <h2 class="kp-heading-6 kp-mb-0">最近活动</h2>
                             <button class="kp-button kp-button--link kp-button--sm" type="button" @onclick="() => ActiveTab = DetailTab.Activity">全部</button>
@@ -206,10 +230,13 @@
         }
         else if (ActiveTab == DetailTab.Versions)
         {
-            <section class="kp-card knowledge-detail-card">
+            <section class="admin-panel kp-card knowledge-detail-card">
                 <div class="kp-card__header kp-flex kp-align-center kp-justify-between kp-gap-3">
                     <div><h2 class="kp-heading-6 kp-mb-1">内容与版本</h2><small class="kp-text-muted">发布时同时确认访问策略并创建索引任务。</small></div>
-                    <button class="kp-button kp-button--primary kp-button--sm" type="button" @onclick="OpenRevision">创建修订</button>
+                    @if (CanManageVersions && CanEditKnowledge)
+                    {
+                        <button class="kp-button kp-button--primary kp-button--sm" type="button" @onclick="OpenRevision">创建修订</button>
+                    }
                 </div>
                 @if (PublishCandidate != null)
                 {
@@ -263,10 +290,10 @@
         }
         else if (ActiveTab == DetailTab.Access)
         {
-            <section class="kp-card knowledge-detail-card">
+            <section class="admin-panel kp-card knowledge-detail-card">
                 <div class="kp-card__header kp-flex kp-align-center kp-justify-between kp-gap-3">
                     <div><h2 class="kp-heading-6 kp-mb-1">访问策略</h2><small class="kp-text-muted">已发布知识应持久化至少一条显式访问规则。</small></div>
-                    @if (CanManageAccessPolicy)
+                    @if (CanManageAccessPolicy && CanEditKnowledge)
                     {
                         <button class="kp-button kp-button--primary-outline kp-button--sm" type="button" @onclick="OpenPermissionManagement">调整访问策略</button>
                     }
@@ -279,10 +306,10 @@
                     @if (Detail.PermissionScopes.Count == 0)
                     {
                         <div class="kp-alert kp-alert--warning kp-flex kp-flex-wrap kp-align-center kp-justify-between kp-gap-2 kp-mb-0">
-                            <span>这是历史兼容状态：当前仍按全员可见处理，但尚未保存显式访问策略。</span>
-                            @if (CanManageAccessPolicy)
+                            <span>@(Detail.OwnerTeacherId.HasValue ? "资料默认仅本人可用，发布前需要保存显式访问策略。" : "这是受控历史资料，发布前需要确认并保存显式访问策略。")</span>
+                            @if (CanManageAccessPolicy && CanEditKnowledge)
                             {
-                                <button class="kp-button kp-button--sm kp-button--warning-outline" type="button" @onclick="PersistExplicitAllPolicyAsync" disabled="@IsBusy">补齐全员策略</button>
+                                <button class="kp-button kp-button--sm kp-button--warning-outline" type="button" @onclick="PersistExplicitPolicyAsync" disabled="@IsBusy">补齐默认策略</button>
                             }
                         </div>
                     }
@@ -305,10 +332,10 @@
         }
         else if (ActiveTab == DetailTab.Index)
         {
-            <section class="kp-card knowledge-detail-card">
+            <section class="admin-panel kp-card knowledge-detail-card">
                 <div class="kp-card__header kp-flex kp-align-center kp-justify-between kp-gap-3">
                     <div><h2 class="kp-heading-6 kp-mb-1">检索状态</h2><small class="kp-text-muted">保留发布、权限变更和手动重建产生的任务事实。</small></div>
-                    @if (CanManageIndexJobs && Detail.CurrentVersionId.HasValue)
+                    @if (CanManageIndexJobs && CanEditKnowledge && Detail.CurrentVersionId.HasValue)
                     {
                         <button class="kp-button kp-button--primary-outline kp-button--sm" type="button" @onclick="ReindexCurrentAsync" disabled="@IsBusy">重建当前版本索引</button>
                     }
@@ -333,7 +360,7 @@
                                             else { <strong class="kp-text-danger kp-block">@job.FailureStage</strong><small>@job.FailureReason</small> }
                                         </td>
                                         <td class="kp-text-end">
-                                            @if (CanManageIndexJobs && job.Status == KnowledgeIndexJobStatus.Failed)
+                                            @if (CanManageIndexJobs && CanEditKnowledge && job.Status == KnowledgeIndexJobStatus.Failed)
                                             {
                                                 <button class="kp-button kp-button--link kp-button--sm" type="button" @onclick="() => RetryAsync(job.Id)" disabled="@IsBusy">重试</button>
                                             }
@@ -348,10 +375,10 @@
         }
         else if (ActiveTab == DetailTab.Feedback)
         {
-            <section class="kp-card knowledge-detail-card">
+            <section class="admin-panel kp-card knowledge-detail-card">
                 <div class="kp-card__header kp-flex kp-align-center kp-justify-between kp-gap-3">
                     <div><h2 class="kp-heading-6 kp-mb-1">反馈与修订</h2><small class="kp-text-muted">在当前知识上下文中接手反馈、创建修订并验证发布结果。</small></div>
-                    @if (CanManageFeedback)
+                    @if (CanManageFeedback && CanEditKnowledge)
                     {
                         <button class="kp-button kp-button--primary-outline kp-button--sm" type="button" @onclick="OpenFeedbackManagement">处理当前知识反馈</button>
                     }
@@ -381,7 +408,7 @@
         }
         else
         {
-            <section class="kp-card knowledge-detail-card">
+            <section class="admin-panel kp-card knowledge-detail-card">
                 <div class="kp-card__header"><h2 class="kp-heading-6 kp-mb-1">活动记录</h2><small class="kp-text-muted">从知识、版本、索引和反馈事实实时投影。</small></div>
                 <div class="knowledge-activity-timeline">
                     @foreach (var activity in Detail.RecentActivities)
@@ -430,7 +457,7 @@
         IsLoading = true;
         ErrorMessage = null;
         try { Detail = await KnowledgeManagementAppService.GetAsync(Id); }
-        catch (Exception exception) { ErrorMessage = exception.Message; }
+        catch (Exception exception) { ErrorMessage = GetUserFriendlyErrorMessage(exception); }
         finally { IsLoading = false; }
     }
 
@@ -456,7 +483,10 @@
         _ => DetailTab.Overview
     };
 
-    private bool CanPublishKnowledge => CanManageVersions && CanManageAccessPolicy;
+    private bool CanEditKnowledge => Detail is not null && (!Detail.OwnerTeacherId.HasValue || Detail.OwnerTeacherId == CurrentAccount.Id);
+    private string OwnershipText => Detail?.OwnerTeacherId == CurrentAccount.Id ? "当前账号" : Detail?.OwnerTeacherId.HasValue == true ? "共享教师资料" : "受控历史资料";
+    private KnowledgeVersionDto? CurrentPublishedVersion => Detail?.Versions.FirstOrDefault(x => x.Id == Detail.CurrentVersionId);
+    private bool CanPublishKnowledge => CanManageVersions && CanManageAccessPolicy && CanEditKnowledge;
 
     private void PreparePublish(KnowledgeVersionDto version)
     {
@@ -496,7 +526,7 @@
         }
         catch (Exception exception)
         {
-            ErrorMessage = exception.Message;
+            ErrorMessage = GetUserFriendlyErrorMessage(exception);
         }
         finally
         {
@@ -504,9 +534,9 @@
         }
     }
 
-    private async Task PersistExplicitAllPolicyAsync()
+    private async Task PersistExplicitPolicyAsync()
     {
-        if (!await ConfirmAsync("确认将当前知识的访问策略明确设置为全员可见吗？已发布知识会创建权限变更索引任务。"))
+        if (!await ConfirmAsync(Detail?.OwnerTeacherId.HasValue == true ? "确认补齐资料所有者的私有访问策略吗？" : "确认将受控历史资料的访问策略明确设置为全员可见吗？已发布知识会创建权限变更索引任务。"))
         {
             return;
         }
@@ -518,14 +548,15 @@
         {
             await KnowledgeItemAppService.CreatePermissionScopeAsync(Id, new CreateKnowledgePermissionScopeDto
             {
-                ScopeType = KnowledgePermissionScopeType.All
+                ScopeType = Detail?.OwnerTeacherId.HasValue == true ? KnowledgePermissionScopeType.User : KnowledgePermissionScopeType.All,
+                TargetId = Detail?.OwnerTeacherId
             });
-            SuccessMessage = "已补齐显式全员访问策略。";
+            SuccessMessage = "已补齐显式访问策略。";
             await LoadAsync();
         }
         catch (Exception exception)
         {
-            ErrorMessage = exception.Message;
+            ErrorMessage = GetUserFriendlyErrorMessage(exception);
         }
         finally
         {
@@ -537,7 +568,11 @@
     {
         if (Detail == null || Detail.PermissionScopes.Count == 0)
         {
-            return [new CreateKnowledgePermissionScopeDto { ScopeType = KnowledgePermissionScopeType.All }];
+            return [new CreateKnowledgePermissionScopeDto
+            {
+                ScopeType = Detail?.OwnerTeacherId.HasValue == true ? KnowledgePermissionScopeType.User : KnowledgePermissionScopeType.All,
+                TargetId = Detail?.OwnerTeacherId
+            }];
         }
 
         var allScope = Detail.PermissionScopes.FirstOrDefault(x => x.ScopeType == KnowledgePermissionScopeType.All);
@@ -602,7 +637,7 @@
         ErrorMessage = null;
         SuccessMessage = null;
         try { await command(); SuccessMessage = successMessage; await LoadAsync(); }
-        catch (Exception exception) { ErrorMessage = exception.Message; }
+        catch (Exception exception) { ErrorMessage = GetUserFriendlyErrorMessage(exception); }
         finally { IsBusy = false; }
     }
 
@@ -709,6 +744,7 @@
     };
 
     private static string GetAccessExplanation(KnowledgeManagementDetailDto detail) =>
+        detail.OwnerTeacherId.HasValue ? "资料默认仅所有者可用；指定共享教师只能读取当前发布版并用于出题。" :
         !detail.HasExplicitAccessPolicy
             ? "当前使用历史兼容规则；下一次发布必须显式确认访问范围。"
             : detail.IsAccessRestricted

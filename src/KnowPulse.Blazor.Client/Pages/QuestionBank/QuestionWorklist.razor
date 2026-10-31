@@ -1,13 +1,13 @@
 @inherits KnowPulseComponentBase
 @inject IQuestionAppService QuestionAppService
 @inject IPositionAppService PositionAppService
+@inject IPermissionChecker PermissionChecker
 
-<QuestionBankFlowNav ActiveStage="@FlowStage" />
-
-<div class="kp-flex kp-flex-wrap kp-align-start kp-justify-between kp-gap-3 kp-mb-3">
+<div class="admin-page">
+<header class="admin-page-header">
     <div>
-        <h1 class="kp-heading-4 kp-mb-1">@Title</h1>
-        <div class="kp-text-muted kp-text-small">@Description</div>
+        <h1>@Title</h1>
+        <p class="kp-text-muted">@Description</p>
     </div>
     <div class="kp-flex kp-flex-wrap kp-gap-2">
         @if (Worklist == QuestionWorklistKind.Drafts)
@@ -21,11 +21,16 @@
         }
         <button class="kp-button kp-button--secondary kp-button--sm" type="button" @onclick="LoadAsync" disabled="@IsBusy">刷新</button>
     </div>
-</div>
+</header>
+
+<QuestionBankFlowNav ActiveStage="@FlowStage" />
 
 @if (!string.IsNullOrWhiteSpace(ErrorMessage))
 {
-    <div class="kp-alert kp-alert--error" role="alert">@ErrorMessage</div>
+    <div class="kp-alert kp-alert--error" role="alert">
+        @ErrorMessage
+        <button class="kp-button kp-button--secondary kp-button--sm" type="button" @onclick="LoadAsync" disabled="@IsBusy">重试</button>
+    </div>
 }
 
 <div class="kp-card kp-mb-3">
@@ -64,6 +69,8 @@
                     <option value="@QuestionDifficulty.Hard">困难</option>
                 </select>
             </div>
+            @if (CanFilterByPosition)
+            {
             <div class="kp-col-lg-2 kp-col-md-6">
                 <label class="kp-label" for="worklist-position">岗位</label>
                 <select id="worklist-position" class="kp-select" @bind="PositionText">
@@ -74,6 +81,7 @@
                     }
                 </select>
             </div>
+            }
             <div class="kp-col-lg-2 kp-col-md-6">
                 <label class="kp-label" for="worklist-point">知识点</label>
                 <input id="worklist-point" class="kp-input" @bind="KnowledgePoint" @bind:event="oninput" />
@@ -153,7 +161,7 @@
                                 }
                                 else if (Worklist == QuestionWorklistKind.ReviewQueue)
                                 {
-                                    <a class="kp-button kp-button--primary kp-button--sm" href="@($"/question-bank/reviews/{question.Id}")">开始审核</a>
+                                    <a class="kp-button kp-button--link kp-button--sm" href="@($"/question-bank/reviews/{question.Id}")">开始复核</a>
                                 }
                                 else
                                 {
@@ -170,6 +178,7 @@
         </table>
     </div>
     <MvpPager SkipCount="SkipCount" PageSize="PageSize" TotalCount="TotalCount" IsBusy="IsBusy" OnSkipCountChanged="ChangePageAsync" />
+</div>
 </div>
 
 @code {
@@ -191,11 +200,12 @@
     private bool IsLoading { get; set; }
     private bool IsBusy { get; set; }
     private string? ErrorMessage { get; set; }
+    private bool CanFilterByPosition { get; set; }
 
     private string Title => Worklist switch
     {
         QuestionWorklistKind.Drafts => "出题与草稿",
-        QuestionWorklistKind.ReviewQueue => "审核入库",
+        QuestionWorklistKind.ReviewQueue => "题库审核",
         QuestionWorklistKind.Formal => "正式题库",
         _ => "题库"
     };
@@ -203,7 +213,7 @@
     private string Description => Worklist switch
     {
         QuestionWorklistKind.Drafts => "人工题和 AI 候选都会先成为草稿；完善内容与依据后再提交审核。",
-        QuestionWorklistKind.ReviewQueue => "核对题目质量与来源依据，通过后才会进入正式题库。",
+        QuestionWorklistKind.ReviewQueue => "检查可管理范围内的提交题目，核对题目质量与来源依据。",
         QuestionWorklistKind.Formal => "仅展示审核通过且可用于新试卷的题目。",
         _ => string.Empty
     };
@@ -227,7 +237,7 @@
     private string ListTitle => Worklist switch
     {
         QuestionWorklistKind.Drafts => "待编辑与待修改",
-        QuestionWorklistKind.ReviewQueue => "等待审核决策",
+        QuestionWorklistKind.ReviewQueue => "审核队列",
         QuestionWorklistKind.Formal => "可用于新试卷",
         _ => "题目列表"
     };
@@ -242,9 +252,16 @@
 
     protected override async Task OnInitializedAsync()
     {
-        var positions = await PositionAppService.GetListAsync(new PagedAndSortedResultRequestDto { MaxResultCount = 200 });
-        Positions.AddRange(positions.Items.OrderBy(x => x.Name));
         await LoadAsync();
+        CanFilterByPosition = await PermissionChecker.IsGrantedAsync(KnowPulsePermissions.Organization.Positions);
+        if (CanFilterByPosition)
+        {
+            await RunBusyAsync(async () =>
+            {
+                var positions = await PositionAppService.GetListAsync(new PagedAndSortedResultRequestDto { MaxResultCount = 200 });
+                Positions.AddRange(positions.Items.OrderBy(x => x.Name));
+            });
+        }
     }
 
     private async Task ApplyFiltersAsync()

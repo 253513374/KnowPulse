@@ -1,0 +1,6 @@
+.exam-search-field { flex: 1; min-width: min(100%, 260px); }
+.exam-status-field { width: 240px; max-width: 100%; }
+.admin-toolbar { align-items: flex-end; }
+.kp-table td:first-child { min-width: 220px; }
+.kp-table p { margin: 4px 0 0; }
+.kp-table td { min-width: 100px; }

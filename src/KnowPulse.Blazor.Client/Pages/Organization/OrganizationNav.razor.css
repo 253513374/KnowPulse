@@ -1,0 +1,34 @@
+.organization-nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 12px;
+    border: 1px solid var(--kp-border);
+    border-radius: 16px;
+    background: var(--kp-surface);
+}
+
+.organization-nav ::deep a {
+    display: flex;
+    align-items: center;
+    min-height: 48px;
+    padding: 12px 20px;
+    border-radius: 8px;
+    color: var(--kp-muted);
+    text-decoration: none;
+}
+
+.organization-nav ::deep a:hover,
+.organization-nav ::deep a.is-active {
+    color: var(--kp-primary);
+    background: var(--kp-primary-soft);
+}
+
+.organization-nav ::deep a.is-active {
+    font-weight: 600;
+}
+
+.organization-nav ::deep a:focus-visible {
+    outline: 2px solid var(--kp-primary);
+    outline-offset: 2px;
+}

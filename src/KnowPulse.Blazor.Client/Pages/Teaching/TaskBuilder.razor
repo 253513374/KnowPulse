@@ -1,4 +1,5 @@
 @page "/teacher/tasks/new"
+@page "/exam/management/new"
 @attribute [Authorize(KnowPulsePermissions.Exam.Manage)]
 @inherits KnowPulseComponentBase
 @inject IExamAppService Exams
@@ -7,17 +8,27 @@
 @inject NavigationManager Navigation
 @inject IDialogService Dialogs
 
-<PageTitle>发布答题任务 · 知脉空间</PageTitle>
+<PageTitle>@(IsAdministration ? "创建考试计划 · 平台管理" : "发布答题任务 · 知脉空间")</PageTitle>
 <NavigationLock OnBeforeInternalNavigation="ConfirmNavigationAsync" ConfirmExternalNavigation="@(HasUnsavedContent && !_published)" />
-<main class="teacher-page" data-teacher-section="tasks">
-    <TeacherPageHeader Title="@(_step == 1 ? "组织答题内容" : _step == 2 ? "选择接收学生" : "预览并发布任务")" Description="@($"第 {_step} 步，共 3 步 · 只向你选择的学生布置任务。")">
-        <Actions><MudButton Href="/teacher/tasks" Variant="Variant.Outlined" Disabled="_busy">返回任务列表</MudButton></Actions>
-    </TeacherPageHeader>
+<div class="@(IsAdministration ? "admin-page" : "teacher-page")" role="@(IsAdministration ? null : "main")" data-teacher-section="@(IsAdministration ? null : "tasks")">
+    @if (IsAdministration)
+    {
+        <header class="admin-page-header">
+            <div><h1>@StepTitle</h1><p class="kp-text-muted">第 @_step 步，共 3 步 · 指定接收学生，发布时固定名单与题目快照。</p></div>
+            <MudButton Href="@ListPath" Variant="Variant.Outlined" Disabled="_busy">返回考试计划</MudButton>
+        </header>
+    }
+    else
+    {
+        <TeacherPageHeader Title="@StepTitle" Description="@($"第 {_step} 步，共 3 步 · 只向你选择的学生布置任务。")">
+            <Actions><MudButton Href="/teacher/tasks" Variant="Variant.Outlined" Disabled="_busy">返回任务列表</MudButton></Actions>
+        </TeacherPageHeader>
+    }
     @if (_error is not null) { <MudAlert Severity="Severity.Error" role="alert">@_error</MudAlert> }
     @if (_busy) { <MudProgressLinear Indeterminate="true" aria-label="正在处理" /> }
     @if (_step == 1)
     {
-        <MudPaper Class="teacher-panel" Elevation="0">
+        <MudPaper Class="@PanelClass" Elevation="0">
             <h2>任务信息</h2>
             <MudTextField T="string" Immediate="true" Label="任务名称" @bind-Value="_name" Required="true" MaxLength="256" Variant="Variant.Outlined" Disabled="_busy" />
             <MudTextField T="string" Immediate="true" Label="简要说明（选填）" @bind-Value="_description" MaxLength="1024" Lines="3" Variant="Variant.Outlined" Disabled="_busy" />
@@ -28,7 +39,7 @@
             </MudSelect>
             <p class="teacher-muted">每人一次正式提交，无时限；中途退出后可继续本人已保存的作答。</p>
         </MudPaper>
-        <MudPaper Class="teacher-panel" Elevation="0">
+        <MudPaper Class="@PanelClass" Elevation="0">
             <h2>已选 @_selected.Count 题 · 共 @_selected.Sum(x => x.Score) 分</h2>
             @foreach (var entry in _selected.ToArray())
             {
@@ -54,12 +65,12 @@
                 <NoRecordsContent><MudText>暂无已确认题目。先到题库检查并确认题目。</MudText></NoRecordsContent>
             </MudTable>
             <MvpPager SkipCount="_questionSkip" TotalCount="_questionTotal" IsBusy="_busy" OnSkipCountChanged="QuestionPageAsync" />
-            <MudButton Href="/teacher/questions">打开我的题库</MudButton>
+            <MudButton Href="@(IsAdministration ? "/question-bank/formal" : "/teacher/questions")">@(IsAdministration ? "打开正式题库" : "打开我的题库")</MudButton>
         </MudPaper>
     }
     else if (_step == 2)
     {
-        <MudPaper Class="teacher-panel" Elevation="0">
+        <MudPaper Class="@PanelClass" Elevation="0">
             <h2>从我的有效学生中选择</h2><p class="teacher-muted">本次已选择 @_recipients.Count 人。选择只影响这一份任务。</p>
             <div class="teacher-toolbar">
                 <MudTextField T="string" Immediate="true" Label="搜索学生" @bind-Value="_studentKeyword" Variant="Variant.Outlined" Disabled="_busy" />
@@ -77,26 +88,26 @@
             }
             else { <p>还没有符合条件的有效学生。邀请学生并确认加入后，再回来选择。</p> }
             <MvpPager SkipCount="_studentSkip" TotalCount="_studentTotal" IsBusy="_busy" OnSkipCountChanged="StudentPageAsync" />
-            <MudButton Href="/teacher/students" Variant="Variant.Outlined">管理学生名单</MudButton>
+            <MudButton Href="/teacher/students" Variant="Variant.Outlined">@(IsAdministration ? "到教师工作区维护学生" : "管理学生名单")</MudButton>
         </MudPaper>
-        <MudPaper Class="teacher-panel" Elevation="0">
+        <MudPaper Class="@PanelClass" Elevation="0">
             <h2>已选择：@string.Join("、", _recipients.Values)</h2>
             <MudAlert Severity="Severity.Info">发布时固定保存这 @_recipients.Count 人的指派。以后新加入学生不会自动收到本任务；不选择学生时不能发布。</MudAlert>
         </MudPaper>
     }
     else if (_preview is not null)
     {
-        <div class="teacher-metrics">
-            <div class="teacher-metric"><span>任务名称</span><h2>@_name</h2></div>
-            <div class="teacher-metric"><span>题量／总分</span><strong>@_preview.QuestionCount / @_preview.TotalScore</strong></div>
-            <div class="teacher-metric"><span>指定接收人</span><strong>@_recipients.Count 人</strong></div>
+        <div class="@(IsAdministration ? "admin-metrics" : "teacher-metrics")">
+            <div class="@(IsAdministration ? "admin-metric" : "teacher-metric")"><span>任务名称</span><h2>@_name</h2></div>
+            <div class="@(IsAdministration ? "admin-metric" : "teacher-metric")"><span>题量／总分</span><strong>@_preview.QuestionCount / @_preview.TotalScore</strong></div>
+            <div class="@(IsAdministration ? "admin-metric" : "teacher-metric")"><span>指定接收人</span><strong>@_recipients.Count 人</strong></div>
         </div>
-        <MudPaper Class="teacher-panel" Elevation="0">
+        <MudPaper Class="@PanelClass" Elevation="0">
             <h2>固定接收名单</h2><p>@string.Join("、", _recipients.Values)</p>
             <p>提交后可见：@(_visibility switch { ExamResultVisibility.FullReview => "分数、答案与解析", ExamResultVisibility.Hidden => "仅确认提交", _ => "仅展示分数" })</p>
             <p class="teacher-muted">每人一次正式提交，无时限。学生打开或刷新小程序即可查看。</p>
         </MudPaper>
-        <MudPaper Class="teacher-panel" Elevation="0">
+        <MudPaper Class="@PanelClass" Elevation="0">
             <h2>任务内容</h2><p class="teacher-muted">教师预览包含答案；学生作答前不会收到标准答案与解析。</p>
             @foreach (var question in _preview.Questions.OrderBy(x => x.DisplayOrder))
             {
@@ -114,9 +125,13 @@
         @if (_step < 3) { <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="NextAsync" Disabled="_busy">@(_step == 1 ? "下一步：选择学生" : "下一步：预览发布")</MudButton> }
         else { <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="PublishAsync" Disabled="_busy">发布给 @_recipients.Count 名学生</MudButton> }
     </div>
-</main>
+</div>
 
 @code {
+    private bool IsAdministration => Navigation.ToBaseRelativePath(Navigation.Uri).StartsWith("exam/management/", StringComparison.OrdinalIgnoreCase);
+    private string ListPath => IsAdministration ? "/exam/management" : "/teacher/tasks";
+    private string PanelClass => IsAdministration ? "admin-panel" : "teacher-panel";
+    private string StepTitle => _step == 1 ? "组织答题内容" : _step == 2 ? "选择接收学生" : "预览并发布任务";
     private sealed class SelectedQuestion { public required QuestionDto Question { get; init; } public decimal Score { get; set; } = 10; }
     private readonly List<SelectedQuestion> _selected = [];
     private readonly Dictionary<Guid, string> _recipients = [];
@@ -171,7 +186,7 @@
         {
             var plan = await Exams.CreatePlanAsync(new() { Name = _name.Trim(), Description = _description, MaxAttempts = 1, ResultVisibility = _visibility, StudentIds = _recipients.Keys.ToList(), Paper = PaperInput() });
             _published = true;
-            Navigation.NavigateTo($"/teacher/tasks/{plan.Id}/results");
+            Navigation.NavigateTo($"{ListPath}/{plan.Id}/results");
         }
         catch (Exception ex) { _error = GetUserFriendlyErrorMessage(ex); }
         finally { _busy = false; }

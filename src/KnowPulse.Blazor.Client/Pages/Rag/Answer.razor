@@ -1,17 +1,19 @@
 @page "/rag/answer"
+@page "/teacher/answer"
 @attribute [Authorize(KnowPulsePermissions.Rag.Answer)]
 @inherits KnowPulseComponentBase
 @inject IRagAnswerService RagAnswerService
 @inject IAiModelCatalogAppService AiModelCatalogAppService
 @inject IPermissionChecker PermissionChecker
+@inject NavigationManager Navigation
 
-<PageTitle>问答验证</PageTitle>
+<PageTitle>资料问答</PageTitle>
 
 <div class="rag-console">
     <header class="rag-console-header">
         <div>
-            <h1>RAG 运行控制台 · 问答验证</h1>
-            <p>验证当前配置下的知识问答效果，确保答案有依据、可追溯。</p>
+            <h1>资料问答</h1>
+            <p>基于你有权访问的资料回答，并列出引用依据。</p>
         </div>
         <div class="rag-console-header-actions">
             <span class="rag-console-date">今天是 @DateTime.Now.ToString("yyyy-MM-dd")</span>
@@ -25,6 +27,8 @@
         </div>
     </header>
 
+    @if (!IsTeacherRoute)
+    {
     <section class="rag-readiness" aria-label="RAG 运行状态">
         <div class="rag-readiness-item">
             <span class="rag-readiness-icon is-knowledge"><i class="fa fa-book-open" aria-hidden="true"></i></span>
@@ -63,6 +67,7 @@
             </div>
         </div>
     </section>
+    }
 
     @if (!string.IsNullOrWhiteSpace(ErrorMessage))
     {
@@ -74,7 +79,7 @@
         {
             <section class="rag-empty-state">
                 <span class="rag-empty-icon"><i class="fa fa-comment-dots" aria-hidden="true"></i></span>
-                <h2>开始一次问答验证</h2>
+                <h2>开始资料问答</h2>
                 <p>系统只会使用你有权限访问的知识生成答案，并在回答下方列出引用依据。</p>
                 <div class="rag-example-list" aria-label="示例问题">
                     @foreach (var example in ExampleQuestions)
@@ -123,7 +128,7 @@
                                 <i class="fa @(AnswerResult.Citations.Count > 0 ? "fa-check-circle" : "fa-exclamation-circle")" aria-hidden="true"></i>
                                 @GetAnswerEvidenceText()
                             </div>
-                            <div>当前模型：@GetUsageAlias(AiModelUsage.RagAnswerChat)</div>
+                            @if (!IsTeacherRoute) { <div>当前模型：@GetUsageAlias(AiModelUsage.RagAnswerChat)</div> }
                         </div>
 
                         @if (AnswerResult.Citations.Count > 0)
@@ -145,7 +150,7 @@
                                         <p>@citation.Quote</p>
                                         @if (citation.KnowledgeItemId != Guid.Empty)
                                         {
-                                            <a href="/knowledge/@citation.KnowledgeItemId">查看原文 <i class="fa fa-external-link-alt" aria-hidden="true"></i></a>
+                                            <a href="/teacher/materials/@citation.KnowledgeItemId?version=@citation.KnowledgeVersionId">查看原文 <i class="fa fa-external-link-alt" aria-hidden="true"></i></a>
                                         }
                                     </article>
                                 }
@@ -159,7 +164,7 @@
                                     <span>可能是知识尚未发布、当前账号无访问权限，或问题与知识内容不匹配。</span>
                                 </div>
                                 <div class="rag-recovery-actions">
-                                    <a class="kp-button kp-button--sm kp-button--secondary" href="/knowledge">浏览可用知识</a>
+                                    <a class="kp-button kp-button--sm kp-button--secondary" href="/teacher/materials">浏览我的资料</a>
                                     @if (CanViewModels)
                                     {
                                         <a class="kp-button kp-button--sm kp-button--primary-outline" href="/rag/models">检查模型状态</a>
@@ -189,7 +194,7 @@
             <div class="rag-composer-footer">
                 <span id="rag-question-help">答案仅基于当前账号可访问的知识；知识不足时系统会明确拒答。</span>
                 <div class="rag-composer-actions">
-                    <a href="/knowledge"><i class="fa fa-book-open" aria-hidden="true"></i> 浏览可用知识</a>
+                    <a href="/teacher/materials"><i class="fa fa-book-open" aria-hidden="true"></i> 浏览我的资料</a>
                     @if (CanViewModels)
                     {
                         <a href="/rag/models"><i class="fa fa-wave-square" aria-hidden="true"></i> 检查模型状态</a>
@@ -205,6 +210,7 @@
 </div>
 
 @code {
+    private bool IsTeacherRoute => Navigation.ToBaseRelativePath(Navigation.Uri).StartsWith("teacher/", StringComparison.OrdinalIgnoreCase);
     private static readonly string[] ExampleQuestions =
     {
         "员工申请年假需要满足什么条件？",
@@ -226,7 +232,7 @@
 
     protected override async Task OnInitializedAsync()
     {
-        CanViewModels = await PermissionChecker.IsGrantedAsync(KnowPulsePermissions.AiModels.View);
+        CanViewModels = !IsTeacherRoute && await PermissionChecker.IsGrantedAsync(KnowPulsePermissions.AiModels.View);
         if (CanViewModels)
         {
             try

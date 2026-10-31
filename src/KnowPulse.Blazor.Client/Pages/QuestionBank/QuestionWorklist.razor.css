@@ -13,7 +13,7 @@
     height: 3rem;
     place-items: center;
     border-radius: 50%;
-    color: var(--bs-primary);
-    background: rgba(var(--bs-primary-rgb), .09);
+    color: var(--kp-primary);
+    background: var(--kp-primary-soft);
     font-size: 1.1rem;
 }

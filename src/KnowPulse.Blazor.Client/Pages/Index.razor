@@ -8,13 +8,14 @@
                   Description="从一份好资料，到一次有反馈的练习。"
                   Eyebrow="教师备课与学生练习">
         <Actions>
-            <MudButton Href="/teacher/materials" Variant="Variant.Filled" Color="Color.Primary">进入我的资料</MudButton>
+            <AuthorizeView Policy="@KnowPulsePermissions.KnowledgeBase.Items"><Authorized><MudButton Href="/teacher/materials" Variant="Variant.Filled" Color="Color.Primary">进入我的资料</MudButton></Authorized></AuthorizeView>
         </Actions>
     </KpPageHeader>
 
     <MudGrid Spacing="3">
         @foreach (var area in WorkAreas)
         {
+            <AuthorizeView Policy="@area.Permission"><Authorized>
             <MudItem xs="12" md="6" xl="3">
                 <MudPaper Class="kp-feature-card" Elevation="0">
                     <MudAvatar Color="Color.Primary" Variant="Variant.Filled" Size="Size.Medium">
@@ -27,16 +28,18 @@
                     </MudStack>
                 </MudPaper>
             </MudItem>
+            </Authorized></AuthorizeView>
         }
     </MudGrid>
 </MudStack>
 
 @code {
-    private static readonly (string Title, string Description, string Icon, string Url)[] WorkAreas =
+    private static readonly (string Title, string Description, string Icon, string Url, string Permission)[] WorkAreas =
     [
-        ("我的资料", "整理个人与共享出题资料", Icons.Material.Filled.MenuBook, "/teacher/materials"),
-        ("出题与题库", "生成、编辑并本人确认", Icons.Material.Filled.AutoAwesome, "/teacher/questions"),
-        ("我的学生", "邀请并确认学生加入", Icons.Material.Filled.People, "/teacher/students"),
-        ("答题任务", "定向发布与结果回看", Icons.Material.Filled.FactCheck, "/teacher/tasks")
+        ("我的资料", "整理个人与共享出题资料", Icons.Material.Filled.MenuBook, "/teacher/materials", KnowPulsePermissions.KnowledgeBase.Items),
+        ("资料问答", "根据可访问的资料提问", Icons.Material.Filled.QuestionAnswer, "/teacher/answer", KnowPulsePermissions.Rag.Answer),
+        ("出题与题库", "生成、编辑并本人确认", Icons.Material.Filled.AutoAwesome, "/teacher/questions", KnowPulsePermissions.QuestionBank.Questions),
+        ("我的学生", "邀请并确认学生加入", Icons.Material.Filled.People, "/teacher/students", KnowPulsePermissions.Exam.Manage),
+        ("答题任务", "定向发布与结果回看", Icons.Material.Filled.FactCheck, "/teacher/tasks", KnowPulsePermissions.Exam.Manage)
     ];
 }

@@ -34,7 +34,7 @@ public abstract class KnowPulseComponentBase : AbpComponentBase
             : $"操作失败：{message}";
     }
 
-    private static HttpStatusCode? TryGetStatusCode(Exception exception)
+    protected static HttpStatusCode? TryGetStatusCode(Exception exception)
     {
         for (var current = exception; current != null; current = current.InnerException)
         {

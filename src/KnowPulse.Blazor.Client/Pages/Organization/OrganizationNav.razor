@@ -1,0 +1,14 @@
+<nav class="organization-nav" aria-label="组织与人员管理">
+    <AuthorizeView Policy="@KnowPulsePermissions.Organization.Departments">
+        <NavLink href="/organization/departments" ActiveClass="is-active">部门</NavLink>
+    </AuthorizeView>
+    <AuthorizeView Policy="@KnowPulsePermissions.Organization.Positions">
+        <NavLink href="/organization/positions" ActiveClass="is-active">岗位</NavLink>
+    </AuthorizeView>
+    <AuthorizeView Policy="@KnowPulsePermissions.Organization.JobLevels">
+        <NavLink href="/organization/job-levels" ActiveClass="is-active">职级</NavLink>
+    </AuthorizeView>
+    <AuthorizeView Policy="@KnowPulsePermissions.Organization.UserAssignments">
+        <NavLink href="/organization/user-assignments" ActiveClass="is-active">人员归属</NavLink>
+    </AuthorizeView>
+</nav>

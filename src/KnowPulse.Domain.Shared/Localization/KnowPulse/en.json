@@ -61,6 +61,7 @@
     "Permission:QuestionBank.Questions": "Manage questions",
     "Permission:QuestionBank.Reviews": "Review questions",
     "Permission:QuestionBank.AiGeneration": "Generate AI candidates",
+    "Permission:QuestionBank.PromptTemplates": "View AI question prompt templates",
     "Permission:Exam": "Exam",
     "Permission:Exam.Manage": "Manage exams",
     "Permission:Exam.Participate": "Take exams",

@@ -7,13 +7,14 @@
 
 <PageTitle>反馈与修订</PageTitle>
 
-<div class="kp-flex kp-flex-wrap kp-align-center kp-justify-between kp-gap-2 kp-mb-3">
+<div class="admin-page feedback-page">
+<header class="admin-page-header">
     <div>
-        <h1 class="kp-heading-4 kp-mb-1">反馈与修订</h1>
-        <div class="kp-text-muted kp-text-small">接手问题，创建修订，发布并验证检索结果后完成反馈。</div>
+        <h1>反馈与修订</h1>
+        <div class="kp-text-muted kp-text-small">把问题反馈推进到修订、发布、索引验证和解决。</div>
     </div>
-    <button class="kp-button kp-button--secondary kp-button--sm" type="button" @onclick="LoadAsync" disabled="@IsBusy">刷新</button>
-</div>
+    <button class="kp-button kp-button--secondary kp-button--sm" type="button" @onclick="LoadAsync" disabled="@IsBusy">刷新反馈</button>
+</header>
 
 @if (!string.IsNullOrWhiteSpace(ErrorMessage))
 {
@@ -30,7 +31,7 @@
 
 @if (IsPermissionError)
 {
-    <div class="kp-card">
+    <div class="admin-panel kp-card">
         <div class="kp-card__body kp-text-center kp-py-5">
             <h2 class="kp-heading-6 kp-mb-2">无权限处理知识反馈</h2>
             <div class="kp-text-muted">请确认账号已授予知识反馈处理权限。</div>
@@ -39,9 +40,10 @@
 }
 else
 {
-    <div class="kp-grid kp-grid-gap-3">
-        <div class="kp-col-xl-6">
-            <div class="kp-card">
+    <div class="feedback-grid">
+        <div class="feedback-list-column">
+            <div class="admin-panel kp-card">
+                <div class="feedback-panel-heading"><h2>知识反馈</h2><span>当前筛选共 @TotalCount 条</span></div>
                 <div class="kp-card__body kp-border-bottom">
                     <div class="kp-grid kp-grid-gap-2 kp-align-end">
                         <div class="kp-col-md-3">
@@ -79,10 +81,9 @@ else
                     <table class="kp-table kp-table--hover kp-table-align-middle kp-mb-0">
                         <thead>
                             <tr>
-                                <th>反馈</th>
-                                <th>知识</th>
+                                <th>反馈与知识</th>
                                 <th>状态</th>
-                                <th>提交时间</th>
+                                <th>修订版本</th>
                                 <th class="kp-text-end">操作</th>
                             </tr>
                         </thead>
@@ -90,13 +91,13 @@ else
                             @if (IsLoading)
                             {
                                 <tr>
-                                    <td colspan="5" class="kp-text-center kp-py-4 kp-text-muted">加载中</td>
+                                    <td colspan="4" class="kp-text-center kp-py-4 kp-text-muted">加载中</td>
                                 </tr>
                             }
                             else if (FeedbackList.Count == 0)
                             {
                                 <tr>
-                                    <td colspan="5" class="kp-text-center kp-py-4 kp-text-muted">暂无知识反馈</td>
+                                    <td colspan="4" class="kp-text-center kp-py-4 kp-text-muted">暂无知识反馈</td>
                                 </tr>
                             }
                             else
@@ -106,14 +107,11 @@ else
                                     <tr class="@(SelectedFeedback?.Id == feedback.Id ? "kp-table-row--active" : null)">
                                         <td>
                                             <div class="kp-text-semibold">@feedback.Title</div>
-                                            <div class="kp-text-muted kp-text-small">@GetTypeText(feedback.Type)</div>
-                                        </td>
-                                        <td>
-                                            <div>@feedback.KnowledgeTitle</div>
-                                            <div class="kp-text-muted kp-text-small">@GetVersionText(feedback)</div>
+                                            <div class="kp-text-muted kp-text-small">@feedback.KnowledgeTitle</div>
+                                            <div class="kp-text-muted kp-text-small">@GetTypeText(feedback.Type) · @feedback.CreationTime.ToString("MM-dd HH:mm")</div>
                                         </td>
                                         <td><span class="kp-badge @GetStatusBadge(feedback.Status)">@GetStatusText(feedback.Status)</span></td>
-                                        <td>@feedback.CreationTime.ToString("yyyy-MM-dd HH:mm")</td>
+                                        <td><div>@GetLinkedVersionText(feedback)</div><small class="kp-text-muted">@GetLinkedIndexText(feedback)</small></td>
                                         <td class="kp-text-end">
                                             <button class="kp-button kp-button--link kp-button--sm" type="button" @onclick="() => SelectFeedbackAsync(feedback)" disabled="@IsBusy">查看</button>
                                         </td>
@@ -125,16 +123,17 @@ else
                 </div>
 
                 <MvpPager SkipCount="SkipCount" PageSize="PageSize" TotalCount="TotalCount" IsBusy="IsBusy" OnSkipCountChanged="ChangePageAsync" />
+                <div class="feedback-chain"><h3>处理链路</h3><p>新建 → 接手 → 创建修订 → 发布 → 索引验证 → 解决</p></div>
             </div>
         </div>
 
-        <div class="kp-col-xl-6">
-            <div class="kp-card">
+        <div class="feedback-detail-column">
+            <div class="admin-panel kp-card">
                 <div class="kp-card__body kp-border-bottom">
                     <div class="kp-flex kp-flex-wrap kp-align-start kp-justify-between kp-gap-2">
                         <div>
-                            <h2 class="kp-heading-6 kp-mb-1">处理闭环</h2>
-                            <div class="kp-text-muted kp-text-small">@SelectedFeedbackTitle</div>
+                            <h2 class="kp-heading-6 kp-mb-1">@SelectedFeedbackTitle</h2>
+                            <div class="kp-text-muted kp-text-small">修订发布并完成索引后，才可标记解决。</div>
                         </div>
                         @if (SelectedFeedback != null)
                         {
@@ -293,6 +292,8 @@ else
         </div>
     </div>
 }
+
+</div>
 
 @code {
     private const int PageSize = 20;
@@ -534,6 +535,16 @@ else
             ? $"v{feedback.KnowledgeVersionNumber?.ToString() ?? "-"} - {feedback.KnowledgeVersionTitle ?? feedback.KnowledgeVersionId.Value.ToString("N")}"
             : "未绑定来源版本";
     }
+
+    private static string GetLinkedIndexText(KnowledgeFeedbackDto feedback) => feedback.LinkedKnowledgeVersionIndexStatus switch
+    {
+        KnowledgeIndexJobStatus.Indexed => "索引成功",
+        KnowledgeIndexJobStatus.Failed => "索引失败",
+        KnowledgeIndexJobStatus.Processing => "索引处理中",
+        KnowledgeIndexJobStatus.Pending => "等待索引",
+        KnowledgeIndexJobStatus.Outdated => "索引已过期",
+        _ => string.Empty
+    };
 
     private static string GetLinkedVersionText(KnowledgeFeedbackDto feedback)
     {

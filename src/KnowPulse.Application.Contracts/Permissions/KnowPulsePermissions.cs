@@ -190,6 +190,9 @@ public static class KnowPulsePermissions
         /// AI 出题权限，覆盖候选题生成、查看、重试和提交审核。
         /// </summary>
         public const string AiGeneration = Default + ".AiGeneration";
+
+        /// <summary>查看完整的 AI 出题提示词模板。</summary>
+        public const string PromptTemplates = Default + ".PromptTemplates";
     }
 
     /// <summary>

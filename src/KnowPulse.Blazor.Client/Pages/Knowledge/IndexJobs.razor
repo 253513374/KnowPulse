@@ -5,14 +5,14 @@
 
 <PageTitle>索引运行中心</PageTitle>
 
-<section class="index-hero">
+<div class="admin-page index-page">
+<header class="admin-page-header">
     <div>
-        <div class="eyebrow">KNOWLEDGE OPERATIONS</div>
         <h1>索引运行中心</h1>
-        <p>后台 Worker 自动完成内容读取、分块、Embedding 与向量写入；这里只处理失败、卡住和需要立即执行的任务。</p>
+        <p>跟踪真实处理进度，定位失败阶段，并恢复可重试的任务。</p>
     </div>
-    <button class="kp-button kp-button--light" type="button" @onclick="LoadAsync" disabled="@IsBusy">刷新状态</button>
-</section>
+    <button class="kp-button kp-button--secondary" type="button" @onclick="LoadAsync" disabled="@IsBusy">刷新状态</button>
+</header>
 
 @if (!string.IsNullOrWhiteSpace(ErrorMessage))
 {
@@ -22,26 +22,26 @@
     </div>
 }
 
-<section class="metric-grid" aria-label="索引任务摘要">
-    <article class="metric-card queue">
+<section class="admin-metrics metric-grid" aria-label="索引任务摘要">
+    <article class="admin-metric metric-card queue">
         <span>等待处理</span>
         <strong>@Summary.PendingCount</strong>
         <small>Worker 将自动领取</small>
     </article>
-    <article class="metric-card running">
+    <article class="admin-metric metric-card running">
         <span>正在运行</span>
         <strong>@Summary.ProcessingCount</strong>
         <small>@Summary.StaleCount 条心跳超时</small>
     </article>
-    <article class="metric-card failed">
+    <article class="admin-metric metric-card failed">
         <span>执行失败</span>
         <strong>@Summary.FailedCount</strong>
         <small>@Summary.RetryDueCount 条已到重试时间</small>
     </article>
-    <article class="metric-card exhausted">
-        <span>重试耗尽</span>
-        <strong>@Summary.ExhaustedCount</strong>
-        <small>需要修复原因后重建</small>
+    <article class="admin-metric metric-card exhausted">
+        <span>运行卡住</span>
+        <strong>@Summary.StaleCount</strong>
+        <small>另有 @Summary.ExhaustedCount 条重试耗尽</small>
     </article>
 </section>
 
@@ -56,10 +56,10 @@
     </div>
 }
 
-<section class="jobs-panel">
-    <div class="jobs-toolbar">
+<section class="admin-panel jobs-panel">
+    <div class="jobs-toolbar admin-toolbar">
         <div>
-            <h2>任务明细</h2>
+            <h2>索引任务</h2>
             <span>最近完成：@FormatTime(Summary.LastIndexedTime, "尚无成功记录")</span>
         </div>
         <div class="filter-group">
@@ -73,7 +73,8 @@
                 <option value="@KnowledgeIndexJobStatus.Outdated">已过期</option>
                 <option value="@KnowledgeIndexJobStatus.Deleted">已删除</option>
             </select>
-            <button class="kp-button kp-button--primary kp-button--sm" type="button" @onclick="ApplyFilterAsync" disabled="@IsBusy">查询</button>
+            <button class="kp-button kp-button--primary" type="button" @onclick="ApplyFilterAsync" disabled="@IsBusy">查询</button>
+            <button class="kp-button kp-button--secondary" type="button" @onclick="ResetFilterAsync" disabled="@IsBusy">重置</button>
         </div>
     </div>
 
@@ -81,11 +82,11 @@
         <table class="kp-table kp-table-align-middle kp-mb-0 jobs-table">
             <thead>
                 <tr>
-                    <th>任务</th>
-                    <th>知识</th>
-                    <th>执行进度</th>
+                    <th>知识与任务</th>
+                    <th>状态</th>
+                    <th>阶段 / 进度</th>
+                    <th>最近心跳</th>
                     <th>重试计划</th>
-                    <th>异常摘要</th>
                     <th class="kp-text-end">操作</th>
                 </tr>
             </thead>
@@ -104,20 +105,11 @@
                     {
                         <tr class="@(job.IsStale ? "stale-row" : null)">
                             <td>
-                                <div class="status-line">
-                                    <span class="status-dot @GetIndexStatusClass(job.Status)"></span>
-                                    <strong>@GetIndexStatusText(job.Status)</strong>
-                                </div>
+                                <a class="knowledge-link" href="@($"/knowledge/{job.KnowledgeItemId}")">知识 @ShortId(job.KnowledgeItemId)</a>
+                                <div class="cell-muted">版本 @ShortId(job.KnowledgeVersionId) · 任务 @ShortId(job.Id)</div>
                                 <div class="cell-muted">@GetTriggerText(job.TriggerType) · @job.CreationTime.ToLocalTime().ToString("MM-dd HH:mm")</div>
-                                @if (job.RetryOfJobId.HasValue)
-                                {
-                                    <div class="lineage">恢复自 @ShortId(job.RetryOfJobId.Value)</div>
-                                }
                             </td>
-                            <td>
-                                <a class="knowledge-link" href="@($"/knowledge/{job.KnowledgeItemId}")">@ShortId(job.KnowledgeItemId)</a>
-                                <div class="cell-muted">版本 @ShortId(job.KnowledgeVersionId)</div>
-                            </td>
+                            <td><span class="index-status @GetIndexStatusClass(job.Status)">@(job.IsStale ? "运行卡住" : GetIndexStatusText(job.Status))</span></td>
                             <td class="progress-cell">
                                 <div class="progress-meta">
                                     <span>@GetStageText(job.ProcessingStage)</span>
@@ -126,24 +118,14 @@
                                 <div class="kp-progress" role="progressbar" aria-valuenow="@job.ProgressPercent" aria-valuemin="0" aria-valuemax="100">
                                     <div class="kp-progress__bar @GetProgressClass(job.Status)" style="width: @(job.ProgressPercent)%"></div>
                                 </div>
-                                <div class="cell-muted">心跳：@FormatTime(job.LastHeartbeatTime, "尚未启动")</div>
                             </td>
+                            <td>@FormatTime(job.LastHeartbeatTime, "尚未启动")</td>
                             <td>
                                 <strong>@job.RetryCount / @job.MaxRetryCount</strong>
                                 <div class="cell-muted">@FormatRetryPlan(job)</div>
                             </td>
-                            <td class="failure-cell">
-                                @if (string.IsNullOrWhiteSpace(job.FailureReason))
-                                {
-                                    <span class="cell-muted">没有异常</span>
-                                }
-                                else
-                                {
-                                    <span class="failure-stage">@GetStageText(job.FailureStage)</span>
-                                    <span title="@job.FailureReason">@job.FailureReason</span>
-                                }
-                            </td>
                             <td class="kp-text-end action-cell">
+                                <button class="kp-button kp-button--sm kp-button--link" type="button" @onclick="() => SelectJobAsync(job.Id)" disabled="@IsBusy">查看详情</button>
                                 @if (job.Status == KnowledgeIndexJobStatus.Pending)
                                 {
                                     <button class="kp-button kp-button--sm kp-button--primary" type="button" @onclick="() => ExecuteAsync(job)" disabled="@IsBusy">立即执行</button>
@@ -171,11 +153,39 @@
     <MvpPager SkipCount="SkipCount" PageSize="PageSize" TotalCount="TotalCount" IsBusy="IsBusy" OnSkipCountChanged="ChangePageAsync" />
 </section>
 
+@if (SelectedJob is { } selected)
+{
+    <section class="index-job-detail" aria-label="索引任务详情">
+        <div class="admin-panel index-pipeline-panel">
+            <div class="jobs-detail-heading"><h2>处理链路</h2><span>任务 @ShortId(selected.Id) · 进度 @selected.ProgressPercent%</span><button class="kp-button kp-button--secondary kp-button--sm" type="button" @onclick="() => SelectedJob = null">收起</button></div>
+            @foreach (var stage in new[] { "reader", "processor", "chunker", "persistence", "embedding", "vector-store" })
+            {
+                <div class="index-stage @(selected.ProcessingStage == stage ? "is-current" : null)">
+                    <strong>@GetStageText(stage)</strong><code>@stage</code>
+                    @if (selected.ProcessingStage == stage) { <span class="index-status @GetIndexStatusClass(selected.Status)">@(selected.IsStale ? "心跳超时" : "最近执行阶段")</span> }
+                </div>
+            }
+            <p class="cell-muted">仅展示任务实际记录的阶段与进度；索引完成要求分块、Embedding 和向量写入全部成功。</p>
+        </div>
+        <aside class="admin-panel index-recovery-panel">
+            <h2>异常与恢复</h2>
+            <span class="index-status @GetIndexStatusClass(selected.Status)">@(selected.IsStale ? "运行卡住" : GetIndexStatusText(selected.Status))</span>
+            <dl><dt>任务编号</dt><dd>@selected.Id</dd><dt>最近心跳</dt><dd>@FormatTime(selected.LastHeartbeatTime, "尚未启动")</dd><dt>已重试</dt><dd>@selected.RetryCount / @selected.MaxRetryCount</dd><dt>失败阶段</dt><dd>@GetStageText(selected.FailureStage)</dd><dt>失败摘要</dt><dd>@(selected.FailureReason ?? "未记录失败")</dd><dt>来源任务</dt><dd>@(selected.RetryOfJobId?.ToString() ?? "无")</dd></dl>
+            @if (selected.Status == KnowledgeIndexJobStatus.Failed) { <button class="kp-button kp-button--primary" type="button" @onclick="() => RetryAsync(selected)" disabled="@IsBusy">重新排队</button> }
+            else if (selected.IsStale) { <button class="kp-button kp-button--primary" type="button" @onclick="() => RecoverAsync(selected)" disabled="@IsBusy">恢复并创建新任务</button> }
+            else if (selected.Status == KnowledgeIndexJobStatus.Pending) { <button class="kp-button kp-button--primary" type="button" @onclick="() => ExecuteAsync(selected)" disabled="@IsBusy">立即执行</button> }
+            <p class="kp-help">原任务与失败记录保留。重试或恢复会创建有关联的新任务。</p>
+        </aside>
+    </section>
+}
+</div>
+
 @code {
     private const int PageSize = 20;
 
     private readonly List<KnowledgeIndexJobDto> JobList = new();
     private KnowledgeIndexJobOperationalSummaryDto Summary { get; set; } = new();
+    private KnowledgeIndexJobDto? SelectedJob { get; set; }
     private string? StatusFilterText { get; set; }
     private int SkipCount { get; set; }
     private long TotalCount { get; set; }
@@ -186,6 +196,14 @@
     protected override async Task OnInitializedAsync()
     {
         await LoadAsync();
+    }
+
+    private Task SelectJobAsync(Guid id) => RunBusyAsync(async () => SelectedJob = await IndexJobAppService.GetAsync(id));
+
+    private async Task ResetFilterAsync()
+    {
+        StatusFilterText = null;
+        await ApplyFilterAsync();
     }
 
     private async Task ApplyFilterAsync()
@@ -222,6 +240,7 @@
             JobList.Clear();
             JobList.AddRange(result.Items.OrderByDescending(x => x.CreationTime));
             TotalCount = result.TotalCount;
+            if (SelectedJob is not null) SelectedJob = await IndexJobAppService.GetAsync(SelectedJob.Id);
             IsLoading = false;
         });
     }

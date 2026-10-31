@@ -96,7 +96,8 @@ public class RagCallLogAppService : KnowPulseAppService, IRagCallLogAppService
         var citationsByCallId = await GetCitationsByCallIdAsync(logs.Select(x => x.Id));
         return new PagedResultDto<RagCallLogDto>(
             totalCount,
-            logs.Select(x => MapToDto(x, citationsByCallId.GetValueOrDefault(x.Id) ?? new List<RagCitationRecord>())).ToList());
+            logs.Select(x => MapToDto(x, citationsByCallId.GetValueOrDefault(x.Id) ?? new List<RagCitationRecord>(),
+                CurrentUser.Id.HasValue && x.UserId == CurrentUser.Id)).ToList());
     }
 
     /// <summary>
@@ -123,7 +124,7 @@ public class RagCallLogAppService : KnowPulseAppService, IRagCallLogAppService
     /// <summary>
     /// 将调用日志聚合和 citation 记录映射为审计 DTO。
     /// </summary>
-    private static RagCallLogDto MapToDto(RagCallLog log, IReadOnlyList<RagCitationRecord> citations)
+    private static RagCallLogDto MapToDto(RagCallLog log, IReadOnlyList<RagCitationRecord> citations, bool canViewContent)
     {
         return new RagCallLogDto
         {
@@ -133,7 +134,7 @@ public class RagCallLogAppService : KnowPulseAppService, IRagCallLogAppService
             CallType = log.CallType,
             Status = log.Status,
             QueryHash = log.QueryHash,
-            QuerySummary = log.QuerySummary,
+            QuerySummary = canViewContent ? log.QuerySummary : string.Empty,
             ModelProvider = log.ModelProvider,
             ModelName = log.ModelName,
             ModelVersion = log.ModelVersion,
@@ -149,9 +150,9 @@ public class RagCallLogAppService : KnowPulseAppService, IRagCallLogAppService
             NeedHumanReview = log.NeedHumanReview,
             ExecutionDurationMs = log.ExecutionDurationMs,
             FailureStage = log.FailureStage,
-            FailureReason = log.FailureReason,
+            FailureReason = canViewContent ? log.FailureReason : null,
             CreationTime = log.CreationTime,
-            Citations = citations.Select(MapCitationToDto).ToList()
+            Citations = canViewContent ? citations.Select(MapCitationToDto).ToList() : new List<RagCitationRecordDto>()
         };
     }
 

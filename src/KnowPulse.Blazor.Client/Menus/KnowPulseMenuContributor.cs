@@ -1,23 +1,18 @@
-﻿using System;
+using System;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
-using KnowPulse.Localization;
-using KnowPulse.MultiTenancy;
+using Microsoft.Extensions.DependencyInjection;
+using KnowPulse.Blazor.Client.Components;
 using KnowPulse.Permissions;
 using Volo.Abp.Account.Localization;
 using Volo.Abp.Authorization.Permissions;
-using Volo.Abp.Identity.Blazor.MudBlazor;
-using Volo.Abp.Identity;
-using Volo.Abp.SettingManagement.Blazor.MudBlazor.Menus;
-using Volo.Abp.TenantManagement.Blazor.MudBlazor.Navigation;
 using Volo.Abp.UI.Navigation;
 
 namespace KnowPulse.Blazor.Client.Menus;
 
 /// <summary>
 /// Blazor 客户端菜单贡献者。
-/// 这里负责把 KnowPulse 的组织管理、知识库管理菜单挂到 ABP 主菜单，
-/// 并通过功能权限控制菜单是否显示；具体知识文档的业务可见性仍由后端应用服务判断。
+/// 教师工作区与平台后台使用独立入口；数据可见性继续由后端应用服务判断。
 /// </summary>
 public class KnowPulseMenuContributor : IMenuContributor
 {
@@ -47,198 +42,21 @@ public class KnowPulseMenuContributor : IMenuContributor
     }
 
     /// <summary>
-    /// 配置主导航菜单。组织管理和知识库菜单都绑定到 KnowPulse 自定义权限。
+    /// 教师导航保留教学入口，获授管理能力的账号另有后台入口。
     /// </summary>
-    private Task ConfigureMainMenuAsync(MenuConfigurationContext context)
+    private async Task ConfigureMainMenuAsync(MenuConfigurationContext context)
     {
-        var l = context.GetLocalizer<KnowPulseResource>();
-
         context.Menu.AddItem(new ApplicationMenuItem("KnowPulse.Teacher.Materials", "我的资料", "/teacher/materials", icon: "fas fa-book-open", order: 0).RequirePermissions(KnowPulsePermissions.KnowledgeBase.Items));
-        context.Menu.AddItem(new ApplicationMenuItem("KnowPulse.Teacher.Shared", "共享资料", "/teacher/shared", icon: "fas fa-share-nodes", order: 1).RequirePermissions(KnowPulsePermissions.KnowledgeBase.Items));
-        context.Menu.AddItem(new ApplicationMenuItem("KnowPulse.Teacher.Questions", "出题与题库", "/teacher/questions", icon: "fas fa-clipboard-question", order: 2).RequirePermissions(KnowPulsePermissions.QuestionBank.Questions));
-        context.Menu.AddItem(new ApplicationMenuItem("KnowPulse.Teacher.Students", "我的学生", "/teacher/students", icon: "fas fa-user-group", order: 3).RequirePermissions(KnowPulsePermissions.Exam.Manage));
-        context.Menu.AddItem(new ApplicationMenuItem("KnowPulse.Teacher.Tasks", "答题任务", "/teacher/tasks", icon: "fas fa-file-signature", order: 4).RequirePermissions(KnowPulsePermissions.Exam.Manage));
-        var maintenance = new ApplicationMenuItem("KnowPulse.Maintenance", "维护与历史入口", icon: "fas fa-tools", order: 100)
-            .RequirePermissions(IdentityPermissions.Users.Default);
-
-        var organization = new ApplicationMenuItem(
-            KnowPulseMenus.Organization,
-            l["Menu:Organization"],
-            icon: "fas fa-sitemap"
-        ).RequirePermissions(KnowPulsePermissions.Organization.Default);
-
-        organization.AddItem(new ApplicationMenuItem(
-            KnowPulseMenus.Departments,
-            l["Menu:Departments"],
-            "/organization/departments",
-            icon: "fas fa-building"
-        ).RequirePermissions(KnowPulsePermissions.Organization.Departments));
-
-        organization.AddItem(new ApplicationMenuItem(
-            KnowPulseMenus.Positions,
-            l["Menu:Positions"],
-            "/organization/positions",
-            icon: "fas fa-id-badge"
-        ).RequirePermissions(KnowPulsePermissions.Organization.Positions));
-
-        organization.AddItem(new ApplicationMenuItem(
-            KnowPulseMenus.JobLevels,
-            l["Menu:JobLevels"],
-            "/organization/job-levels",
-            icon: "fas fa-layer-group"
-        ).RequirePermissions(KnowPulsePermissions.Organization.JobLevels));
-
-        organization.AddItem(new ApplicationMenuItem(
-            KnowPulseMenus.UserAssignments,
-            l["Menu:UserAssignments"],
-            "/organization/user-assignments",
-            icon: "fas fa-user-tag"
-        ).RequirePermissions(KnowPulsePermissions.Organization.UserAssignments));
-
-        maintenance.AddItem(organization);
-
-        // 知识库菜单仅表示用户拥有进入该功能区的权限；
-        // 每个知识文档是否可见还会在 KnowledgeItemAppService 中按权限范围二次过滤。
-        var knowledgeBase = new ApplicationMenuItem(
-            KnowPulseMenus.KnowledgeBase,
-            l["Menu:KnowledgeBase"],
-            icon: "fas fa-book-open"
-        ).RequirePermissions(KnowPulsePermissions.KnowledgeBase.Default);
-
-        knowledgeBase.AddItem(new ApplicationMenuItem(
-            KnowPulseMenus.KnowledgeUpload,
-            l["Menu:KnowledgeUpload"],
-            "/knowledge/upload",
-            icon: "fas fa-upload"
-        ).RequirePermissions(KnowPulsePermissions.KnowledgeBase.Items));
-
-        knowledgeBase.AddItem(new ApplicationMenuItem(
-            KnowPulseMenus.KnowledgeItems,
-            l["Menu:KnowledgeItems"],
-            "/knowledge",
-            icon: "fas fa-file-lines"
-        ).RequirePermissions(KnowPulsePermissions.KnowledgeBase.Items));
-
-        knowledgeBase.AddItem(new ApplicationMenuItem(
-            KnowPulseMenus.KnowledgeCategories,
-            l["Menu:KnowledgeCategories"],
-            "/knowledge/categories",
-            icon: "fas fa-folder-tree"
-        ).RequirePermissions(KnowPulsePermissions.KnowledgeBase.Categories));
-
-        knowledgeBase.AddItem(new ApplicationMenuItem(
-            KnowPulseMenus.KnowledgeTags,
-            l["Menu:KnowledgeTags"],
-            "/knowledge/tags",
-            icon: "fas fa-tags"
-        ).RequirePermissions(KnowPulsePermissions.KnowledgeBase.Tags));
-
-        maintenance.AddItem(knowledgeBase);
-
-        var rag = new ApplicationMenuItem(
-            KnowPulseMenus.Rag,
-            l["Menu:Rag"],
-            icon: "fas fa-comments"
-        ).RequirePermissions(KnowPulsePermissions.Rag.Default);
-
-        rag.AddItem(new ApplicationMenuItem(
-            KnowPulseMenus.RagAnswer,
-            l["Menu:RagAnswer"],
-            "/rag/answer",
-            icon: "fas fa-message"
-        ).RequirePermissions(KnowPulsePermissions.Rag.Answer));
-
-        rag.AddItem(new ApplicationMenuItem(
-            KnowPulseMenus.AiModels,
-            l["Menu:AiModels"],
-            "/rag/models",
-            icon: "fas fa-sliders"
-        ).RequirePermissions(KnowPulsePermissions.AiModels.View));
-
-        maintenance.AddItem(rag);
-
-        var questionBank = new ApplicationMenuItem(
-            KnowPulseMenus.QuestionBank,
-            l["Menu:QuestionBank"],
-            icon: "fas fa-clipboard-question"
-        ).RequirePermissions(KnowPulsePermissions.QuestionBank.Default);
-
-        questionBank.AddItem(new ApplicationMenuItem(
-            KnowPulseMenus.QuestionBankWorkbench,
-            l["Menu:QuestionBankWorkbench"],
-            "/question-bank",
-            icon: "fas fa-table-columns"
-        ).RequirePermissions(KnowPulsePermissions.QuestionBank.Questions));
-
-        questionBank.AddItem(new ApplicationMenuItem(
-            KnowPulseMenus.Questions,
-            l["Menu:QuestionDrafts"],
-            "/question-bank/drafts",
-            icon: "fas fa-pen-to-square"
-        ).RequirePermissions(KnowPulsePermissions.QuestionBank.Questions));
-
-        questionBank.AddItem(new ApplicationMenuItem(
-            KnowPulseMenus.QuestionReviews,
-            l["Menu:QuestionReviews"],
-            "/question-bank/reviews",
-            icon: "fas fa-clipboard-check"
-        ).RequirePermissions(KnowPulsePermissions.QuestionBank.Reviews));
-
-        questionBank.AddItem(new ApplicationMenuItem(
-            KnowPulseMenus.FormalQuestions,
-            l["Menu:FormalQuestions"],
-            "/question-bank/formal",
-            icon: "fas fa-book"
-        ).RequirePermissions(KnowPulsePermissions.QuestionBank.Questions));
-
-        maintenance.AddItem(questionBank);
-
-        var learning = new ApplicationMenuItem(
-            KnowPulseMenus.Learning,
-            l["Menu:Learning"],
-            icon: "fas fa-graduation-cap"
-        ).RequirePermissions(KnowPulsePermissions.Learning.View);
-
-        learning.AddItem(new ApplicationMenuItem(
-            KnowPulseMenus.MyLearning,
-            l["Menu:MyLearning"],
-            "/learning/my",
-            icon: "fas fa-book-reader"
-        ).RequirePermissions(KnowPulsePermissions.Learning.View));
-
-        maintenance.AddItem(learning);
-
-        var exam = new ApplicationMenuItem(
-            KnowPulseMenus.Exam,
-            l["Menu:Exam"],
-            icon: "fas fa-file-signature"
-        ).RequirePermissions(KnowPulsePermissions.Exam.Default);
-
-        exam.AddItem(new ApplicationMenuItem(
-            KnowPulseMenus.ExamManagement,
-            l["Menu:ExamManagement"],
-            "/exam/management",
-            icon: "fas fa-clipboard-list"
-        ).RequirePermissions(KnowPulsePermissions.Exam.Manage));
-
-        exam.AddItem(new ApplicationMenuItem(
-            KnowPulseMenus.ExamTake,
-            l["Menu:ExamTake"],
-            "/exam/take",
-            icon: "fas fa-pen-to-square"
-        ).RequirePermissions(KnowPulsePermissions.Exam.Participate));
-
-        maintenance.AddItem(exam);
-        context.Menu.AddItem(maintenance);
-
-        var administration = context.Menu.GetAdministration();
-
-        administration.SetSubItemOrder(TenantManagementMenuNames.GroupName, 1);
-
-        administration.SetSubItemOrder(IdentityMenuNames.GroupName, 2);
-        administration.SetSubItemOrder(SettingManagementMenus.GroupName, 3);
-
-        return Task.CompletedTask;
+        context.Menu.AddItem(new ApplicationMenuItem("KnowPulse.Teacher.Shared", "共享给我的", "/teacher/shared", icon: "fas fa-share-nodes", order: 1).RequirePermissions(KnowPulsePermissions.KnowledgeBase.Items));
+        context.Menu.AddItem(new ApplicationMenuItem("KnowPulse.Teacher.Answer", "资料问答", "/teacher/answer", icon: "fas fa-comments", order: 2).RequirePermissions(KnowPulsePermissions.Rag.Answer));
+        context.Menu.AddItem(new ApplicationMenuItem("KnowPulse.Teacher.Questions", "出题与题库", "/teacher/questions", icon: "fas fa-clipboard-question", order: 3).RequirePermissions(KnowPulsePermissions.QuestionBank.Questions));
+        context.Menu.AddItem(new ApplicationMenuItem("KnowPulse.Teacher.Students", "我的学生", "/teacher/students", icon: "fas fa-user-group", order: 4).RequirePermissions(KnowPulsePermissions.Exam.Manage));
+        context.Menu.AddItem(new ApplicationMenuItem("KnowPulse.Teacher.Tasks", "答题任务", "/teacher/tasks", icon: "fas fa-file-signature", order: 5).RequirePermissions(KnowPulsePermissions.Exam.Manage));
+        if (await AdminNavigation.CanEnterAsync(context.ServiceProvider.GetRequiredService<IPermissionChecker>()))
+        {
+            context.Menu.AddItem(new ApplicationMenuItem("KnowPulse.Administration", "平台管理后台", "/admin", icon: "fas fa-shield-halved", order: 100));
+        }
+        context.Menu.Items.Remove(context.Menu.GetAdministration());
     }
 
     /// <summary>

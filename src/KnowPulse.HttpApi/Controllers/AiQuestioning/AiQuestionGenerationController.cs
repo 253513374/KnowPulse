@@ -13,7 +13,7 @@ namespace KnowPulse.Controllers.AiQuestioning;
 /// AI 候选题生成 HTTP API 控制器。
 /// 控制器只做路由和权限边界暴露，实际生成、校验、citation 追溯和提交审核逻辑在应用服务中实现。
 /// </summary>
-[Authorize(KnowPulsePermissions.QuestionBank.AiGeneration)]
+[Authorize]
 [Route("api/question-bank/ai-generation")]
 public class AiQuestionGenerationController : KnowPulseController
 {
@@ -31,6 +31,7 @@ public class AiQuestionGenerationController : KnowPulseController
     /// 查询当前 AI 出题模型配置。
     /// </summary>
     [HttpGet("model-configuration")]
+    [Authorize(KnowPulsePermissions.QuestionBank.AiGeneration)]
     public Task<AiQuestionModelConfigurationDto> GetModelConfigurationAsync()
     {
         return _generationAppService.GetModelConfigurationAsync();
@@ -50,6 +51,7 @@ public class AiQuestionGenerationController : KnowPulseController
     /// 分页查询 AI 出题模型调用日志。
     /// </summary>
     [HttpGet("call-logs")]
+    [Authorize(KnowPulsePermissions.QuestionBank.AiGeneration)]
     public Task<PagedResultDto<AiQuestionModelCallLogDto>> GetCallLogsAsync(
         [FromQuery] GetAiQuestionModelCallLogListInput input)
     {
@@ -61,6 +63,7 @@ public class AiQuestionGenerationController : KnowPulseController
     /// 返回任务摘要、候选题和模型调用日志摘要，用于候选题审核页面。
     /// </summary>
     [HttpGet("tasks")]
+    [Authorize(KnowPulsePermissions.QuestionBank.AiGeneration)]
     public Task<PagedResultDto<AiQuestionGenerationTaskDto>> GetListAsync([FromQuery] GetAiQuestionGenerationTaskListInput input)
     {
         return _generationAppService.GetListAsync(input);
@@ -70,6 +73,7 @@ public class AiQuestionGenerationController : KnowPulseController
     /// 查询单个 AI 出题任务详情。
     /// </summary>
     [HttpGet("tasks/{id:guid}")]
+    [Authorize(KnowPulsePermissions.QuestionBank.AiGeneration)]
     public Task<AiQuestionGenerationTaskDto> GetAsync(Guid id)
     {
         return _generationAppService.GetAsync(id);
@@ -79,6 +83,7 @@ public class AiQuestionGenerationController : KnowPulseController
     /// 查询单个 AI 候选题详情。
     /// </summary>
     [HttpGet("candidates/{id:guid}")]
+    [Authorize(KnowPulsePermissions.QuestionBank.AiGeneration)]
     public Task<AiQuestionCandidateDto> GetCandidateAsync(Guid id)
     {
         return _generationAppService.GetCandidateAsync(id);
@@ -89,6 +94,7 @@ public class AiQuestionGenerationController : KnowPulseController
     /// 该端点返回候选题生成结果，候选题不会直接进入正式题库。
     /// </summary>
     [HttpPost("tasks")]
+    [Authorize(KnowPulsePermissions.QuestionBank.AiGeneration)]
     public Task<AiQuestionGenerationTaskDto> CreateAsync([FromBody] CreateAiQuestionGenerationTaskDto input)
     {
         return _generationAppService.CreateAsync(input);
@@ -99,6 +105,7 @@ public class AiQuestionGenerationController : KnowPulseController
     /// 重试会重新生成候选题并保留调用日志审计链路。
     /// </summary>
     [HttpPost("tasks/{id:guid}/retry")]
+    [Authorize(KnowPulsePermissions.QuestionBank.AiGeneration)]
     public Task<AiQuestionGenerationTaskDto> RetryAsync(Guid id)
     {
         return _generationAppService.RetryAsync(id);
@@ -108,6 +115,7 @@ public class AiQuestionGenerationController : KnowPulseController
     /// 将候选题采纳为可编辑草稿，不自动提交审核。
     /// </summary>
     [HttpPost("candidates/{candidateId:guid}/adopt-draft")]
+    [Authorize(KnowPulsePermissions.QuestionBank.AiGeneration)]
     public Task<QuestionDto> AdoptCandidateAsDraftAsync(Guid candidateId)
     {
         return _generationAppService.AdoptCandidateAsDraftAsync(candidateId);
@@ -117,6 +125,7 @@ public class AiQuestionGenerationController : KnowPulseController
     /// 旧版兼容入口。当前只将候选题采纳为草稿，不再自动提交审核。
     /// </summary>
     [HttpPost("candidates/{candidateId:guid}/submit-review")]
+    [Authorize(KnowPulsePermissions.QuestionBank.AiGeneration)]
     public Task<QuestionDto> SubmitCandidateForReviewAsync(Guid candidateId, [FromBody] SubmitAiQuestionCandidateDto input)
     {
         return _generationAppService.SubmitCandidateForReviewAsync(candidateId, input);

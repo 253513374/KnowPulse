@@ -1,0 +1,89 @@
+.rag-admin-page {
+    display: grid;
+    gap: 24px;
+    color: var(--kp-text, #18243b);
+}
+
+.rag-admin-page .rag-admin-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.rag-admin-tabs a {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    min-height: 48px;
+    padding: 12px 16px;
+    border-radius: 8px;
+    color: #52627a;
+    font-size: 14px;
+    text-decoration: none;
+}
+
+.rag-admin-tabs a:hover { background: #eef4ff; }
+.rag-admin-tabs a.is-active { background: #eef4ff; color: #1253c5; font-weight: 500; padding-left: 24px; }
+.rag-admin-tabs a.is-active::before { content: ''; position: absolute; left: 12px; width: 4px; height: 20px; border-radius: 4px; background: #1253c5; }
+.rag-admin-page .rag-admin-panel { padding: 24px; border: 1px solid #e5eaf2; border-radius: 16px; background: #fff; min-width: 0; }
+.rag-admin-panel-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; margin-bottom: 16px; }
+.rag-admin-panel-heading h2 { margin: 0; font-size: 18px; font-weight: 700; line-height: 28px; }
+.rag-admin-panel-heading > span { color: #52627a; font-size: 12px; }
+.rag-admin-page h3 { margin: 0 0 12px; font-size: 16px; font-weight: 500; }
+.rag-admin-page .rag-admin-toolbar { display: flex; align-items: end; flex-wrap: wrap; gap: 16px; margin-bottom: 16px; padding: 0; }
+.rag-admin-field { flex: 0 1 180px; min-width: 140px; }
+.rag-admin-field.rag-admin-search { flex: 1 1 280px; max-width: 400px; }
+.rag-admin-field label { display: block; color: #18243b; font-size: 13px; font-weight: 500; margin-bottom: 8px; }
+.rag-admin-page .kp-input, .rag-admin-page .kp-select { min-height: 44px; border: 1px solid #75839b; border-radius: 8px; color: #18243b; background-color: #fff; font-size: 14px; }
+.rag-admin-page .kp-input::placeholder { color: #52627a; }
+.rag-admin-page .kp-button { border-radius: 8px; }
+.rag-admin-page .kp-button--primary { background: #1366f0; border-color: #1366f0; color: #fff; }
+.rag-admin-page .kp-button--primary:hover { background: #0d58d3; border-color: #0d58d3; }
+.rag-admin-page .kp-button--secondary { color: #18243b; background: #fff; border-color: #75839b; }
+.rag-admin-page .kp-button--link { color: #1366f0; }
+.rag-admin-page .kp-button:focus-visible, .rag-admin-page a:focus-visible { outline: 3px solid #1366f055; outline-offset: 3px; }
+.rag-admin-page .rag-admin-table { margin: 0; width: 100%; }
+.rag-admin-table th { background: #f6f8fc; color: #52627a; height: 48px; padding: 12px 16px; white-space: nowrap; font-size: 13px; font-weight: 500; border-color: #e5eaf2; }
+.rag-admin-table td { min-height: 64px; padding: 16px; font-size: 12px; color: #18243b; border-color: #e5eaf2; vertical-align: middle; }
+.rag-admin-table td strong { display: block; font-size: 14px; font-weight: 500; }
+.rag-admin-table td small { display: block; color: #52627a; font-size: 12px; margin-top: 4px; overflow-wrap: anywhere; }
+.rag-admin-table tr.is-selected td { background: #f8faff; }
+.rag-admin-badge { display: inline-flex; align-items: center; justify-content: center; min-height: 28px; padding: 4px 12px; border-radius: 4px; color: #1253c5; background: #eef4ff; font-size: 13px; line-height: 20px; white-space: nowrap; }
+.rag-admin-badge.is-success { color: #18794e; background: #ebf7f0; }
+.rag-admin-badge.is-warning { color: #9a5b00; background: #fff5e6; }
+.rag-admin-badge.is-error { color: #b42318; background: #fff0ed; }
+.rag-admin-badge.is-neutral { color: #52627a; background: #f0f3f7; }
+.rag-admin-empty { min-height: 180px; padding: 48px 20px; text-align: center; color: #52627a; }
+.rag-admin-empty strong { color: #18243b; font-size: 16px; }
+.rag-admin-empty p { margin: 8px 0 0; font-size: 14px; }
+.rag-admin-note { margin: 16px 0 0; font-size: 12px; color: #52627a; }
+.rag-admin-content { margin-top: 16px; }
+.rag-admin-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
+.rag-admin-code { margin: 0; padding: 16px; border: 1px solid #e5eaf2; border-radius: 8px; color: #52627a; background: #f6f8fc; font: 13px/1.8 'Noto Sans SC', sans-serif; white-space: pre-wrap; overflow-wrap: anywhere; }
+.rag-admin-detail { margin-top: 16px; padding: 16px; border-radius: 8px; background: #f6f8fc; }
+.rag-admin-detail dl { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 8px 16px; margin: 0; font-size: 13px; }
+.rag-admin-detail dt { color: #52627a; font-weight: 400; }
+.rag-admin-detail dd { margin: 0; overflow-wrap: anywhere; }
+.rag-admin-citations { display: grid; gap: 12px; margin-top: 16px; }
+.rag-admin-citation { padding: 12px 16px; border: 1px solid #e5eaf2; border-left: 3px solid #1366f0; border-radius: 0 8px 8px 0; font-size: 12px; }
+.rag-admin-citation p { margin: 4px 0 0; color: #52627a; }
+.rag-admin-actions { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+.rag-admin-form { display: grid; gap: 16px; }
+.rag-admin-form .rag-admin-field { max-width: none; }
+.rag-admin-page .admin-metric strong { display: block; font-size: 30px; line-height: 44px; }
+.rag-admin-page .admin-metric small { color: #52627a; font-size: 12px; }
+.rag-admin-page .admin-metric p { margin: 4px 0 0; color: #52627a; font-size: 12px; }
+.rag-admin-page .kp-pager { margin-top: 16px; padding: 0; }
+.rag-admin-page .kp-alert { margin: 0; border-radius: 8px; }
+.rag-admin-inline-check { display: flex; align-items: center; gap: 8px; color: #52627a; font-size: 13px; }
+.rag-admin-inline-check input { width: 16px; height: 16px; accent-color: #1366f0; }
+.rag-admin-case-heading { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 16px; }
+
+@media (max-width: 767.98px) {
+    .rag-admin-page .rag-admin-panel { padding: 16px; }
+    .rag-admin-columns { grid-template-columns: 1fr; }
+    .rag-admin-page .rag-admin-toolbar { align-items: stretch; }
+    .rag-admin-field, .rag-admin-field.rag-admin-search { flex: 1 1 100%; max-width: none; }
+    .rag-admin-detail dl { grid-template-columns: 1fr; gap: 4px; }
+    .rag-admin-detail dd { margin-bottom: 8px; }
+}

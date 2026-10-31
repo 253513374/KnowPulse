@@ -7,14 +7,16 @@
 @inject IIdentityRoleAppService IdentityRoleAppService
 @inject IIdentityUserAppService IdentityUserAppService
 @inject NavigationManager NavigationManager
+@inject Volo.Abp.Users.ICurrentUser CurrentAccount
 
 @* 知识权限范围管理页：配置某个知识文档对全员、部门、岗位、角色或指定用户的可见规则。 *@
 <PageTitle>权限范围</PageTitle>
 
-<div class="kp-flex kp-flex-wrap kp-align-center kp-justify-between kp-gap-2 kp-mb-3">
+<div class="admin-page">
+<header class="admin-page-header">
     <div>
         <h1 class="kp-heading-4 kp-mb-1">访问策略@(SelectedItem == null ? null : $" · {SelectedItem.Title}")</h1>
-        <div class="kp-text-muted kp-text-small">从知识详情进入后调整可见对象；全员模式与定向模式互斥。</div>
+        <div class="kp-text-muted kp-text-small">教师资料仅自己或指定教师可见；受控历史企业资料保留既有访问策略。</div>
     </div>
     <div class="kp-flex kp-gap-2">
         @if (SelectedItemId.HasValue)
@@ -23,7 +25,7 @@
         }
         <button class="kp-button kp-button--secondary kp-button--sm" type="button" @onclick="LoadAsync" disabled="@IsBusy">刷新</button>
     </div>
-</div>
+</header>
 
 @if (!string.IsNullOrWhiteSpace(ErrorMessage))
 {
@@ -41,7 +43,7 @@
 <div class="kp-grid kp-grid-gap-3">
     @* 左侧先选择知识文档，再根据范围类型显示对应目标下拉。 *@
     <div class="kp-col-lg-4">
-        <div class="kp-card">
+        <div class="admin-panel kp-card">
             <div class="kp-card__body">
                 <div class="kp-mb-3">
                     <label class="kp-label" for="scope-item">知识文档</label>
@@ -56,7 +58,7 @@
 
                 <h2 class="kp-heading-6 kp-mb-3">新增范围</h2>
                 <div class="kp-alert kp-alert--light kp-border kp-text-small kp-py-2">
-                    新增全员规则会替换现有定向规则；新增定向规则会自动移除全员规则。
+                    @(IsTeacherItem ? "资料所有者的访问规则始终保留。共享教师只能读取当前发布版并用于出题。" : "新增全员规则会替换现有定向规则；新增定向规则会自动移除全员规则。")
                 </div>
                 <EditForm Model="@FormModel" OnValidSubmit="@SaveAsync">
                     <DataAnnotationsValidator />
@@ -64,11 +66,14 @@
                     <div class="kp-mb-3">
                         <label class="kp-label" for="scope-type">范围类型</label>
                         <select id="scope-type" class="kp-select" value="@FormModel.ScopeTypeText" @onchange="OnScopeTypeChanged">
-                            <option value="@KnowledgePermissionScopeType.All">全员</option>
-                            <option value="@KnowledgePermissionScopeType.Department">部门</option>
-                            <option value="@KnowledgePermissionScopeType.Position">岗位</option>
-                            <option value="@KnowledgePermissionScopeType.Role">角色</option>
-                            <option value="@KnowledgePermissionScopeType.User">指定用户</option>
+                            @if (!IsTeacherItem)
+                            {
+                                <option value="@KnowledgePermissionScopeType.All">全员</option>
+                                <option value="@KnowledgePermissionScopeType.Department">部门</option>
+                                <option value="@KnowledgePermissionScopeType.Position">岗位</option>
+                                <option value="@KnowledgePermissionScopeType.Role">角色</option>
+                            }
+                            <option value="@KnowledgePermissionScopeType.User">@(IsTeacherItem ? "本人或指定教师" : "指定用户")</option>
                         </select>
                     </div>
 
@@ -126,9 +131,14 @@
                                 <label class="kp-label" for="scope-user">用户</label>
                                 <select id="scope-user" class="kp-select" @bind="FormModel.TargetIdText">
                                     <option value="">选择用户</option>
-                                    @foreach (var user in UserList)
+                                    @if (IsTeacherItem)
                                     {
-                                        <option value="@user.Id">@GetUserDisplayName(user)</option>
+                                        <option value="@SelectedItem?.OwnerTeacherId">当前账号（资料所有者）</option>
+                                        @foreach (var teacher in TeacherList) { <option value="@teacher.Id">@teacher.DisplayName（@teacher.UserName）</option> }
+                                    }
+                                    else
+                                    {
+                                        @foreach (var user in UserList) { <option value="@user.Id">@GetUserDisplayName(user)</option> }
                                     }
                                 </select>
                             </div>
@@ -164,7 +174,7 @@
 
     @* 右侧展示当前知识文档已配置的显式访问策略。 *@
     <div class="kp-col-lg-8">
-        <div class="kp-card">
+        <div class="admin-panel kp-card">
             <div class="kp-table-wrap">
                 <table class="kp-table kp-table--hover kp-table-align-middle kp-mb-0">
                     <thead>
@@ -192,7 +202,7 @@
                         else if (ScopeList.Count == 0)
                         {
                             <tr>
-                                <td colspan="5" class="kp-text-center kp-py-4 kp-text-warning">尚未保存显式访问策略；历史数据暂按全员可见兼容</td>
+                                <td colspan="5" class="kp-text-center kp-py-4 kp-text-warning">尚未保存显式访问策略；发布前请确认可见范围</td>
                             </tr>
                         }
                         else
@@ -209,7 +219,7 @@
                                         </span>
                                     </td>
                                     <td class="kp-text-end">
-                                        <button class="kp-button kp-button--link kp-button--sm kp-text-danger" type="button" @onclick="() => DeleteAsync(scope.Id)" disabled="@(IsBusy || IsLastPublishedScope(scope))">删除</button>
+                                        <button class="kp-button kp-button--link kp-button--sm kp-text-danger" type="button" @onclick="() => DeleteAsync(scope.Id)" disabled="@(IsBusy || IsLastPublishedScope(scope) || (SelectedItem?.OwnerTeacherId.HasValue == true && scope.TargetId == SelectedItem.OwnerTeacherId))">删除</button>
                                     </td>
                                 </tr>
                             }
@@ -219,6 +229,8 @@
             </div>
         </div>
     </div>
+</div>
+
 </div>
 
 @code {
@@ -233,6 +245,9 @@
     private readonly List<PositionDto> PositionList = new();
     private readonly List<IdentityRoleDto> RoleList = new();
     private readonly List<IdentityUserDto> UserList = new();
+    private readonly List<KnowledgeShareTeacherDto> TeacherList = new();
+    private bool IsTeacherItem => SelectedItem?.OwnerTeacherId.HasValue == true;
+    private bool QuerySelectionApplied;
     private PermissionScopeFormModel FormModel { get; set; } = new();
     private Guid? SelectedItemId { get; set; }
     private string? SelectedItemIdText { get; set; }
@@ -258,24 +273,35 @@
         {
             IsLoading = true;
             var items = await KnowledgeItemAppService.GetListAsync(new PagedAndSortedResultRequestDto { MaxResultCount = 100 });
-            var departments = await DepartmentAppService.GetListAsync(new PagedAndSortedResultRequestDto { MaxResultCount = 100 });
-            var positions = await PositionAppService.GetListAsync(new PagedAndSortedResultRequestDto { MaxResultCount = 100 });
-            var roles = await IdentityRoleAppService.GetListAsync(new GetIdentityRolesInput { MaxResultCount = 100 });
-
             KnowledgeItemList.Clear();
-            KnowledgeItemList.AddRange(items.Items.OrderBy(x => x.Title));
-            if (QueryItemId.HasValue)
+            KnowledgeItemList.AddRange(items.Items.Where(x => !x.OwnerTeacherId.HasValue || x.OwnerTeacherId == CurrentAccount.Id).OrderBy(x => x.Title));
+            if (QueryItemId.HasValue && !QuerySelectionApplied)
             {
                 SelectedItemId = QueryItemId.Value;
                 SelectedItemIdText = QueryItemId.Value.ToString("D");
             }
+            QuerySelectionApplied = true;
+            if (SelectedItemId.HasValue && KnowledgeItemList.All(x => x.Id != SelectedItemId.Value))
+            {
+                var requested = await KnowledgeItemAppService.GetAsync(SelectedItemId.Value);
+                if (requested.OwnerTeacherId.HasValue && requested.OwnerTeacherId != CurrentAccount.Id)
+                    throw new InvalidOperationException("只能调整本人资料或受控历史资料的访问策略。");
+                KnowledgeItemList.Add(requested);
+            }
 
-            DepartmentList.Clear();
-            DepartmentList.AddRange(departments.Items.OrderBy(x => x.Code));
-            PositionList.Clear();
-            PositionList.AddRange(positions.Items.OrderBy(x => x.Code));
-            RoleList.Clear();
-            RoleList.AddRange(roles.Items.OrderBy(x => x.Name));
+            if (!IsTeacherItem)
+            {
+                var departments = await DepartmentAppService.GetListAsync(new PagedAndSortedResultRequestDto { MaxResultCount = 100 });
+                var positions = await PositionAppService.GetListAsync(new PagedAndSortedResultRequestDto { MaxResultCount = 100 });
+                var roles = await IdentityRoleAppService.GetListAsync(new GetIdentityRolesInput { MaxResultCount = 100 });
+                DepartmentList.Clear();
+                DepartmentList.AddRange(departments.Items.OrderBy(x => x.Code));
+                PositionList.Clear();
+                PositionList.AddRange(positions.Items.OrderBy(x => x.Code));
+                RoleList.Clear();
+                RoleList.AddRange(roles.Items.OrderBy(x => x.Name));
+            }
+            ResetForm();
             await LoadUsersCoreAsync();
 
             if (SelectedItemId.HasValue)
@@ -296,6 +322,14 @@
     // 通过 ABP Identity 用户服务读取候选用户，用于指定用户权限范围。
     private async Task LoadUsersCoreAsync()
     {
+        if (IsTeacherItem)
+        {
+            var teachers = await KnowledgeItemAppService.SearchShareTeachersAsync(UserFilterText);
+            TeacherList.Clear();
+            TeacherList.AddRange(teachers.Items);
+            return;
+        }
+
         var users = await IdentityUserAppService.GetListAsync(new GetIdentityUsersInput
         {
             MaxResultCount = 100,
@@ -312,7 +346,8 @@
         SelectedItemIdText = args.Value?.ToString();
         SelectedItemId = ParseNullableGuid(SelectedItemIdText);
         SuccessMessage = null;
-        await RunBusyAsync(LoadScopesAsync);
+        ResetForm();
+        await LoadAsync();
     }
 
     // 切换范围类型时清空目标编号，避免把部门编号误提交成岗位或用户编号。
@@ -402,7 +437,11 @@
     // 保存后重置表单，但保留当前选中的知识文档。
     private void ResetForm()
     {
-        FormModel = new PermissionScopeFormModel();
+        FormModel = new PermissionScopeFormModel
+        {
+            ScopeTypeText = IsTeacherItem ? KnowledgePermissionScopeType.User.ToString() : KnowledgePermissionScopeType.All.ToString(),
+            TargetIdText = IsTeacherItem ? SelectedItem!.OwnerTeacherId?.ToString() : null
+        };
     }
 
     private void BackToKnowledge()
@@ -421,7 +460,7 @@
         var enabledScopes = ScopeList.Where(x => x.IsEnabled).ToList();
         if (enabledScopes.Count == 0)
         {
-            return "历史兼容全员可见（尚未保存显式规则）";
+            return IsTeacherItem ? "仅自己（待保存显式规则）" : "受控历史资料（待确认显式规则）";
         }
 
         if (enabledScopes.Any(x => x.ScopeType == KnowledgePermissionScopeType.All))
@@ -463,6 +502,7 @@
             KnowledgePermissionScopeType.Department => DepartmentList.FirstOrDefault(x => x.Id == targetId.Value)?.Name ?? targetId.Value.ToString("N"),
             KnowledgePermissionScopeType.Position => PositionList.FirstOrDefault(x => x.Id == targetId.Value)?.Name ?? targetId.Value.ToString("N"),
             KnowledgePermissionScopeType.Role => RoleList.FirstOrDefault(x => x.Id == targetId.Value)?.Name ?? targetId.Value.ToString("N"),
+            KnowledgePermissionScopeType.User when IsTeacherItem => targetId == SelectedItem!.OwnerTeacherId ? "当前账号" : TeacherList.FirstOrDefault(x => x.Id == targetId)?.DisplayName ?? targetId.Value.ToString("N"),
             KnowledgePermissionScopeType.User => UserList.FirstOrDefault(x => x.Id == targetId.Value) is { } user ? GetUserDisplayName(user) : targetId.Value.ToString("N"),
             _ => "全员"
         };
@@ -486,6 +526,7 @@
             KnowledgePermissionScopeType.Department => DepartmentList.FirstOrDefault(x => x.Id == scope.TargetId.Value)?.Name ?? scope.TargetId.Value.ToString("N"),
             KnowledgePermissionScopeType.Position => PositionList.FirstOrDefault(x => x.Id == scope.TargetId.Value)?.Name ?? scope.TargetId.Value.ToString("N"),
             KnowledgePermissionScopeType.Role => RoleList.FirstOrDefault(x => x.Id == scope.TargetId.Value)?.Name ?? $"角色 {scope.TargetId.Value:N}",
+            KnowledgePermissionScopeType.User when IsTeacherItem => scope.TargetId == SelectedItem!.OwnerTeacherId ? "当前账号（资料所有者）" : TeacherList.FirstOrDefault(x => x.Id == scope.TargetId)?.DisplayName ?? scope.TargetId.Value.ToString("N"),
             KnowledgePermissionScopeType.User => UserList.FirstOrDefault(x => x.Id == scope.TargetId.Value) is { } user
                 ? GetUserDisplayName(user)
                 : $"用户 {scope.TargetId.Value:N}",

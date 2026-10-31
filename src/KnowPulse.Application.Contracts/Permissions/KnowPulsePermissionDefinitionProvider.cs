@@ -52,6 +52,7 @@ public class KnowPulsePermissionDefinitionProvider : PermissionDefinitionProvide
         questionBank.AddChild(KnowPulsePermissions.QuestionBank.Questions, L("Permission:QuestionBank.Questions"));
         questionBank.AddChild(KnowPulsePermissions.QuestionBank.Reviews, L("Permission:QuestionBank.Reviews"));
         questionBank.AddChild(KnowPulsePermissions.QuestionBank.AiGeneration, L("Permission:QuestionBank.AiGeneration"));
+        questionBank.AddChild(KnowPulsePermissions.QuestionBank.PromptTemplates, L("Permission:QuestionBank.PromptTemplates"));
 
         var exam = myGroup.AddPermission(KnowPulsePermissions.Exam.Default, L("Permission:Exam"));
         exam.AddChild(KnowPulsePermissions.Exam.Manage, L("Permission:Exam.Manage"));

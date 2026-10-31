@@ -1,0 +1,228 @@
+@page "/rag/evaluations"
+@attribute [Authorize(KnowPulsePermissions.Rag.Evaluations)]
+@inherits KnowPulseComponentBase
+@inject IRagEvaluationAppService EvaluationAppService
+@inject IDialogService Dialogs
+
+<PageTitle>RAG 质量评测</PageTitle>
+
+<div class="admin-page rag-admin-page">
+    <header class="admin-page-header">
+        <div><h1>RAG 质量评测</h1><p>验证检索、引用与拒答表现，查看每个用例的原始结果。</p></div>
+        <div class="rag-admin-actions"><button class="kp-button kp-button--secondary" @onclick="ShowCasesAsync" disabled="@IsBusy">管理用例</button><button class="kp-button kp-button--primary" @onclick="RunAsync" disabled="@IsBusy">@(IsRunning ? "正在运行评测…" : "运行评测")</button></div>
+    </header>
+    @if (ErrorMessage is not null) { <div class="kp-alert kp-alert--error" role="alert">@ErrorMessage <button class="kp-button kp-button--sm kp-button--secondary" @onclick="RetryAsync" disabled="@IsBusy">重试</button></div> }
+    @if (SuccessMessage is not null) { <div class="kp-alert kp-alert--success" role="status">@SuccessMessage</div> }
+
+    <div class="admin-metrics">
+        <div class="admin-metric"><small>检索命中率</small><strong>@FormatRate(SelectedRun?.HitRate)</strong><p>当前选择运行的真实结果</p></div>
+        <div class="admin-metric"><small>引用准确率</small><strong>@FormatRate(SelectedRun?.CitationAccuracyRate)</strong><p>匹配期望引用范围</p></div>
+        <div class="admin-metric"><small>无答案拒答率</small><strong>@FormatRate(SelectedRun?.NoAnswerRejectionRate)</strong><p>缺少依据时正确拒答</p></div>
+        <div class="admin-metric"><small>越权召回率</small><strong>@FormatRate(SelectedRun?.UnauthorizedRecallRate)</strong><p>@(SelectedRun is null ? "尚无运行结果" : $"{SelectedRun.UnauthorizedRecallCount} 条越权引用")</p></div>
+    </div>
+
+    @if (ShowCases)
+    {
+        <section class="admin-panel rag-admin-panel">
+            <div class="rag-admin-panel-heading"><h2>评测用例</h2><div class="rag-admin-actions"><button class="kp-button kp-button--secondary" @onclick="() => ShowCases = false">返回运行结果</button><button class="kp-button kp-button--primary" @onclick="NewCase" disabled="@IsBusy">新增用例</button></div></div>
+            <form class="admin-toolbar rag-admin-toolbar" @onsubmit="SearchCasesAsync" @onsubmit:preventDefault><div class="rag-admin-field rag-admin-search"><label for="case-filter">名称 / 问题</label><input id="case-filter" class="kp-input" @bind="CaseFilter" placeholder="搜索评测用例" /></div><button class="kp-button kp-button--primary" type="submit" disabled="@IsBusy">查询</button></form>
+            <div class="kp-table-wrap"><table class="kp-table rag-admin-table"><thead><tr><th>用例</th><th>期望行为</th><th>引用范围</th><th>状态</th><th>操作</th></tr></thead><tbody>
+                @if (IsLoadingCases) { <tr><td colspan="5"><div class="rag-admin-empty" role="status">正在读取用例</div></td></tr> }
+                else if (Cases.Count == 0) { <tr><td colspan="5"><div class="rag-admin-empty"><strong>暂无匹配的评测用例</strong><p>添加测试问题与期望行为后，即可运行评测。</p></div></td></tr> }
+                @foreach (var evaluationCase in Cases)
+                {
+                    <tr><td><strong>@evaluationCase.Name</strong><small>@evaluationCase.Question</small></td><td>@(evaluationCase.ExpectedRefusal ? "无依据时拒答" : "命中期望知识")</td><td>期望 @evaluationCase.ExpectedCitations.Count / 禁止 @evaluationCase.ForbiddenCitations.Count</td><td><span class="rag-admin-badge @(evaluationCase.IsActive ? "is-success" : "is-neutral")">@(evaluationCase.IsActive ? "已启用" : "已停用")</span></td><td><button class="kp-button kp-button--link kp-button--sm" @onclick="() => EditCase(evaluationCase)" disabled="@IsBusy">编辑用例</button></td></tr>
+                }
+            </tbody></table></div>
+            <MvpPager SkipCount="CaseSkipCount" PageSize="PageSize" TotalCount="CaseTotalCount" IsBusy="IsBusy" OnSkipCountChanged="ChangeCasePageAsync" />
+        </section>
+    }
+
+    @if (CaseInput is not null)
+    {
+        <section class="admin-panel rag-admin-panel">
+            <div class="rag-admin-panel-heading"><h2>@(EditingCaseId.HasValue ? "编辑评测用例" : "新增评测用例")</h2><span>权限上下文保留原声明，运行时按当前身份验证</span></div>
+            <form class="rag-admin-form" @onsubmit="SaveCaseAsync" @onsubmit:preventDefault>
+                <div class="rag-admin-columns"><div class="rag-admin-field"><label for="evaluation-name">用例名称</label><input id="evaluation-name" class="kp-input" @bind="CaseInput.Name" required maxlength="256" /></div><div class="rag-admin-field"><label for="evaluation-notes">备注</label><input id="evaluation-notes" class="kp-input" @bind="CaseInput.Notes" maxlength="1024" /></div></div>
+                <div class="rag-admin-field"><label for="evaluation-question">待评测问题</label><textarea id="evaluation-question" class="kp-input" @bind="CaseInput.Question" required maxlength="1024" rows="3"></textarea></div>
+                <div class="rag-admin-actions"><label class="rag-admin-inline-check"><input type="checkbox" @bind="CaseInput.ExpectedRefusal" /> 期望无依据时拒答</label>@if (EditingCaseId.HasValue) { <label class="rag-admin-inline-check"><input type="checkbox" @bind="CaseInput.IsActive" /> 启用此用例</label> }</div>
+                <div class="rag-admin-columns">
+                    <div><h3>期望引用</h3>@foreach (var citation in CaseInput.ExpectedCitations) { <div class="rag-admin-citation"><span>@FormatCitation(citation)</span><button type="button" class="kp-button kp-button--link kp-button--sm" @onclick="() => CaseInput.ExpectedCitations.Remove(citation)">移除</button></div> }<div class="rag-admin-field rag-admin-content"><label for="expected-knowledge-id">添加期望知识编号</label><input id="expected-knowledge-id" class="kp-input" @bind="ExpectedKnowledgeId" placeholder="知识条目的完整 GUID" /></div><button type="button" class="kp-button kp-button--secondary kp-button--sm rag-admin-content" @onclick="() => AddCitation(false)">添加期望引用</button></div>
+                    <div><h3>禁止引用</h3>@foreach (var citation in CaseInput.ForbiddenCitations) { <div class="rag-admin-citation"><span>@FormatCitation(citation)</span><button type="button" class="kp-button kp-button--link kp-button--sm" @onclick="() => CaseInput.ForbiddenCitations.Remove(citation)">移除</button></div> }<div class="rag-admin-field rag-admin-content"><label for="forbidden-knowledge-id">添加禁止知识编号</label><input id="forbidden-knowledge-id" class="kp-input" @bind="ForbiddenKnowledgeId" placeholder="知识条目的完整 GUID" /></div><button type="button" class="kp-button kp-button--secondary kp-button--sm rag-admin-content" @onclick="() => AddCitation(true)">添加禁止引用</button></div>
+                </div>
+                <p class="rag-admin-note">既有知识、版本和分块级引用完整保留；仅明确移除的条目会被删除。禁止引用用于检测越权召回，不授予读取内容的权限。</p>
+                <div class="rag-admin-actions"><button class="kp-button kp-button--primary" type="submit" disabled="@IsBusy">保存用例</button><button class="kp-button kp-button--secondary" type="button" @onclick="() => CaseInput = null" disabled="@IsBusy">取消</button></div>
+            </form>
+        </section>
+    }
+
+    <section class="admin-panel rag-admin-panel">
+        <div class="rag-admin-panel-heading"><h2>@(SelectedRun?.Name ?? "评测运行")</h2><span>@(SelectedRun is null ? "尚未选择运行" : $"{SelectedRun.StartedTime.ToLocalTime():yyyy-MM-dd HH:mm} · {SelectedRun.PassedCaseCount} 通过 / {SelectedRun.FailedCaseCount} 失败")</span></div>
+        <div class="admin-toolbar rag-admin-toolbar">
+            <div class="rag-admin-field rag-admin-search"><label for="evaluation-run">评测运行</label><select id="evaluation-run" class="kp-select" value="@SelectedRun?.Id" @onchange="SelectRunAsync" disabled="@IsBusy"><option value="">选择评测运行</option>@foreach (var run in Runs) { <option value="@run.Id">@run.Name · @run.StartedTime.ToLocalTime().ToString("MM-dd HH:mm")</option> }</select></div>
+            <div class="rag-admin-field"><label for="evaluation-result">结果</label><select id="evaluation-result" class="kp-select" @bind="ResultFilter"><option value="">全部结果</option><option value="true">通过</option><option value="false">失败</option></select></div>
+            <button class="kp-button kp-button--secondary" @onclick="ReloadAsync" disabled="@IsBusy">刷新运行</button>
+        </div>
+        @if (SelectedRun?.HardFailed == true) { <div class="kp-alert kp-alert--error" role="alert">本次评测存在越权召回，已标记硬失败。@SelectedRun.FailureReason</div> }
+        <div class="kp-table-wrap"><table class="kp-table rag-admin-table"><thead><tr><th>用例 / 问题</th><th>期望行为</th><th>实际结果</th><th>状态</th><th>操作</th></tr></thead><tbody>
+            @if (IsLoadingRuns || IsLoadingDetail) { <tr><td colspan="5"><div class="rag-admin-empty" role="status">正在加载评测结果</div></td></tr> }
+            else if (SelectedRun is null) { <tr><td colspan="5"><div class="rag-admin-empty"><strong>尚无评测运行</strong><p>先配置评测用例，再运行一次真实检索与回答评测。</p></div></td></tr> }
+            else if (!FilteredResults.Any()) { <tr><td colspan="5"><div class="rag-admin-empty"><strong>没有匹配的用例结果</strong><p>调整结果筛选，或刷新尚在运行的评测。</p></div></td></tr> }
+            @foreach (var result in FilteredResults)
+            {
+                <tr><td><strong>@result.QuestionSummary</strong><small>@result.EvaluationCaseId</small></td><td>@(result.ExpectedRefusal ? "拒绝无依据回答" : $"命中 {result.ExpectedCitationCount} 条期望引用")</td><td>@(result.ActualRefusal ? "已拒答" : $"引用 {result.ActualCitationCount} 处 · 命中 {result.MatchedExpectedCitationCount} 处")<small>@result.FailureReason</small></td><td><span class="rag-admin-badge @(result.Passed ? "is-success" : "is-error")">@(result.Passed ? "通过" : "失败")</span></td><td><button class="kp-button kp-button--link kp-button--sm" @onclick="() => SelectedResult = result">查看详情</button></td></tr>
+            }
+        </tbody></table></div>
+        <MvpPager SkipCount="RunSkipCount" PageSize="PageSize" TotalCount="RunTotalCount" IsBusy="IsBusy" OnSkipCountChanged="ChangeRunPageAsync" />
+        @if (SelectedResult is not null)
+        {
+            <div class="rag-admin-detail"><h3>用例运行详情</h3><dl><dt>问题摘要</dt><dd>@SelectedResult.QuestionSummary</dd><dt>回答摘要</dt><dd>@(SelectedResult.AnswerSummary ?? "未提供")</dd><dt>引用准确率</dt><dd>@SelectedResult.CitationAccuracyRate.ToString("P0")</dd><dt>越权引用</dt><dd>@SelectedResult.UnauthorizedCitationCount</dd><dt>失败原因</dt><dd>@(SelectedResult.FailureReason ?? "—")</dd></dl><div class="rag-admin-citations">@foreach (var citation in SelectedResult.ActualCitations) { <div class="rag-admin-citation"><strong>@citation.Title</strong><p>知识 @citation.KnowledgeItemId · 版本 @citation.KnowledgeVersionId · 分块 @citation.ChunkId</p></div> }</div></div>
+        }
+        <p class="rag-admin-note">每条用例保留权限上下文、期望 / 禁止引用与运行结果，便于复现。运行不会模拟其他用户身份。</p>
+    </section>
+</div>
+
+@code {
+    private const int PageSize = 10;
+    private IReadOnlyList<RagEvaluationRunDto> Runs { get; set; } = [];
+    private IReadOnlyList<RagEvaluationCaseDto> Cases { get; set; } = [];
+    private RagEvaluationRunDto? SelectedRun { get; set; }
+    private RagEvaluationRunCaseResultDto? SelectedResult { get; set; }
+    private UpdateRagEvaluationCaseDto? CaseInput { get; set; }
+    private Guid? EditingCaseId { get; set; }
+    private string? ExpectedKnowledgeId { get; set; }
+    private string? ForbiddenKnowledgeId { get; set; }
+    private string? CaseFilter { get; set; }
+    private string? ResultFilter { get; set; }
+    private int RunSkipCount { get; set; }
+    private int CaseSkipCount { get; set; }
+    private long RunTotalCount { get; set; }
+    private long CaseTotalCount { get; set; }
+    private bool ShowCases { get; set; }
+    private bool IsLoadingRuns { get; set; }
+    private bool IsLoadingCases { get; set; }
+    private bool IsLoadingDetail { get; set; }
+    private bool IsRunning { get; set; }
+    private bool IsSaving { get; set; }
+    private bool IsBusy => IsLoadingRuns || IsLoadingCases || IsLoadingDetail || IsRunning || IsSaving;
+    private string? ErrorMessage { get; set; }
+    private string? SuccessMessage { get; set; }
+    private IEnumerable<RagEvaluationRunCaseResultDto> FilteredResults => (SelectedRun?.Results ?? []).Where(x => !bool.TryParse(ResultFilter, out var passed) || x.Passed == passed);
+
+    protected override Task OnInitializedAsync() => ReloadAsync();
+    private Task RetryAsync() => ShowCases ? LoadCasesAsync() : ReloadAsync();
+    private static string FormatRate(double? value) => value?.ToString("P0") ?? "—";
+    private static string FormatCitation(RagEvaluationCitationExpectationDto citation) => $"知识 {citation.KnowledgeItemId?.ToString() ?? "不限"} · 版本 {citation.KnowledgeVersionId?.ToString() ?? "不限"} · 分块 {citation.ChunkId?.ToString() ?? "不限"}";
+
+    private async Task ReloadAsync()
+    {
+        IsLoadingRuns = true;
+        ErrorMessage = null;
+        try
+        {
+            var result = await EvaluationAppService.GetRunListAsync(new GetRagEvaluationRunListInput { SkipCount = RunSkipCount, MaxResultCount = PageSize });
+            Runs = result.Items;
+            RunTotalCount = result.TotalCount;
+            var selected = Runs.FirstOrDefault(x => x.Id == SelectedRun?.Id) ?? Runs.FirstOrDefault();
+            SelectedRun = selected is null ? null : await EvaluationAppService.GetRunAsync(selected.Id);
+            SelectedResult = null;
+        }
+        catch (Exception exception) { Runs = []; SelectedRun = null; SelectedResult = null; RunTotalCount = 0; ErrorMessage = GetUserFriendlyErrorMessage(exception); }
+        finally { IsLoadingRuns = false; }
+    }
+
+    private async Task SelectRunAsync(ChangeEventArgs args)
+    {
+        if (!Guid.TryParse(args.Value?.ToString(), out var id)) { SelectedRun = null; return; }
+        IsLoadingDetail = true;
+        ErrorMessage = null;
+        SelectedResult = null;
+        try { SelectedRun = await EvaluationAppService.GetRunAsync(id); }
+        catch (Exception exception) { SelectedRun = null; ErrorMessage = GetUserFriendlyErrorMessage(exception); }
+        finally { IsLoadingDetail = false; }
+    }
+
+    private Task ChangeRunPageAsync(int skipCount) { RunSkipCount = skipCount; return ReloadAsync(); }
+    private async Task ShowCasesAsync() { ShowCases = true; await LoadCasesAsync(); }
+    private Task SearchCasesAsync() { CaseSkipCount = 0; return LoadCasesAsync(); }
+    private Task ChangeCasePageAsync(int skipCount) { CaseSkipCount = skipCount; return LoadCasesAsync(); }
+
+    private async Task LoadCasesAsync()
+    {
+        IsLoadingCases = true;
+        ErrorMessage = null;
+        try
+        {
+            var result = await EvaluationAppService.GetCaseListAsync(new GetRagEvaluationCaseListInput { Filter = CaseFilter?.Trim(), SkipCount = CaseSkipCount, MaxResultCount = PageSize });
+            Cases = result.Items;
+            CaseTotalCount = result.TotalCount;
+        }
+        catch (Exception exception) { Cases = []; CaseTotalCount = 0; ErrorMessage = GetUserFriendlyErrorMessage(exception); }
+        finally { IsLoadingCases = false; }
+    }
+
+    private void NewCase()
+    {
+        EditingCaseId = null;
+        CaseInput = new UpdateRagEvaluationCaseDto { ExpectedRefusal = true, IsActive = true };
+        ExpectedKnowledgeId = null;
+        ForbiddenKnowledgeId = null;
+    }
+
+    private void EditCase(RagEvaluationCaseDto evaluationCase)
+    {
+        EditingCaseId = evaluationCase.Id;
+        CaseInput = new UpdateRagEvaluationCaseDto { Name = evaluationCase.Name, Question = evaluationCase.Question, ExpectedRefusal = evaluationCase.ExpectedRefusal, IsActive = evaluationCase.IsActive, Notes = evaluationCase.Notes, PermissionContext = evaluationCase.PermissionContext, ExpectedCitations = evaluationCase.ExpectedCitations.ToList(), ForbiddenCitations = evaluationCase.ForbiddenCitations.ToList() };
+        ExpectedKnowledgeId = null;
+        ForbiddenKnowledgeId = null;
+    }
+
+    private void AddCitation(bool forbidden)
+    {
+        if (CaseInput is null) return;
+        if (!Guid.TryParse(forbidden ? ForbiddenKnowledgeId : ExpectedKnowledgeId, out var id) || id == Guid.Empty) { ErrorMessage = "请输入有效的完整知识条目 GUID。"; return; }
+        var citations = forbidden ? CaseInput.ForbiddenCitations : CaseInput.ExpectedCitations;
+        if (!citations.Any(x => x.KnowledgeItemId == id && x.KnowledgeVersionId is null && x.ChunkId is null)) citations.Add(new RagEvaluationCitationExpectationDto { KnowledgeItemId = id });
+        if (forbidden) ForbiddenKnowledgeId = null; else ExpectedKnowledgeId = null;
+        ErrorMessage = null;
+    }
+
+    private async Task SaveCaseAsync()
+    {
+        if (CaseInput is null || IsBusy) return;
+        if (string.IsNullOrWhiteSpace(CaseInput.Name) || string.IsNullOrWhiteSpace(CaseInput.Question)) { ErrorMessage = "请填写用例名称和待评测问题。"; return; }
+        if (!string.IsNullOrWhiteSpace(ExpectedKnowledgeId) || !string.IsNullOrWhiteSpace(ForbiddenKnowledgeId)) { ErrorMessage = "请先添加已填写的知识编号，或清空该输入后再保存。"; return; }
+        IsSaving = true;
+        ErrorMessage = null;
+        try
+        {
+            if (EditingCaseId.HasValue) await EvaluationAppService.UpdateCaseAsync(EditingCaseId.Value, CaseInput);
+            else await EvaluationAppService.CreateCaseAsync(CaseInput);
+            CaseInput = null;
+            SuccessMessage = "评测用例已保存。";
+            await LoadCasesAsync();
+        }
+        catch (Exception exception) { ErrorMessage = GetUserFriendlyErrorMessage(exception); }
+        finally { IsSaving = false; }
+    }
+
+    private async Task RunAsync()
+    {
+        if (IsBusy || await Dialogs.ShowMessageBoxAsync("运行 RAG 评测", "将以当前账号身份运行所有已启用用例，真实调用检索与模型服务并产生日志。是否继续？", yesText: "运行评测", cancelText: "取消") != true) return;
+        IsRunning = true;
+        ErrorMessage = null;
+        SuccessMessage = null;
+        try
+        {
+            var run = await EvaluationAppService.RunAsync(new RunRagEvaluationDto { ActiveCasesOnly = true });
+            RunSkipCount = 0;
+            SelectedRun = run;
+            await ReloadAsync();
+            SelectedRun = run;
+            ShowCases = false;
+            SuccessMessage = $"评测已完成：{run.PassedCaseCount} 个通过，{run.FailedCaseCount} 个失败。";
+        }
+        catch (Exception exception) { ErrorMessage = GetUserFriendlyErrorMessage(exception); }
+        finally { IsRunning = false; }
+    }
+}
