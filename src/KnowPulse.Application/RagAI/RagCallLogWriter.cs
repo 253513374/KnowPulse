@@ -194,6 +194,11 @@ public class RagCallLogWriter : IRagCallLogWriter, ITransientDependency
             TrimOptional(request.FailureStage, RagCallLog.MaxFailureStageLength),
             TrimOptional(request.FailureReason, RagCallLog.MaxFailureReasonLength));
 
+        if (_currentUser.Id.HasValue && _currentUser.Id != Guid.Empty)
+        {
+            callLog.RestrictToPersonalOwner(_currentUser.Id.Value);
+        }
+
         callLog = await _callLogRepository.InsertAsync(callLog, autoSave: true, cancellationToken: cancellationToken);
 
         for (var index = 0; index < citations.Count; index++)

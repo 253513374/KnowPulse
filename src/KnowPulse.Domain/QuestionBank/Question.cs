@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json;
+using KnowPulse.Education;
 using Volo.Abp;
 using Volo.Abp.Domain.Entities.Auditing;
 using Volo.Abp.MultiTenancy;
@@ -28,6 +30,141 @@ public class Question : FullAuditedAggregateRoot<Guid>, IMultiTenant
         }
 
         OwnerTeacherId = teacherId;
+    }
+
+    public Guid? PersonalOwnerUserId { get; private set; }
+
+    public string? ScoringDefinitionJson { get; private set; }
+    public Guid? ApprovedDefinitionRevisionId { get; private set; }
+
+    public void RecordApprovedDefinitionRevision(Guid id)
+    {
+        if (Status != QuestionStatus.Approved || id == Guid.Empty)
+            throw new BusinessException(KnowPulseDomainErrorCodes.QuestionReviewRequiresPendingStatus);
+        ApprovedDefinitionRevisionId = id;
+    }
+
+    public void SetScoringDefinitionDraft(QuestionScoringDefinition? definition)
+    {
+        definition?.ValidateDraft();
+        var value = definition?.ToCanonicalJson();
+        if (ScoringDefinitionJson == value) return;
+        ScoringDefinitionJson = value;
+        InvalidateCurriculumConfirmation();
+        if (Status is QuestionStatus.Approved or QuestionStatus.PendingReview)
+        {
+            Status = QuestionStatus.Draft;
+            ReviewedByUserId = null;
+            ReviewedTime = null;
+        }
+    }
+
+    public void ValidateScoringDefinition(decimal? score = null, IReadOnlyCollection<QuestionCurriculumPointWeight>? pointWeights = null)
+    {
+        var definition = ScoringDefinitionJson == null ? null : QuestionScoringDefinition.Parse(ScoringDefinitionJson);
+        if (definition == null)
+        {
+            if (Type == QuestionType.Subjective || CurriculumSnapshotJson != null && Type is QuestionType.FillBlank or QuestionType.MultipleChoice)
+                throw new BusinessException("KnowPulse:Education:InvalidScoringDefinition");
+            return;
+        }
+        var json = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        var snapshot = CurriculumSnapshotJson == null ? null : JsonSerializer.Deserialize<EducationCurriculumSnapshot>(CurriculumSnapshotJson, json)!;
+        definition.ValidateForConfirmation(Type, Stem,
+            score ?? CurriculumScore ?? (Type is QuestionType.SingleChoice or QuestionType.MultipleChoice or QuestionType.TrueFalse
+                ? 1 : definition.Blanks.Sum(x => x.Score) + definition.ScoringPoints.Sum(x => x.Score)),
+            snapshot?.Mappings.Select(x => x.MappingId).ToList(),
+            pointWeights ?? (snapshot == null ? null : JsonSerializer.Deserialize<List<QuestionCurriculumPointWeight>>(CurriculumPointWeightsJson, json)));
+    }
+
+    public const int MaxCurriculumJsonLength = 200000;
+    public string? CurriculumSnapshotJson { get; private set; }
+    public string CurriculumSuggestedMappingIdsJson { get; private set; } = "[]";
+    public string CurriculumSourceReferencesJson { get; private set; } = "[]";
+    public string CurriculumPointWeightsJson { get; private set; } = "[]";
+    public decimal? CurriculumScore { get; private set; }
+    public bool CurriculumConfirmed { get; private set; }
+    public Guid? CurriculumConfirmedByUserId { get; private set; }
+    public DateTime? CurriculumConfirmedAtUtc { get; private set; }
+
+    public void SetCurriculumDraft(string snapshotJson, string suggestedMappingIdsJson, string sourceReferencesJson, decimal score)
+    {
+        var json = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        var references = JsonSerializer.Deserialize<List<EducationCurriculumSourceReference>>(CurriculumSourceReferencesJson, json) ?? [];
+        foreach (var reference in JsonSerializer.Deserialize<List<EducationCurriculumSourceReference>>(sourceReferencesJson, json) ?? [])
+        {
+            if (!references.Any(old => JsonSerializer.Serialize(old, json) == JsonSerializer.Serialize(reference, json))) references.Add(reference);
+        }
+        CurriculumSnapshotJson = Check.NotNullOrWhiteSpace(snapshotJson, nameof(snapshotJson), MaxCurriculumJsonLength);
+        CurriculumSuggestedMappingIdsJson = Check.NotNullOrWhiteSpace(suggestedMappingIdsJson, nameof(suggestedMappingIdsJson), MaxCurriculumJsonLength);
+        CurriculumSourceReferencesJson = Check.NotNullOrWhiteSpace(JsonSerializer.Serialize(references, json), nameof(sourceReferencesJson), MaxCurriculumJsonLength);
+        if (score <= 0 || score > 1000 || decimal.Round(score, 2) != score) throw new BusinessException("KnowPulse:Education:InvalidPointWeights");
+        CurriculumScore = score;
+        var weights = JsonSerializer.Deserialize<List<QuestionCurriculumPointWeight>>(CurriculumPointWeightsJson, json) ?? [];
+        if (weights.Count > 0)
+        {
+            try { ValidatePointWeights(JsonSerializer.Deserialize<EducationCurriculumSnapshot>(snapshotJson, json)!, weights, score); }
+            catch (BusinessException) { CurriculumPointWeightsJson = "[]"; }
+        }
+        InvalidateCurriculumConfirmation();
+    }
+
+    public void ConfirmCurriculum(string pointWeightsJson, decimal score, Guid userId, DateTime now)
+    {
+        if (CurriculumSnapshotJson == null || userId == Guid.Empty || PersonalOwnerUserId != userId || now.Kind != DateTimeKind.Utc || score <= 0 || score > 1000 || decimal.Round(score, 2) != score)
+            throw new BusinessException("KnowPulse:Education:CurriculumConfirmationRequired");
+        var json = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        ValidatePointWeights(JsonSerializer.Deserialize<EducationCurriculumSnapshot>(CurriculumSnapshotJson, json)!,
+            JsonSerializer.Deserialize<List<QuestionCurriculumPointWeight>>(pointWeightsJson, json) ?? [], score);
+        ValidateScoringDefinition(score, JsonSerializer.Deserialize<List<QuestionCurriculumPointWeight>>(pointWeightsJson, json));
+        CurriculumPointWeightsJson = Check.NotNullOrWhiteSpace(pointWeightsJson, nameof(pointWeightsJson), MaxCurriculumJsonLength);
+        CurriculumScore = score;
+        CurriculumConfirmed = true;
+        CurriculumConfirmedByUserId = userId;
+        CurriculumConfirmedAtUtc = now;
+    }
+
+    public void SetCurriculumPointWeightsDraft(string pointWeightsJson)
+    {
+        CurriculumPointWeightsJson = Check.NotNullOrWhiteSpace(pointWeightsJson, nameof(pointWeightsJson), MaxCurriculumJsonLength);
+        InvalidateCurriculumConfirmation();
+    }
+
+    public static void ValidatePointWeights(EducationCurriculumSnapshot snapshot, IReadOnlyCollection<QuestionCurriculumPointWeight> weights, decimal score)
+    {
+        if (snapshot == null || weights == null || weights.Count is < 1 or > 3000 || score <= 0 || score > 1000 || decimal.Round(score, 2) != score ||
+            weights.Any(x => x.TextbookKnowledgePointMappingId == Guid.Empty || x.Weight <= 0 || x.Weight > 1 || x.Score <= 0 || decimal.Round(x.Score, 2) != x.Score ||
+                x.Score != decimal.Round(score * x.Weight, 2, MidpointRounding.AwayFromZero) ||
+                !snapshot.Mappings.Any(m => m.MappingId == x.TextbookKnowledgePointMappingId)) ||
+            weights.Select(x => x.TextbookKnowledgePointMappingId).Distinct().Count() != weights.Count ||
+            weights.Sum(x => x.Weight) != 1 || weights.Sum(x => x.Score) != score)
+            throw new BusinessException("KnowPulse:Education:InvalidPointWeights");
+    }
+
+    public void InvalidateCurriculumConfirmation()
+    {
+        CurriculumConfirmed = false;
+        CurriculumConfirmedByUserId = null;
+        CurriculumConfirmedAtUtc = null;
+        if (CurriculumSnapshotJson != null && Status is QuestionStatus.Approved or QuestionStatus.PendingReview)
+        {
+            Status = QuestionStatus.Draft;
+            ReviewedByUserId = null;
+            ReviewedTime = null;
+        }
+    }
+
+    /// <summary>
+    /// 私有来源产生的题目永久保留归属，删除或替换题源也不能转成组织公开题。
+    /// </summary>
+    public void RestrictToPersonalOwner(Guid ownerUserId)
+    {
+        if (ownerUserId == Guid.Empty || (PersonalOwnerUserId.HasValue && PersonalOwnerUserId != ownerUserId))
+        {
+            throw new ArgumentException("A personal question cannot change its owner.", nameof(ownerUserId));
+        }
+
+        PersonalOwnerUserId = ownerUserId;
     }
 
     public QuestionType Type { get; private set; }
@@ -74,6 +211,7 @@ public class Question : FullAuditedAggregateRoot<Guid>, IMultiTenant
         : base(id)
     {
         TenantId = tenantId;
+        if (!Enum.IsDefined(type)) throw new BusinessException("KnowPulse:Education:InvalidScoringDefinition");
         Type = type;
         Difficulty = difficulty;
         CreationSource = creationSource;
@@ -99,6 +237,7 @@ public class Question : FullAuditedAggregateRoot<Guid>, IMultiTenant
             throw new BusinessException(KnowPulseDomainErrorCodes.QuestionCannotEditArchived);
         }
 
+        if (!Enum.IsDefined(type)) throw new BusinessException("KnowPulse:Education:InvalidScoringDefinition");
         Type = type;
         Difficulty = difficulty;
         Title = Check.NotNullOrWhiteSpace(title, nameof(title), MaxTitleLength);
@@ -173,8 +312,17 @@ public class Question : FullAuditedAggregateRoot<Guid>, IMultiTenant
 
     public void EnsureDefinitionIsValid(
         IReadOnlyCollection<QuestionOption> options,
-        IReadOnlyCollection<QuestionAnswer> answers)
+        IReadOnlyCollection<QuestionAnswer> answers,
+        decimal? score = null,
+        IReadOnlyCollection<QuestionCurriculumPointWeight>? pointWeights = null)
     {
+        ValidateScoringDefinition(score, pointWeights);
+        if (Type == QuestionType.Subjective || Type == QuestionType.FillBlank && ScoringDefinitionJson != null)
+        {
+            if (answers.Count != 0 || options.Count != 0)
+                throw new BusinessException("KnowPulse:Education:InvalidScoringDefinition");
+            return;
+        }
         var answerValues = answers
             .Select(x => x.Value.Trim())
             .Where(x => !string.IsNullOrWhiteSpace(x))

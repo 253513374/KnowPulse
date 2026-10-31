@@ -1,8 +1,14 @@
 @page "/question-bank/reviews/{Id:guid}"
 @attribute [Authorize(KnowPulsePermissions.QuestionBank.Reviews)]
 @inherits KnowPulseComponentBase
+@using System.Text.Json
+@using System.Text
+@using System.Security.Cryptography
 @inject IQuestionAppService QuestionAppService
 @inject NavigationManager Navigation
+@inject IJSRuntime JSRuntime
+@inject Volo.Abp.Users.ICurrentUser CurrentAccount
+@inject Volo.Abp.MultiTenancy.ICurrentTenant CurrentTenantContext
 
 <PageTitle>题目复核 · 平台管理</PageTitle>
 
@@ -19,8 +25,17 @@
 {
     <div class="kp-alert kp-alert--error" role="alert">
         @ErrorMessage
-        <button class="kp-button kp-button--secondary kp-button--sm" type="button" @onclick="LoadAsync" disabled="@(IsLoading || IsBusy)">重新加载</button>
+        <button class="kp-button kp-button--secondary kp-button--sm" type="button" @onclick="ReloadQuestionAsync" disabled="@(IsLoading || IsBusy)">重新加载</button>
     </div>
+}
+@if (StorageNotice != null) { <p class="kp-text-small kp-text-warning" role="status">@StorageNotice</p> }
+@if (PendingReview != null)
+{
+    <div class="kp-alert kp-alert--info" role="status"><p class="kp-mb-2">@L["EducationReview:UnknownResult"]</p><div class="kp-flex kp-flex-wrap kp-gap-2"><button type="button" class="kp-button kp-button--sm kp-button--primary-outline" disabled="@IsBusy" @onclick="RecoverReviewAsync">@L["EducationReview:Recover"]</button><button type="button" class="kp-button kp-button--sm kp-button--secondary" disabled="@IsBusy" @onclick="RetryReviewAsync">@L["EducationReview:Retry"]</button><button type="button" class="kp-button kp-button--sm kp-button--secondary" disabled="@IsBusy" @onclick="StartNewDecisionAsync">@L["EducationReview:Recheck"]</button></div><p class="kp-text-small kp-mt-2 kp-mb-0">@L["EducationReview:RetryHint"]</p></div>
+}
+@if (CompletedReview != null)
+{
+    <div class="kp-alert kp-alert--success" role="status">@L["EducationReview:RecoveredEvent", GetReviewActionText(CompletedReview.Action), CompletedReview.ReviewTime.ToLocalTime().ToString("yyyy-MM-dd HH:mm")]<p class="kp-text-small kp-mt-2 kp-mb-0">@L["EducationReview:EventIsHistorical"]</p></div>
 }
 
 @if (IsLoading)
@@ -56,7 +71,7 @@ else
                             <h2 class="kp-heading-5 kp-mb-1">@Question.Title</h2>
                             <div class="kp-text-muted kp-text-small">@GetTypeText(Question.Type) / @GetDifficultyText(Question.Difficulty) / @GetSourceText(Question.CreationSource)</div>
                         </div>
-                        <span class="kp-badge kp-bg-info kp-align-self-start">@(Question.Status == QuestionStatus.PendingReview ? "待审核" : "已处理")</span>
+                        <span class="kp-badge kp-bg-info kp-align-self-start">@L["EducationReview:CurrentStatus", StatusLabel(Question.Status)]</span>
                     </div>
 
                     <div class="kp-mt-4">
@@ -94,6 +109,12 @@ else
                             <div>@Question.Analysis</div>
                         </div>
                     }
+                    @if (Question.Curriculum != null)
+                    {
+                        <p class="kp-text-small kp-mt-3 @(Question.CurriculumConfirmed ? "kp-text-success" : "kp-text-warning")">@L[Question.CurriculumConfirmed ? "EducationReview:CurriculumConfirmed" : "EducationQuestion:ConfirmBeforeReview"]</p>
+                        <ul class="kp-text-small">@foreach (var point in Question.CurriculumScoringPoints) { <li>@point.ChapterTitle · @point.KnowledgePointName · @L["EducationScoring:ScoreValue", point.Score]</li> }</ul>
+                        @if (Question.Type is QuestionType.MultipleChoice or QuestionType.FillBlank or QuestionType.Subjective) { <QuestionScoringEditor Type="Question.Type" Definition="Question.ScoringDefinition" Mappings="RuleMappings" ReadOnly="true" Stem="Question.Stem" TotalScore="@(Question.CurriculumScore ?? 0)" /> }
+                    }
                 </div>
             </div>
 
@@ -125,15 +146,16 @@ else
         <div class="kp-col-xl-4">
             <div class="kp-card kp-mb-3 qb-decision-card">
                 <div class="kp-card__body">
-                    <h2 class="kp-heading-6">审核结论</h2>
+                    <h2 class="kp-heading-6">审核决策</h2>
                     <label class="kp-label kp-mt-2" for="review-comment">审核意见</label>
-                    <textarea id="review-comment" class="kp-input" rows="4" @bind="ReviewComment" @bind:event="oninput" placeholder="请填写审核意见、退回或驳回原因"></textarea>
+                    <textarea id="review-comment" class="kp-input" rows="6" maxlength="512" @bind="ReviewComment" @bind:event="oninput" disabled="@IsBusy" placeholder="说明通过结论，或清楚写出需要修改的内容"></textarea>
                     <div class="kp-help">退回或不采用时必须填写原因，出题人会据此处理。</div>
 
                     <div class="kp-grid-display kp-gap-2 kp-mt-3">
-                        <button class="kp-button kp-button--primary" type="button" @onclick="ApproveAsync" disabled="@(IsBusy || Question.Status != QuestionStatus.PendingReview)">通过审核</button>
-                        <button class="kp-button kp-button--secondary" type="button" @onclick="ReturnAsync" disabled="@(IsBusy || Question.Status != QuestionStatus.PendingReview)">退回修改</button>
-                        <button class="kp-button kp-button--danger-outline qb-reject" type="button" @onclick="RejectAsync" disabled="@(IsBusy || Question.Status != QuestionStatus.PendingReview)">驳回题目</button>
+                        <button class="kp-button kp-button--success" type="button" @onclick="ApproveAsync" disabled="@(IsBusy || Question.Status != QuestionStatus.PendingReview || Question.Curriculum != null && !Question.CurriculumConfirmed)"><i class="fa-solid fa-check kp-me-1"></i>通过并加入正式题库</button>
+                        <button class="kp-button kp-button--warning" type="button" @onclick="ReturnAsync" disabled="@(IsBusy || Question.Status != QuestionStatus.PendingReview)"><i class="fa-solid fa-rotate-left kp-me-1"></i>退回给出题人修改</button>
+                        <button class="kp-button kp-button--danger-outline" type="button" @onclick="RejectAsync" disabled="@(IsBusy || Question.Status != QuestionStatus.PendingReview)">不采用此题</button>
+                        <button class="kp-button kp-button--secondary" type="button" @onclick="ReloadQuestionAsync" disabled="@IsBusy">@L["EducationReview:Reload"]</button>
                     </div>
                 </div>
             </div>
@@ -172,7 +194,14 @@ else
     private bool IsLoading { get; set; }
     private bool IsBusy { get; set; }
     private string? ErrorMessage { get; set; }
-    private bool HasCompleteDefinition => Question != null && !string.IsNullOrWhiteSpace(Question.Stem) && Question.Answers.Count > 0 && (Question.Type is not (QuestionType.SingleChoice or QuestionType.MultipleChoice) || Question.Options.Count >= 2);
+    private string? StorageNotice;
+    private ReviewReceipt? PendingReview;
+    private QuestionReviewOperationDto? CompletedReview;
+    private Guid? LoadedId, ReceiptLoadedId;
+    private bool HasCompleteDefinition => Question != null && !string.IsNullOrWhiteSpace(Question.Stem) &&
+        (Question.Curriculum != null && Question.Type is QuestionType.FillBlank or QuestionType.Subjective ? Question.ScoringDefinition != null : Question.Answers.Count > 0) &&
+        (Question.Type is not (QuestionType.SingleChoice or QuestionType.MultipleChoice) || Question.Options.Count >= 2);
+    private IReadOnlyDictionary<Guid, string> RuleMappings => (Question?.Curriculum?.Mappings ?? []).ToDictionary(x => x.MappingId, x => $"{x.ChapterTitle} · {x.KnowledgePointCode} · {x.KnowledgePointName}");
     private bool HasAnalysis => !string.IsNullOrWhiteSpace(Question?.Analysis);
     private bool HasEvidence => Question?.Sources.Count > 0;
 
@@ -180,6 +209,8 @@ else
 
     private async Task LoadAsync()
     {
+        if (LoadedId == Id) return;
+        LoadedId = Id; PendingReview = null; CompletedReview = null; ReviewComment = null; ErrorMessage = null;
         IsLoading = true;
         ErrorMessage = null;
         Question = null;
@@ -207,6 +238,7 @@ else
 
     private async Task DecideAsync(QuestionReviewDecision decision)
     {
+        if (IsBusy || Question == null) return;
         if (decision is QuestionReviewDecision.ReturnForRevision or QuestionReviewDecision.Reject && string.IsNullOrWhiteSpace(ReviewComment))
         {
             ErrorMessage = "退回或驳回时必须填写审核原因。";
@@ -230,21 +262,40 @@ else
         {
             ErrorMessage = null;
             IsBusy = true;
-            var input = new ReviewQuestionDto { Comment = ReviewComment };
+            var input = new ReviewQuestionDto { Comment = string.IsNullOrWhiteSpace(ReviewComment) ? null : ReviewComment.Trim(), ConcurrencyStamp = Question.ConcurrencyStamp };
+            if (Question.Curriculum != null)
+            {
+                if (PendingReview != null)
+                {
+                    if (PendingReview.Signature != ReviewSignature(PendingReview.Stamp, decision, input.Comment)) throw new InvalidOperationException(L["EducationReview:DifferentRequest"]);
+                    input.ConcurrencyStamp = PendingReview.Stamp;
+                }
+                else PendingReview = new ReviewReceipt { Id = Guid.NewGuid(), Stamp = Question.ConcurrencyStamp, Decision = decision, Signature = ReviewSignature(Question.ConcurrencyStamp, decision, input.Comment) };
+                input.OperationId = PendingReview.Id;
+                await PersistReceiptAsync();
+            }
+            QuestionDto result;
             if (decision == QuestionReviewDecision.Approve)
             {
-                await QuestionAppService.ApproveAsync(Id, input);
+                result = await QuestionAppService.ApproveAsync(Id, input);
             }
             else if (decision == QuestionReviewDecision.ReturnForRevision)
             {
-                await QuestionAppService.ReturnForRevisionAsync(Id, input);
+                result = await QuestionAppService.ReturnForRevisionAsync(Id, input);
             }
             else
             {
-                await QuestionAppService.RejectAsync(Id, input);
+                result = await QuestionAppService.RejectAsync(Id, input);
             }
 
-            Navigation.NavigateTo("/question-bank/reviews");
+            Question = result;
+            if (PendingReview != null)
+            {
+                var receipt = result.ReviewOperation ?? await QuestionAppService.GetReviewOperationAsync(Id, PendingReview.Id);
+                if (receipt == null) throw new InvalidOperationException(L["EducationReview:NoReceipt"]);
+                await CompleteReceiptAsync(receipt);
+            }
+            else Navigation.NavigateTo("/question-bank/reviews");
         }
         catch (Exception ex)
         {
@@ -256,12 +307,73 @@ else
         }
     }
 
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (ReceiptLoadedId == Id) return;
+        ReceiptLoadedId = Id;
+        try
+        {
+            var stored = await JSRuntime.InvokeAsync<string?>("sessionStorage.getItem", ReceiptKey);
+            var receipt = string.IsNullOrWhiteSpace(stored) ? null : JsonSerializer.Deserialize<ReviewReceipt>(stored);
+            if (receipt is { Id: var operationId } && operationId != Guid.Empty && !string.IsNullOrWhiteSpace(receipt.Stamp) && !string.IsNullOrWhiteSpace(receipt.Signature) && Enum.IsDefined(receipt.Decision)) PendingReview = receipt;
+        }
+        catch (Exception) { StorageNotice = L["EducationGeneration:StorageUnavailable"]; }
+        StateHasChanged();
+    }
+    private string ReceiptKey => $"knowpulse.education.question-review.{CurrentTenantContext.Id}.{CurrentAccount.Id}.{Id}";
+    private string ReviewSignature(string stamp, QuestionReviewDecision decision, string? comment) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new { QuestionId = Id, Stamp = stamp, Decision = decision, Comment = comment }))));
+    private async Task PersistReceiptAsync()
+    {
+        try
+        {
+            if (PendingReview == null) await JSRuntime.InvokeVoidAsync("sessionStorage.removeItem", ReceiptKey);
+            else await JSRuntime.InvokeVoidAsync("sessionStorage.setItem", ReceiptKey, JsonSerializer.Serialize(PendingReview));
+        }
+        catch (Exception) { StorageNotice = L["EducationGeneration:StorageUnavailable"]; }
+    }
+    private async Task CompleteReceiptAsync(QuestionReviewOperationDto receipt)
+    {
+        if (PendingReview == null || receipt.Id != PendingReview.Id || receipt.QuestionId != Id || receipt.ExpectedConcurrencyStamp != PendingReview.Stamp ||
+            receipt.Action != (PendingReview.Decision switch { QuestionReviewDecision.Approve => QuestionReviewAction.Approved, QuestionReviewDecision.ReturnForRevision => QuestionReviewAction.ReturnedForRevision, _ => QuestionReviewAction.Rejected })) throw new InvalidOperationException(L["EducationReview:NoReceipt"]);
+        CompletedReview = receipt; PendingReview = null; await PersistReceiptAsync();
+    }
+    private async Task RecoverReviewAsync() => await RunBusyAsync(async () =>
+    {
+        if (PendingReview == null) return;
+        var receipt = await QuestionAppService.GetReviewOperationAsync(Id, PendingReview.Id);
+        if (receipt == null) throw new InvalidOperationException(L["EducationReview:NoReceipt"]);
+        await CompleteReceiptAsync(receipt);
+        Question = await QuestionAppService.GetAsync(Id);
+    });
+    private Task RetryReviewAsync() => PendingReview == null ? Task.CompletedTask : DecideAsync(PendingReview.Decision);
+    private Task ReloadQuestionAsync() => RunBusyAsync(async () => { Question = await QuestionAppService.GetAsync(Id); });
+    private async Task StartNewDecisionAsync() => await RunBusyAsync(async () =>
+    {
+        if (PendingReview == null) return;
+        var receipt = await QuestionAppService.GetReviewOperationAsync(Id, PendingReview.Id);
+        if (receipt != null) { await CompleteReceiptAsync(receipt); Question = await QuestionAppService.GetAsync(Id); return; }
+        var latest = await QuestionAppService.GetAsync(Id);
+        Question = latest;
+        if (latest.Status != QuestionStatus.PendingReview) throw new InvalidOperationException(L["EducationReview:StateChanged"]);
+        if (!await JSRuntime.InvokeAsync<bool>("confirm", L["EducationReview:ConfirmNewDecision"].Value)) return;
+        PendingReview = null; CompletedReview = null; await PersistReceiptAsync();
+    });
+    private async Task RunBusyAsync(Func<Task> action)
+    {
+        if (IsBusy) return;
+        IsBusy = true; ErrorMessage = null;
+        try { await action(); } catch (Exception exception) { ErrorMessage = GetUserFriendlyErrorMessage(exception); } finally { IsBusy = false; }
+    }
+    // Persist only the operation identity, content hash, viewed version and decision; comments remain in memory.
+    private sealed class ReviewReceipt { public ReviewReceipt() { } public Guid Id { get; set; } public string Stamp { get; set; } = string.Empty; public string Signature { get; set; } = string.Empty; public QuestionReviewDecision Decision { get; set; } }
+
     private static string GetTypeText(QuestionType type) => type switch
     {
         QuestionType.SingleChoice => "单选",
         QuestionType.MultipleChoice => "多选",
         QuestionType.TrueFalse => "判断",
         QuestionType.FillBlank => "填空",
+        QuestionType.Subjective => "简答 / 解答",
         _ => type.ToString()
     };
 
@@ -272,6 +384,8 @@ else
         QuestionDifficulty.Hard => "困难",
         _ => difficulty.ToString()
     };
+
+    private string StatusLabel(QuestionStatus status) => L[$"EducationReview:Status:{status}"].Value;
 
     private static string GetSourceText(QuestionCreationSource source)
         => source == QuestionCreationSource.AiGenerated ? "AI 采纳" : "人工创建";

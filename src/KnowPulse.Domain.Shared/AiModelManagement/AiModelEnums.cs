@@ -31,7 +31,8 @@ public enum AiModelUsage
     RagAnswerChat = 0,
     AiQuestionGeneration = 1,
     KnowledgeEmbedding = 2,
-    SubjectiveScoring = 3
+    SubjectiveScoring = 3,
+    TeachingPlanGeneration = 4
 }
 
 /// <summary>

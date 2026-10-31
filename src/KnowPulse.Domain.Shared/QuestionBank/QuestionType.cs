@@ -28,5 +28,8 @@ public enum QuestionType
     /// 填空题。
     /// 不需要选项，至少需要一个标准答案文本。
     /// </summary>
-    FillBlank = 3
+    FillBlank = 3,
+
+    /// <summary>简答或解答题，按教师确认的评分点人工评分。</summary>
+    Subjective = 4
 }

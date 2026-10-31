@@ -59,17 +59,23 @@ public interface IAiQuestionGenerationAppService : IApplicationService
 
     /// <summary>
     /// 创建并执行 AI 出题任务。
-    /// 当前 MVP-2 同步执行 RAG 检索和模型调用；后续切换后台任务时可保持同一契约。
+    /// 持久化待执行任务并返回，由后台处理器进行检索和模型调用。
     /// </summary>
     [Authorize(KnowPulsePermissions.QuestionBank.AiGeneration)]
     Task<AiQuestionGenerationTaskDto> CreateAsync(CreateAiQuestionGenerationTaskDto input);
 
     /// <summary>
     /// 重试失败或需要重新生成的 AI 出题任务。
-    /// 重试会清理该任务现有候选题后重新执行生成流程，保留任务本身和调用日志。
+    /// 成功结果保持不变；失败重试保留已有候选及人工编辑。
     /// </summary>
     [Authorize(KnowPulsePermissions.QuestionBank.AiGeneration)]
     Task<AiQuestionGenerationTaskDto> RetryAsync(Guid id);
+
+    [Authorize(KnowPulsePermissions.QuestionBank.AiGeneration)]
+    Task<AiQuestionGenerationTaskDto> RegenerateAsync(Guid id, RegenerateAiQuestionGenerationTaskDto input);
+
+    [Authorize(KnowPulsePermissions.QuestionBank.AiGeneration)]
+    Task<AiQuestionCandidateDto> UpdateCandidateAsync(Guid id, UpdateAiQuestionCandidateDto input);
 
     /// <summary>
     /// 将候选题采纳为可编辑的题库草稿。

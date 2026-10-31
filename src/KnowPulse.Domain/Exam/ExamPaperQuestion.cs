@@ -41,6 +41,39 @@ public class ExamPaperQuestion : FullAuditedEntity<Guid>, IMultiTenant
 
     public string? SourceSnapshot { get; private set; }
 
+    public string? ScoringDefinitionJson { get; private set; }
+    public Guid? QuestionDefinitionRevisionId { get; private set; }
+
+    public void FreezeDefinition(Question question)
+    {
+        if (!question.IsUsableForExam || question.Id != OriginalQuestionId || ScoringDefinitionJson != null || QuestionDefinitionRevisionId.HasValue)
+            throw new BusinessException(KnowPulseDomainErrorCodes.QuestionReviewRequiresPendingStatus);
+        if (question.CurriculumSnapshotJson != null && !question.ApprovedDefinitionRevisionId.HasValue)
+            throw new BusinessException("KnowPulse:Education:QuestionDefinitionRevisionRequired");
+        question.ValidateScoringDefinition(Score);
+        ScoringDefinitionJson = question.ScoringDefinitionJson;
+        QuestionDefinitionRevisionId = question.ApprovedDefinitionRevisionId;
+        if (ScoringDefinitionJson != null && Type == QuestionType.MultipleChoice)
+            MultipleChoiceScoringMode = QuestionScoringDefinition.Parse(ScoringDefinitionJson).MultipleChoiceScoringMode!.Value;
+    }
+
+    public string? CurriculumSnapshotJson { get; private set; }
+    public string? CurriculumPointWeightsJson { get; private set; }
+    public string? CurriculumSourceReferencesJson { get; private set; }
+    public Guid? CurriculumConfirmedByUserId { get; private set; }
+    public DateTime? CurriculumConfirmedAtUtc { get; private set; }
+
+    public void FreezeCurriculum(Question question)
+    {
+        if (CurriculumSnapshotJson != null || question.CurriculumSnapshotJson == null || !question.CurriculumConfirmed || question.CurriculumScore != Score)
+            throw new BusinessException("KnowPulse:Education:CurriculumConfirmationRequired");
+        CurriculumSnapshotJson = question.CurriculumSnapshotJson;
+        CurriculumPointWeightsJson = question.CurriculumPointWeightsJson;
+        CurriculumSourceReferencesJson = question.CurriculumSourceReferencesJson;
+        CurriculumConfirmedByUserId = question.CurriculumConfirmedByUserId;
+        CurriculumConfirmedAtUtc = question.CurriculumConfirmedAtUtc;
+    }
+
     public decimal Score { get; private set; }
 
     public MultipleChoiceScoringMode MultipleChoiceScoringMode { get; private set; }

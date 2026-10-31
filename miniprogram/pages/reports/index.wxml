@@ -1,0 +1,6 @@
+<view class="page"><view class="card"><text class="heading">教师学情报告</text><text>仅当前学校与有效任教范围。教师报告可能包含尚未向学生开放的确认成绩。</text><picker range="{{choices}}" range-key="label" value="{{index}}" bindchange="choose" disabled="{{busy}}"><view class="field">{{selected || '请选择班级与学科'}}</view></picker><button bindtap="load" disabled="{{busy}}">刷新报告列表</button><button bindtap="web" disabled="{{busy}}">复制网页创建 / 重算报告入口</button></view>
+  <view wx:if="{{warning}}" class="notice" role="status">{{warning}}</view><view wx:if="{{error}}" class="error" role="alert">{{error}}<button bindtap="login">核对登录身份</button></view>
+  <text wx:if="{{busy}}" class="muted">正在核对任教范围…</text><view wx:if="{{!busy && selected && !items.length}}" class="card"><text>此任教范围暂无报告。可在网页选择教材、知识点和时间窗口后创建。</text></view>
+  <view class="card" wx:for="{{items}}" wx:key="id"><text class="heading">第 {{item.generation}} 代报告</text><text>窗口 {{item.from}} 至 {{item.to}}（不含结束）</text><text class="muted">打开后请核对具体教材和知识点范围。</text><button bindtap="open" data-id="{{item.id}}" disabled="{{busy}}">查看班级概览</button></view>
+  <view class="pager"><button bindtap="paginate" data-direction="-1" disabled="{{busy || offset === 0}}">上一页</button><text>{{offset + items.length}} / {{total}}</text><button bindtap="paginate" data-direction="1" disabled="{{busy || offset + 20 >= total}}">下一页</button></view>
+</view>

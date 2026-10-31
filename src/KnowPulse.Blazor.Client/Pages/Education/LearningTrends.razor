@@ -1,0 +1,100 @@
+@page "/education/learning-trends"
+@attribute [Authorize(EducationPermissions.AnalysisManage)]
+@inherits KnowPulseComponentBase
+@implements IDisposable
+@using KnowPulse.Education
+@using Volo.Abp.Application.Dtos
+@inject IEducationLearningReportAppService Reports
+@inject Volo.Abp.Authorization.Permissions.IPermissionChecker PermissionChecker
+
+<PageTitle>@L["EducationTrend:Title"]</PageTitle>
+<h1 class="kp-heading-4">@L["EducationTrend:Title"]</h1>
+<p>@L["EducationTrend:Description"]</p>
+<p><a href="/education/learning-reports">@L["EducationTrend:Back"]</a></p>
+<button class="kp-button kp-button--secondary kp-mb-3" disabled="@Busy" @onclick="(() => LoadAsync(Offset))">@L["EducationTrend:Reload"]</button>
+@if (Error != null) { <div class="kp-alert kp-alert--error" role="alert">@Error</div> }
+@if (Report is { } report)
+{
+    <h2 class="kp-heading-5">@report.ClassName · @report.SubjectName · @report.TextbookTitle</h2>
+    <p>@(report.Student == null ? L["EducationTrend:ClassMean"].Value : $"{report.Student.Name} ({report.Student.Account})")</p>
+    <p class="kp-text-small kp-text-muted">@Local(report.WindowStartsAtUtc) → @Local(report.WindowEndsAtUtc) · @L["EducationTrend:Calculated", Local(report.CalculatedAtUtc)] · @report.ComparisonVersion</p>
+    <p class="kp-text-small">@L["EducationTrend:CountsHint"]</p>
+    @if (report.Items.Count == 0) { <p role="status">@L["EducationTrend:Empty"]</p> }
+    @foreach (var row in report.Items)
+    {
+        <article class="kp-card kp-card__body kp-mb-3">
+            <h3 class="kp-heading-6">@row.Title</h3>
+            <p>@Local(row.EffectiveAtUtc) · @L["EducationTrend:Paper", row.PaperSnapshotVersion, row.QuestionCount]</p>
+            <p class="kp-mb-1">@(row.Score?.ToString("0.##") ?? "—") / @row.MaxScore · @(row.Ratio?.ToString("P1") ?? "—")</p>
+            @if (row.Ratio.HasValue) { <div class="kp-progress kp-mb-2" aria-hidden="true"><div class="progress-bar" style="@($"width:{(row.Ratio.Value * 100).ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)}%")"></div></div> }
+            <p class="kp-text-small kp-mb-1">@L["EducationTrend:Assigned", row.OriginalAssignedCount, row.AssignedCount, row.ScoredCount]</p>
+            <p class="kp-text-small">@L["EducationTrend:States", row.PendingGradingCount, row.AbsentCount, row.NotStartedCount, row.InProgressCount, row.AwaitingSealCount, row.OutsideWindowCount]</p>
+            <p class="kp-text-small kp-text-muted">@Comparison(row.ComparisonLimit)</p>
+            @if (report.Student != null) { <button class="kp-button kp-button--sm kp-button--primary-outline kp-align-self-start" disabled="@Busy" @onclick="(() => SelectTaskAsync(row.TaskId))">@L["EducationTrend:Basis"]</button> }
+        </article>
+    }
+    <div class="kp-flex kp-gap-2 kp-align-center kp-mb-3">
+        <button class="kp-button kp-button--secondary" disabled="@(Busy || Offset == 0)" @onclick="(() => LoadAsync(Offset - PageSize))">@L["EducationPaper:Previous"]</button>
+        <span>@(Offset + report.Items.Count) / @report.TotalCount</span>
+        <button class="kp-button kp-button--secondary" disabled="@(Busy || Offset + PageSize >= report.TotalCount)" @onclick="(() => LoadAsync(Offset + PageSize))">@L["EducationPaper:Next"]</button>
+    </div>
+    @if (Person != null && SelectedTask != Guid.Empty)
+    {
+        <section class="kp-card kp-card__body">
+            <h3 class="kp-heading-5">@report.Items.Single(x => x.TaskId == SelectedTask).Title · @L["EducationTrend:Basis"]</h3>
+            <p class="kp-text-small">@L["EducationTrend:BasisHint"]</p>
+            <label class="kp-label" for="trend-point">@L["EducationGeneration:Mappings"]</label>
+            <select id="trend-point" class="kp-select kp-mb-3" disabled="@Busy" @bind="PointText" @bind:after="PointChangedAsync">
+                <option value="">@L["EducationCurriculum:Choose"]</option>
+                @foreach (var point in Person.Analysis.Points) { <option value="@point.Point.KnowledgePointRevisionId">@point.Point.Code · @point.Point.Name</option> }
+            </select>
+            @if (Guid.TryParse(PointText, out _))
+            {
+                @if (Basis.Count == 0) { <p role="status">@L["EducationTrend:NoBasis"]</p> }
+                <ul>@foreach (var basis in Basis) { <li>@Local(basis.EffectiveAtUtc) · @basis.ObtainedScore / @basis.MaxScore · @L[$"EducationReport:Exclusion:{(int)basis.ExclusionReason}"] @if (CanReview) { <a href="@($"/education/evidence/{basis.QuestionGradeId}")">@L["EducationTrend:Review"]</a> }</li> }</ul>
+                <div class="kp-flex kp-gap-2 kp-align-center"><button class="kp-button kp-button--secondary" disabled="@(Busy || BasisOffset == 0)" @onclick="(() => BasisPageAsync(BasisOffset - PageSize))">@L["EducationPaper:Previous"]</button><span>@(BasisOffset + Basis.Count) / @BasisTotal</span><button class="kp-button kp-button--secondary" disabled="@(Busy || BasisOffset + PageSize >= BasisTotal)" @onclick="(() => BasisPageAsync(BasisOffset + PageSize))">@L["EducationPaper:Next"]</button></div>
+            }
+        </section>
+    }
+}
+
+@code {
+    [SupplyParameterFromQuery] public Guid ReportId { get; set; }
+    [SupplyParameterFromQuery] public Guid SnapshotId { get; set; }
+    [SupplyParameterFromQuery] public Guid SchoolId { get; set; }
+    [SupplyParameterFromQuery] public Guid TeachingAssignmentId { get; set; }
+    [SupplyParameterFromQuery] public Guid? StudentUserId { get; set; }
+    private const int PageSize = 20;
+    private bool Busy, CanReview; private string? Error; private int Offset, BasisOffset, Revision; private long BasisTotal;
+    private Guid SelectedTask; private string PointText = "";
+    private EducationLearningReportTrendDto? Report; private EducationLearningReportStudentResult? Person;
+    private List<EducationLearningReportBasisDto> Basis = [];
+    protected override Task OnParametersSetAsync() { Revision++; Busy = false; return LoadAsync(0); }
+    public void Dispose() => Revision++;
+    private Task LoadAsync(int offset) => RunAsync(async () => {
+        Report = null; Person = null; SelectedTask = Guid.Empty; PointText = ""; Basis.Clear();
+        if (new[] { ReportId, SnapshotId, SchoolId, TeachingAssignmentId }.Any(x => x == Guid.Empty) || StudentUserId == Guid.Empty) throw new InvalidOperationException(L["EducationTrend:Invalid"]);
+        var version = Revision; var reportId = ReportId; var snapshotId = SnapshotId; var schoolId = SchoolId; var assignmentId = TeachingAssignmentId; var studentId = StudentUserId;
+        var canReview = await PermissionChecker.IsGrantedAsync(EducationPermissions.AssessmentManage);
+        var result = await Reports.GetTrendAsync(reportId, snapshotId, schoolId, assignmentId, new() { StudentUserId = studentId, SkipCount = offset, MaxResultCount = PageSize });
+        if (version != Revision) return; CanReview = canReview; Report = result; Offset = offset;
+    });
+    private Task SelectTaskAsync(Guid task) => RunAsync(async () => {
+        if (Report is not { Student: { } student } report || !report.Items.Any(x => x.TaskId == task)) return;
+        var version = Revision;
+        await Reports.GetTrendAsync(report.ReportId, report.SnapshotId, report.SchoolId, report.TeachingAssignmentId, new() { StudentUserId = student.Id, MaxResultCount = 1 });
+        var person = await Reports.GetStudentAsync(report.ReportId, report.SnapshotId, student.Id);
+        if (version != Revision) return; Person = person; SelectedTask = task; PointText = ""; Basis.Clear(); BasisOffset = 0; BasisTotal = 0;
+    });
+    private Task PointChangedAsync() => BasisPageAsync(0);
+    private Task BasisPageAsync(int offset) => RunAsync(async () => {
+        Basis.Clear(); BasisTotal = 0;
+        if (Person == null || !Guid.TryParse(PointText, out var point) || !Person.Analysis.Points.Any(x => x.Point.KnowledgePointRevisionId == point)) return;
+        if (Report == null) return; var version = Revision;
+        var result = await Reports.GetPointEvidenceAsync(Report.ReportId, Report.SnapshotId, Person.Student.StudentUserId, point, new PagedResultRequestDto { SkipCount = offset, MaxResultCount = PageSize }, SelectedTask);
+        if (version != Revision) return; Basis = result.Items.ToList(); BasisOffset = offset; BasisTotal = result.TotalCount;
+    });
+    private async Task RunAsync(Func<Task> action) { if (Busy) return; var version = Revision; Busy = true; Error = null; try { await action(); } catch (Exception ex) { if (version == Revision) { Report = null; Person = null; Basis.Clear(); Error = GetUserFriendlyErrorMessage(ex); } } finally { if (version == Revision) Busy = false; } }
+    private string Comparison(EducationLearningTrendLimit limit) => limit == EducationLearningTrendLimit.None ? L["EducationTrend:Comparable"] : string.Join("；", Enum.GetValues<EducationLearningTrendLimit>().Where(x => x != 0 && limit.HasFlag(x)).Select(x => L[$"EducationTrend:Limit:{(int)x}"].Value));
+    private static string Local(DateTime value) => value.ToLocalTime().ToString("yyyy-MM-dd HH:mm");
+}

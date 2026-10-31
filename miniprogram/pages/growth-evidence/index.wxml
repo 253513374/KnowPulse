@@ -1,0 +1,8 @@
+<view class="page"><view class="hero"><text class="title">本人的知识点依据</text><text class="muted">只显示当前完整讲评开放的逐题得分依据，不自动读取题干、答案或教师反馈。</text></view>
+  <view wx:if="{{error}}" class="error" aria-role="alert">{{error}}</view>
+  <block wx:if="{{head}}"><view class="card"><text class="heading">{{head.context.subject}} · {{point.code}} · {{point.name}}</text><text>{{point.label}} · {{point.ratio}}</text><text class="muted">{{head.from}} → {{head.to}} · {{head.calculated}}</text><text class="muted">固定快照 {{head.snapshotId}}</text></view>
+    <view wx:if="{{restricted}}" class="notice">部分已开放成绩尚未开放完整讲评，逐题编号、得分和排除原因暂不提供；下方数量只统计当前可读依据。</view>
+    <view class="card" wx:for="{{rows}}" wx:key="id"><text class="heading">{{item.title}}</text><text>{{item.obtained}} / {{item.max}} · {{item.reason}}</text><text class="muted">{{item.at}}</text><button bindtap="result" data-id="{{item.id}}" disabled="{{busy}}">明确打开对应题目讲评</button></view>
+    <view wx:if="{{total === 0}}" class="card"><text>当前无可展示的逐题依据；不会将缺失当作零分。</text></view><view class="card"><text>可读依据 {{total}} 条，每页最多20条</text><view class="pager"><button bindtap="paginate" data-direction="-1" disabled="{{busy || offset === 0}}">上一页</button><button bindtap="paginate" data-direction="1" disabled="{{busy || offset + 20 >= total}}">下一页</button></view></view>
+  </block><button bindtap="load" disabled="{{busy}}">重新核对同一快照</button><button bindtap="back" disabled="{{busy}}">返回成长页，刷新后重新选择</button><button bindtap="login">返回登录</button>
+</view>

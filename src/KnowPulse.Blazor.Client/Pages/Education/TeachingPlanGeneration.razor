@@ -1,0 +1,103 @@
+@page "/education/teaching-plan-generation"
+@attribute [Authorize(EducationPermissions.TeachingPlanGenerate)]
+@attribute [Authorize(EducationPermissions.TeachingPlanManage)]
+@attribute [Authorize(EducationPermissions.AnalysisManage)]
+@inherits KnowPulseComponentBase
+@using KnowPulse.Education
+@using System.Text.Json
+@inject IEducationTeachingPlanAppService Plans
+@inject IEducationLearningReportAppService Reports
+@inject IJSRuntime JS
+@inject Volo.Abp.Users.ICurrentUser Account
+@inject Volo.Abp.MultiTenancy.ICurrentTenant Tenant
+
+<PageTitle>@L["EducationPlanGeneration:Title"]</PageTitle>
+<NavigationLock ConfirmExternalNavigation="@(Busy || Dirty || Pending != null)" OnBeforeInternalNavigation="LeaveAsync" />
+<h1 class="kp-heading-4">@L["EducationPlanGeneration:Title"]</h1>
+<p>@L["EducationPlanGeneration:Description"]</p>
+<p><a href="/education/learning-reports">@L["EducationPlanGeneration:Back"]</a> · <a href="@ManualUrl">@L["EducationPlanGeneration:Manual"]</a></p>
+@if (ReportId.HasValue && SnapshotId.HasValue && StudentId.HasValue) { <button class="kp-button kp-button--secondary kp-mb-3" disabled="@(Busy || Pending != null)" @onclick="(() => RunAsync(LoadSourceAsync))">@L["EducationPlanGeneration:ReloadBasis"]</button> }
+@if (Error != null) { <div class="kp-alert kp-alert--error" role="alert">@Error</div> }
+@if (Pending != null) { <div class="kp-alert kp-alert--info" role="status">@L["EducationReport:Pending"] <button class="kp-button kp-button--sm kp-button--primary-outline" disabled="@Busy" @onclick="RecoverAsync">@L["EducationGrading:Recover"]</button> <button class="kp-button kp-button--sm kp-button--primary-outline" disabled="@Busy" @onclick="(() => RunAsync(SendAsync))">@L["EducationReport:RetryCommand"]</button><button class="kp-button kp-button--sm kp-button--secondary" disabled="@Busy" @onclick="AbandonAsync">@L["EducationReport:Abandon"]</button></div> }
+@if (Source is { } source)
+{
+    <fieldset class="kp-card kp-card__body kp-mb-3" disabled="@(Busy || Pending != null || !StorageReady)">
+        <legend class="kp-heading-5">@source.Student.StudentName · @source.Curriculum.SubjectName · @source.Curriculum.TextbookTitle</legend>
+        <p class="kp-text-small">@L["EducationPlanGeneration:BasisWindow", Local(source.WindowStartsAtUtc), Local(source.WindowEndsAtUtc)]</p>
+        <div class="kp-flex kp-flex-wrap kp-gap-3 kp-mb-3">@foreach (var point in source.Points) { <label><input class="kp-check__input" type="checkbox" checked="@Targets.Contains(point.Point.KnowledgePointRevisionId)" @onchange="e => Toggle(point.Point.KnowledgePointRevisionId, e)" /> @point.Point.Code · @point.Point.Name · @L[$"EducationReport:Mastery:{(int)point.State}"]</label> }</div>
+        <div class="kp-flex kp-flex-wrap kp-gap-3"><label>@L["EducationPlan:Starts"]<input class="kp-input" type="datetime-local" @bind="Starts" @bind:after="Changed" /></label><label>@L["EducationPlan:Ends"]<input class="kp-input" type="datetime-local" @bind="Ends" @bind:after="Changed" /></label><label>@L["EducationPlan:Reassessment"]<input class="kp-input" type="datetime-local" @bind="Reassessment" @bind:after="Changed" /></label><label>@L["EducationPlanGeneration:Minutes"]<input class="kp-input" type="number" min="5" max="10080" @bind="Minutes" @bind:after="Changed" /></label></div>
+        <p class="kp-text-small kp-text-muted kp-mt-2">@L["EducationPlanGeneration:Limits"]</p>
+        <button class="kp-button kp-button--primary kp-align-self-start" disabled="@(Targets.Count is < 1 or > 20)" @onclick="GenerateAsync">@L["EducationPlanGeneration:Generate"]</button>
+    </fieldset>
+}
+<section class="kp-mb-3"><h2 class="kp-heading-5">@L["EducationPlanGeneration:Recent"]</h2>
+    <button class="kp-button kp-button--sm kp-button--secondary kp-mb-2" disabled="@Busy" @onclick="(() => RunAsync(LoadListAsync))">@L["EducationReport:Reload"]</button>
+    <div class="kp-list">@foreach (var item in Jobs) { <button class="kp-list__item list-group-item-action" disabled="@(Busy || Pending != null)" @onclick="(() => OpenAsync(item.Id))">@item.StudentName · @item.SubjectName · @Local(item.RequestedAtUtc) · @L[$"EducationPlanGeneration:Status:{(int)item.Status}"]</button> }</div>
+    <div class="kp-flex kp-gap-2 kp-mt-2"><button class="kp-button kp-button--secondary" disabled="@(Busy || Offset == 0)" @onclick="(() => ListPageAsync(-1))">@L["EducationPaper:Previous"]</button><span>@(Offset + Jobs.Count) / @Total</span><button class="kp-button kp-button--secondary" disabled="@(Busy || Offset + 20 >= Total)" @onclick="(() => ListPageAsync(1))">@L["EducationPaper:Next"]</button></div>
+</section>
+@if (Job is { } job)
+{
+    <section class="kp-card kp-card__body kp-mb-3"><h2 class="kp-heading-5">@job.StudentName · @job.SubjectName · @job.TextbookTitle</h2>
+        <p role="status">@L[$"EducationPlanGeneration:Status:{(int)job.Status}"] · @Local(job.RequestedAtUtc) @if (job.HeartbeatAtUtc is DateTime heartbeat) { <span> · @L["EducationPlanGeneration:Heartbeat", Local(heartbeat)]</span> }</p>
+        <button class="kp-button kp-button--secondary kp-align-self-start kp-mb-2" disabled="@Busy" @onclick="(() => OpenAsync(job.Id))">@L["EducationPlanGeneration:Reload"]</button>
+        @if (job.Status == EducationPlanGenerationStatus.Failed) { <p class="kp-alert kp-alert--warning">@L[$"EducationPlanGeneration:Failure:{(int)job.Failure}"]</p><button class="kp-button kp-button--primary-outline kp-align-self-start" disabled="@(Busy || Pending != null || !StorageReady || !job.SourceIsCurrent || job.HasSavedPlan)" @onclick="RetryAsync">@L["EducationPlanGeneration:NewRound"]</button> }
+        @if (job.UsageMayBeIncomplete) { <p class="kp-text-small kp-text-warning">@L["EducationPlanGeneration:UnknownUsage"]</p> }
+        <p class="kp-text-small kp-text-muted">@job.PromptVersion · @(job.ModelAlias ?? "—") · @(job.ModelVersion ?? "—") · @L["EducationPlanGeneration:Tokens", job.PromptTokens?.ToString() ?? "—", job.CompletionTokens?.ToString() ?? "—"] · @L["EducationPlanGeneration:CostUnknown"]</p>
+        @if (!job.SourceIsCurrent) { <p class="kp-alert kp-alert--info">@L["EducationPlanGeneration:SourceChanged"]</p> }
+        @if (job.HasSavedPlan) { <p><a href="@($"/education/teaching-plans?planId={job.PlanId}")">@L["EducationPlanGeneration:SavedPlan"]</a></p> }
+        else if (job.SourceIsCurrent && job.Status == EducationPlanGenerationStatus.Completed && job.Content is { } content) {
+            <h3 class="kp-heading-6">@content.Title</h3><p>@content.StudentGoal</p><p>@content.TeacherActions</p><p>@content.SuccessCriteria</p>
+            <ol>@foreach (var step in content.Steps) { <li><strong>@step.Title</strong> · @L[$"EducationPlan:Step:{(int)step.Kind}"] · @step.EstimatedMinutes @L["EducationPlanGeneration:MinuteUnit"] · @Local(step.DueAtUtc)<p>@step.Instructions</p></li> }</ol>
+            <p>@L["EducationPlanGeneration:ReviewHint"]</p><a class="kp-button kp-button--primary kp-align-self-start" href="@($"/education/teaching-plans?generationId={job.Id}")">@L["EducationPlanGeneration:Review"]</a>
+        }
+    </section>
+}
+
+@code {
+    [SupplyParameterFromQuery(Name = "reportId")] public Guid? ReportId { get; set; }
+    [SupplyParameterFromQuery(Name = "snapshotId")] public Guid? SnapshotId { get; set; }
+    [SupplyParameterFromQuery(Name = "studentId")] public Guid? StudentId { get; set; }
+    private bool Busy, Dirty, StorageReady, StorageAttempted; private string? Error, QueryKey;
+    private DateTime Starts = DateTime.Now, Ends = DateTime.Now.AddDays(7), Reassessment = DateTime.Now.AddDays(7); private int Minutes = 60, Offset; private long Total;
+    private EducationTeachingPlanBasis? Source; private EducationTeachingPlanGenerationDto? Job; private List<EducationTeachingPlanGenerationListDto> Jobs = []; private HashSet<Guid> Targets = []; private Command? Pending;
+    private string StorageKey => $"knowpulse-plan-generation-v1:{Tenant.Id}:{Account.Id}";
+    private string ManualUrl => ReportId.HasValue && SnapshotId.HasValue && StudentId.HasValue ? $"/education/teaching-plans?reportId={ReportId}&snapshotId={SnapshotId}&studentId={StudentId}" : "/education/learning-reports";
+    protected override Task OnInitializedAsync() => RunAsync(LoadListAsync);
+    protected override Task OnParametersSetAsync() => RunAsync(async () => {
+        var key = $"{ReportId}|{SnapshotId}|{StudentId}"; if (key == QueryKey || Pending != null) return; QueryKey = key; Source = null;
+        Targets.Clear(); Dirty = false; await LoadSourceAsync();
+    });
+    private async Task LoadSourceAsync() {
+        Source = null;
+        if (ReportId is Guid reportId && SnapshotId is Guid snapshot && StudentId is Guid studentId) {
+            var report = await Reports.GetAsync(reportId); if (!report.SourceIsCurrent || report.CurrentSnapshotId != snapshot) throw new InvalidOperationException(L["EducationPlan:SourceChanged"]);
+            var person = await Reports.GetStudentAsync(reportId, snapshot, studentId);
+            Source = new() { ReportId = reportId, ReportSnapshotId = snapshot, Student = person.Student, WindowStartsAtUtc = report.WindowStartsAtUtc, WindowEndsAtUtc = report.WindowEndsAtUtc,
+                Curriculum = new() { SubjectName = report.Summary!.SubjectName, TextbookTitle = report.Summary.TextbookTitle }, Points = person.Analysis.Points.ToList() }; Targets.IntersectWith(Source.Points.Select(p => p.Point.KnowledgePointRevisionId));
+        }
+    }
+    protected override async Task OnAfterRenderAsync(bool firstRender) {
+        if (StorageAttempted || Busy) return; StorageAttempted = true;
+        await RunAsync(async () => { var json = await JS.InvokeAsync<string?>("sessionStorage.getItem", StorageKey); if (json != null) { var command = JsonSerializer.Deserialize<Command>(json); if (command == null || !Matches(command)) throw new InvalidOperationException(L["EducationGrading:NoReceipt"]); Pending = command; } StorageReady = true; }); StateHasChanged();
+    }
+    private async Task LoadListAsync() { var result = await Plans.GetGenerationsAsync(new() { SkipCount = Offset, MaxResultCount = 20 }); Jobs = result.Items.ToList(); Total = result.TotalCount; }
+    private Task ListPageAsync(int step) => RunAsync(async () => { Offset += step * 20; await LoadListAsync(); });
+    private Task OpenAsync(Guid id) => RunAsync(async () => { Job = null; Job = await Plans.GetGenerationAsync(id) ?? throw new InvalidOperationException(L["EducationPlanGeneration:NoReceipt"]); });
+    private void Changed() => Dirty = true;
+    private void Toggle(Guid id, ChangeEventArgs value) { if (value.Value is true) Targets.Add(id); else Targets.Remove(id); Changed(); }
+    private Task GenerateAsync() => RunAsync(() => StartAsync(new() { PlanId = Guid.NewGuid(), Generate = new() { OperationId = Guid.NewGuid(), Request = new() {
+        ReportId = Source!.ReportId, ReportSnapshotId = Source.ReportSnapshotId, StudentUserId = Source.Student.StudentUserId, TargetPointRevisionIds = Targets.Order().ToList(),
+        StartsAtUtc = Utc(Starts), EndsAtUtc = Utc(Ends), ReassessmentAtUtc = Utc(Reassessment), MaximumEstimatedMinutes = Minutes } } }));
+    private Task RetryAsync() => RunAsync(() => StartAsync(new() { PlanId = Job!.PlanId, PreviousJobId = Job.Id, Retry = new() { OperationId = Guid.NewGuid(), ConcurrencyStamp = Job.ConcurrencyStamp } }));
+    private async Task StartAsync(Command command) { if (Pending != null || !StorageReady) return; command.AccountId = Account.Id; command.TenantId = Tenant.Id; await JS.InvokeVoidAsync("sessionStorage.setItem", StorageKey, JsonSerializer.Serialize(command)); Pending = command; await SendAsync(); }
+    private bool Matches(Command c) => c.AccountId == Account.Id && c.TenantId == Tenant.Id && c.PlanId != Guid.Empty && c.OperationId != Guid.Empty && (c.Generate != null && c.Retry == null && c.PreviousJobId == null || c.Generate == null && c.Retry != null && c.PreviousJobId.HasValue && c.PreviousJobId != Guid.Empty);
+    private async Task SendAsync() { if (Pending is not { } c || !Matches(c)) throw new InvalidOperationException(L["EducationGrading:NoReceipt"]); var result = c.Generate != null ? await Plans.GenerateDraftAsync(c.PlanId, c.Generate) : await Plans.RetryGenerationAsync(c.PreviousJobId!.Value, c.Retry!); await CompleteAsync(result); }
+    private Task RecoverAsync() => RunAsync(async () => { if (Pending is not { } c || !Matches(c)) return; var receipt = await Plans.GetGenerationAsync(c.OperationId); if (receipt == null) Error = L["EducationPlanGeneration:NoReceipt"]; else await CompleteAsync(receipt); });
+    private async Task CompleteAsync(EducationTeachingPlanGenerationDto result) { if (Pending is not { } c || result.Id != c.OperationId || result.PlanId != c.PlanId) throw new InvalidOperationException(L["EducationGrading:NoReceipt"]); await JS.InvokeVoidAsync("sessionStorage.removeItem", StorageKey); Pending = null; Job = result; Dirty = false; await LoadListAsync(); }
+    private Task AbandonAsync() => RunAsync(async () => { if (await JS.InvokeAsync<bool>("confirm", L["EducationReport:AbandonHint"].Value)) { await JS.InvokeVoidAsync("sessionStorage.removeItem", StorageKey); Pending = null; StorageReady = true; } });
+    private async Task RunAsync(Func<Task> action) { if (Busy) return; Busy = true; Error = null; try { await action(); } catch (Exception ex) { Job = null; Source = null; Jobs.Clear(); Total = 0; Error = GetUserFriendlyErrorMessage(ex); } finally { Busy = false; } }
+    private async Task LeaveAsync(Microsoft.AspNetCore.Components.Routing.LocationChangingContext context) { if (Busy) { context.PreventNavigation(); return; } if ((Dirty || Pending != null) && !await JS.InvokeAsync<bool>("confirm", L["EducationGrading:Discard"].Value)) context.PreventNavigation(); }
+    private static string Local(DateTime value) => value.ToLocalTime().ToString("yyyy-MM-dd HH:mm");
+    private static DateTime Utc(DateTime value) => DateTime.SpecifyKind(value, DateTimeKind.Local).ToUniversalTime();
+    private sealed class Command { public Guid? AccountId { get; set; } public Guid? TenantId { get; set; } public Guid PlanId { get; set; } public Guid? PreviousJobId { get; set; } public GenerateEducationTeachingPlanDraftDto? Generate { get; set; } public RetryEducationTeachingPlanGenerationDto? Retry { get; set; } public Guid OperationId => Generate?.OperationId ?? Retry?.OperationId ?? Guid.Empty; }
+}

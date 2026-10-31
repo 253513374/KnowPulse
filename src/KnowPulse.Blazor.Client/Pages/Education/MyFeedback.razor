@@ -1,0 +1,96 @@
+@page "/education/feedback/my"
+@attribute [Authorize(EducationPermissions.FeedbackView)]
+@inherits KnowPulseComponentBase
+@implements IDisposable
+@using KnowPulse.Education
+@inject IEducationFeedbackAppService FeedbackService
+@inject Volo.Abp.Users.ICurrentUser Account
+@inject Volo.Abp.MultiTenancy.ICurrentTenant Tenant
+
+<PageTitle>@L["EducationFeedback:MyFeedback"]</PageTitle>
+<h1 class="kp-heading-4 kp-mb-3">@L["EducationFeedback:MyFeedback"]</h1>
+@if (Error != null) { <div class="kp-alert kp-alert--error" role="alert">@Error</div> }
+<button class="kp-button kp-button--secondary kp-mb-3" @onclick="RefreshAsync" disabled="@Busy">@L["EducationGrading:Refresh"]</button>
+<div class="kp-grid kp-grid-gap-3">
+    <aside class="kp-col-12 kp-col-lg-4"><div class="kp-list kp-mb-3">
+        @foreach (var card in Items)
+        { <button class="kp-list__item list-group-item-action" disabled="@Busy" @onclick="() => OpenAsync(card)">
+            <strong>@card.TeacherName · @card.SubjectName</strong><br />@card.SchoolName · @card.ClassName · v@(card.VersionNumber)<br />
+            @L[$"EducationFeedback:Visibility:{card.Visibility}"] · @L[card.OpenedAtUtc.HasValue ? "EducationFeedback:Read" : "EducationFeedback:Unread"]</button> }
+    </div>
+    @if (Items.Count == 0) { <p>@L["EducationFeedback:NoFeedback"]</p> }
+    <div class="kp-flex kp-gap-2"><button class="kp-button kp-button--sm kp-button--secondary" @onclick="() => PageAsync(-1)" disabled="@(Busy || Offset == 0)">@L["EducationPaper:Previous"]</button>
+        <button class="kp-button kp-button--sm kp-button--secondary" @onclick="() => PageAsync(1)" disabled="@(Busy || Offset + PageSize >= Total)">@L["EducationPaper:Next"]</button></div>
+    </aside>
+    <section class="kp-col-12 kp-col-lg-8">
+        @if (Opened is { } feedback)
+        {
+            <article class="kp-card"><div class="kp-card__body"><h2 class="kp-heading-5">@feedback.SchoolName · @feedback.TeacherName · @feedback.SubjectName</h2>
+                <p>@feedback.ClassName · v@(feedback.VersionNumber) · @feedback.RecordedAtUtc.ToLocalTime().ToString("g")</p>
+                @if (feedback.Visibility == EducationFeedbackVisibility.Withdrawn) { <p role="status">@L["EducationFeedback:WithdrawnHint"]</p> }
+                else
+                { <h3 class="kp-heading-6">@feedback.Context</h3><p>@feedback.OccurredAtUtc?.ToLocalTime().ToString("g") @feedback.PeriodEndsAtUtc?.ToLocalTime().ToString("g")</p>
+                    <p style="white-space:pre-wrap">@feedback.Text</p>
+                    @foreach (var recipientId in feedback.AssessmentRecipientIds)
+                    { <a class="kp-button kp-button--secondary kp-me-2 kp-mb-2" href="@($"/education/assessment-results?recipientId={recipientId}")">@L["EducationFeedback:Evidence"]</a> } }
+            </div></article>
+        }
+    </section>
+</div>
+<section class="kp-mt-4"><h2 class="kp-heading-5">@L["EducationFeedback:Notices"]</h2><p>@L["EducationFeedback:NoticeHint"]</p>
+    @foreach (var notice in Notices)
+    { <div class="kp-border kp-rounded kp-p-2 kp-mb-2">@L[notice.Kind == EducationFeedbackRevisionKind.Withdrawn ? "EducationFeedback:WithdrawalNotice" : "EducationFeedback:NewNotice"] · @notice.RecordedAtUtc.ToLocalTime().ToString("g")
+        @if (!notice.IsCurrentVersion) { <span class="kp-text-muted">@L["EducationFeedback:Superseded"]</span> }
+        <span>· @L[notice.IsRead ? "EducationFeedback:Read" : "EducationFeedback:Unread"]</span>
+        <button class="kp-button kp-button--sm kp-button--secondary ms-2" disabled="@(Busy || !notice.IsCurrentVersion)" @onclick="() => OpenNoticeAsync(notice)">@L["EducationFeedback:Open"]</button></div> }
+    <div class="kp-flex kp-gap-2"><button class="kp-button kp-button--sm kp-button--secondary" @onclick="() => NoticePageAsync(-1)" disabled="@(Busy || NoticeOffset == 0)">@L["EducationPaper:Previous"]</button>
+        <button class="kp-button kp-button--sm kp-button--secondary" @onclick="() => NoticePageAsync(1)" disabled="@(Busy || NoticeOffset + PageSize >= NoticeTotal)">@L["EducationPaper:Next"]</button></div>
+</section>
+
+@code {
+    [SupplyParameterFromQuery(Name = "feedbackId")] public Guid? LinkFeedbackId { get; set; }
+    [SupplyParameterFromQuery(Name = "versionId")] public Guid? LinkVersionId { get; set; }
+    [SupplyParameterFromQuery(Name = "schoolId")] public Guid? LinkSchoolId { get; set; }
+    private (Guid?, Guid?, Guid?)? LoadedLink;
+    private int Epoch, OpenGeneration;
+    private bool Disposed;
+    private const int PageSize = 20;
+    private int Offset, NoticeOffset;
+    private long Total, NoticeTotal;
+    private bool Busy;
+    private string? Error;
+    private List<EducationStudentFeedbackDto> Items = [];
+    private List<EducationFeedbackNoticeDto> Notices = [];
+    private EducationStudentFeedbackDto? Opened;
+    protected override async Task OnInitializedAsync() => await RunAsync(LoadAsync);
+    protected override async Task OnParametersSetAsync()
+    {
+        var link = (LinkFeedbackId, LinkVersionId, LinkSchoolId); if (LoadedLink == link) return;
+        LoadedLink = link; Epoch++; OpenGeneration++; Busy = false; Opened = null;
+        if (LinkFeedbackId.HasValue || LinkVersionId.HasValue || LinkSchoolId.HasValue) await RunAsync(async () => {
+            if (LinkFeedbackId is not Guid id || LinkVersionId is not Guid version || LinkSchoolId is not Guid school || id == Guid.Empty || version == Guid.Empty || school == Guid.Empty) throw new InvalidOperationException(L["EducationInbox:SourceUnavailable"]);
+            await OpenCoreAsync(new() { Id = id, VersionId = version, SchoolId = school });
+        });
+    }
+    private async Task LoadAsync()
+    {
+        var owner = Account.Id; var tenant = Tenant.Id; var epoch = Epoch;
+        var school = LinkSchoolId;
+        var comments = await FeedbackService.GetMyListAsync(new() { SkipCount = Offset, MaxResultCount = PageSize }, school);
+        var notices = await FeedbackService.GetMyNoticesAsync(new() { SkipCount = NoticeOffset, MaxResultCount = PageSize }, school);
+        if (!Disposed && owner == Account.Id && tenant == Tenant.Id && epoch == Epoch) { Items = comments.Items.ToList(); Total = comments.TotalCount; Notices = notices.Items.ToList(); NoticeTotal = notices.TotalCount; }
+    }
+    private Task OpenAsync(EducationStudentFeedbackDto item) => RunAsync(() => OpenCoreAsync(item));
+    private async Task OpenCoreAsync(EducationStudentFeedbackDto item)
+    {
+        Opened = null; var generation = ++OpenGeneration; var epoch = Epoch; var owner = Account.Id; var tenant = Tenant.Id;
+        var opened = item.SchoolId == Guid.Empty ? await FeedbackService.OpenMyAsync(item.Id, item.VersionId) : await FeedbackService.OpenMyForSchoolAsync(item.Id, item.VersionId, item.SchoolId);
+        if (!Disposed && generation == OpenGeneration && epoch == Epoch && owner == Account.Id && tenant == Tenant.Id) { Opened = opened; await LoadAsync(); }
+    }
+    private Task OpenNoticeAsync(EducationFeedbackNoticeDto notice) => OpenAsync(new() { Id = notice.FeedbackId, VersionId = notice.Id });
+    private Task RefreshAsync() => RunAsync(async () => { Opened = null; await LoadAsync(); });
+    private Task PageAsync(int direction) => RunAsync(async () => { Offset += direction * PageSize; await LoadAsync(); });
+    private Task NoticePageAsync(int direction) => RunAsync(async () => { NoticeOffset += direction * PageSize; await LoadAsync(); });
+    private async Task RunAsync(Func<Task> action) { if (Busy || Disposed) return; var epoch = Epoch; Busy = true; Error = null; try { await action(); } catch (Exception ex) { if (!Disposed && epoch == Epoch) Error = GetUserFriendlyErrorMessage(ex); } finally { if (!Disposed && epoch == Epoch) Busy = false; } }
+    public void Dispose() { Disposed = true; Epoch++; OpenGeneration++; Items.Clear(); Notices.Clear(); Opened = null; }
+}

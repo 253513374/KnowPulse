@@ -1,0 +1,25 @@
+.education-assessment-mappings,
+.education-assessment-students,
+.education-assessment-roster {
+    max-height: 20rem;
+    overflow-y: auto;
+}
+
+.education-assessment-mappings,
+.education-assessment-students {
+    display: flex;
+    flex-direction: column;
+    gap: .5rem;
+    padding: .75rem;
+    border: 1px solid var(--bs-border-color);
+    border-radius: .375rem;
+}
+
+.education-assessment-task,
+.education-assessment-instructions {
+    overflow-wrap: anywhere;
+}
+
+.education-assessment-instructions {
+    white-space: pre-wrap;
+}

@@ -1,0 +1,39 @@
+@inherits KnowPulseComponentBase
+@using KnowPulse.Education
+@using Volo.Abp.Application.Dtos
+<section class="kp-card kp-card__body my-3"><h3 class="kp-heading-6">@L["EducationMaterial:Choose"]</h3><p>@L["EducationMaterial:ChooseHint"]</p>
+    @if (Error != null) { <p class="kp-alert kp-alert--error" role="alert">@Error</p> }
+    <fieldset disabled="@(Disabled || Busy)">
+        <label class="kp-block"><input type="checkbox" @bind="Shared" @bind:after="ResetSearchAsync" /> @L["EducationMaterial:SharedOnly"]</label>
+        <label class="kp-block my-2">@L["EducationMaterial:Search"]<input class="kp-input" maxlength="128" @bind="Filter" /></label>
+        <button type="button" class="kp-button kp-button--primary-outline" @onclick="ResetSearchAsync">@L["EducationMaterial:Search"]</button>
+        <ul class="kp-mt-2">@foreach (var source in Sources) { <li class="text-break kp-mb-2">@source.Title · @L["EducationPlan:Version", source.VersionNumber] <button type="button" class="kp-button kp-button--sm kp-button--primary-outline" @onclick="(() => PreviewAsync(source))">@L["EducationMaterial:SelectSource"]</button></li> }</ul>
+        <button type="button" class="kp-button kp-button--sm kp-button--secondary" disabled="@(Offset == 0)" @onclick="(() => PageAsync(-1))">@L["EducationPaper:Previous"]</button>
+        <button type="button" class="kp-button kp-button--sm kp-button--secondary ms-2" disabled="@(Offset + 20 >= Total)" @onclick="(() => PageAsync(1))">@L["EducationPaper:Next"]</button>
+        @if (Preview is { } preview) {
+            <div class="kp-border kp-rounded kp-p-2 kp-mt-3"><h4 class="kp-heading-6">@preview.Source.Title · @L["EducationPlan:Version", preview.Source.VersionNumber]</h4><p class="text-break" style="white-space:pre-wrap">@preview.ContentText</p>
+                <label class="kp-block kp-mb-2">@L["EducationMaterial:Label"]<input class="kp-input" maxlength="256" @bind="Label" /></label>
+                <p>@L["EducationMaterial:AttachmentsHint"]</p>
+                @foreach (var file in preview.Attachments) { <label class="kp-block text-break"><input type="checkbox" checked="@SelectedFiles.Contains(file.Id)" @onchange="(args => ToggleFile(file.Id, args))" /> @file.FileName · @file.Size</label> }
+                <button type="button" class="kp-button kp-button--primary kp-mt-2" disabled="@(SelectedFiles.Count > 10 || string.IsNullOrWhiteSpace(Label) || string.IsNullOrWhiteSpace(preview.ContentText) && SelectedFiles.Count == 0)" @onclick="AddAsync">@L["EducationMaterial:Add"]</button>
+            </div>
+        }
+    </fieldset>
+</section>
+@code {
+    [Parameter, EditorRequired] public Func<GetEducationMaterialSourcesDto, Task<PagedResultDto<EducationMaterialSourceDto>>> Search { get; set; } = default!;
+    [Parameter, EditorRequired] public Func<EducationMaterialSourceDto, Task<EducationMaterialSourcePreviewDto>> PreviewSource { get; set; } = default!;
+    [Parameter] public EventCallback<EducationStudyMaterial> Selected { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+    private List<EducationMaterialSourceDto> Sources = []; private EducationMaterialSourcePreviewDto? Preview;
+    private HashSet<Guid> SelectedFiles = []; private string Label = "", Filter = ""; private string? Error;
+    private bool Busy, Shared; private int Offset; private long Total;
+    private async Task SearchAsync() { Preview = null; var page = await Search(new() { SchoolShared = Shared, Filter = Filter, SkipCount = Offset, MaxResultCount = 20 }); Sources = page.Items.ToList(); Total = page.TotalCount; }
+    private Task ResetSearchAsync() => RunAsync(async () => { Offset = 0; await SearchAsync(); });
+    private Task PageAsync(int direction) => RunAsync(async () => { Offset += direction * 20; await SearchAsync(); });
+    private Task PreviewAsync(EducationMaterialSourceDto source) => RunAsync(async () => { Preview = null; SelectedFiles.Clear(); Preview = await PreviewSource(source); Label = Preview.Source.Title; });
+    private void ToggleFile(Guid id, ChangeEventArgs args) { if (args.Value is true) SelectedFiles.Add(id); else SelectedFiles.Remove(id); }
+    private async Task AddAsync() { if (Preview == null || Disabled || Busy) return; await Selected.InvokeAsync(new() { Id = Guid.NewGuid(), Title = Label, KnowledgeItemId = Preview.Source.KnowledgeItemId,
+        KnowledgeVersionId = Preview.Source.Id, SchoolKnowledgeShareId = Preview.Source.SchoolKnowledgeShareId, AttachmentIds = SelectedFiles.Order().ToList() }); Preview = null; }
+    private async Task RunAsync(Func<Task> action) { if (Busy || Disabled) return; Busy = true; Error = null; try { await action(); } catch (Exception ex) { Preview = null; Error = GetUserFriendlyErrorMessage(ex); } finally { Busy = false; } }
+}

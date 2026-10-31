@@ -87,6 +87,19 @@ public class QuestionsController : KnowPulseController
         return _questionAppService.GetReviewsAsync(id);
     }
 
+    [HttpGet("{questionId:guid}/definition-revisions")]
+    public Task<ListResultDto<QuestionDefinitionRevisionDto>> GetDefinitionRevisionsAsync(Guid questionId)
+        => _questionAppService.GetDefinitionRevisionsAsync(questionId);
+
+    [HttpGet("{questionId:guid}/definition-revisions/{revisionId:guid}")]
+    public Task<QuestionDefinitionRevisionDto> GetDefinitionRevisionAsync(Guid questionId, Guid revisionId)
+        => _questionAppService.GetDefinitionRevisionAsync(questionId, revisionId);
+
+    [Authorize(KnowPulsePermissions.QuestionBank.Reviews)]
+    [HttpGet("{questionId:guid}/review-operations/{operationId:guid}")]
+    public Task<QuestionReviewOperationDto?> GetReviewOperationAsync(Guid questionId, Guid operationId)
+        => _questionAppService.GetReviewOperationAsync(questionId, operationId);
+
     /// <summary>
     /// 创建题目草稿。
     /// </summary>
@@ -108,6 +121,12 @@ public class QuestionsController : KnowPulseController
     public Task<QuestionDto> UpdateAsync(Guid id, [FromBody] UpdateQuestionDto input)
     {
         return _questionWorkflowAppService.SaveDraftAsync(id, input);
+    }
+
+    [HttpPost("{id:guid}/curriculum-confirmation")]
+    public Task<QuestionDto> ConfirmCurriculumAsync(Guid id, [FromBody] ConfirmQuestionCurriculumDto input)
+    {
+        return _questionAppService.ConfirmCurriculumAsync(id, input);
     }
 
     /// <summary>
@@ -151,6 +170,8 @@ public class QuestionsController : KnowPulseController
         return _questionWorkflowAppService.DecideReviewAsync(id, new DecideQuestionReviewDto
         {
             Decision = QuestionReviewDecision.Approve,
+            OperationId = input.OperationId,
+            ConcurrencyStamp = input.ConcurrencyStamp,
             Comment = input.Comment
         });
     }
@@ -168,6 +189,8 @@ public class QuestionsController : KnowPulseController
         return _questionWorkflowAppService.DecideReviewAsync(id, new DecideQuestionReviewDto
         {
             Decision = QuestionReviewDecision.Reject,
+            OperationId = input.OperationId,
+            ConcurrencyStamp = input.ConcurrencyStamp,
             Comment = input.Comment
         });
     }
@@ -185,6 +208,8 @@ public class QuestionsController : KnowPulseController
         return _questionWorkflowAppService.DecideReviewAsync(id, new DecideQuestionReviewDto
         {
             Decision = QuestionReviewDecision.ReturnForRevision,
+            OperationId = input.OperationId,
+            ConcurrencyStamp = input.ConcurrencyStamp,
             Comment = input.Comment
         });
     }

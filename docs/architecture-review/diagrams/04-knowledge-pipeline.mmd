@@ -1,0 +1,19 @@
+flowchart TD
+  %% 实线是现有执行顺序；发布事务不包含后续外部处理；索引长事务为审计发现。
+  n0["条目 + 草稿 · 确认本人归属与范围"]
+  n1["附件上传 · Blob + 元数据"]
+  n2["发布事务 · 策略 / 当前版本 / 待处理任务"]
+  n3["worker 认领任务 · 当前实现为长 UoW"]
+  n4["reader / processor · 正文、附件、MarkItDown"]
+  n5["chunker / persistence · 停用旧块、保存新块"]
+  n6["Embedding · 模型版本与维度检查"]
+  n7["Qdrant upsert · 分块 ID 为 point ID"]
+  n8["Indexed / Failed · 进度、退避与恢复链"]
+  n0 --> n1
+  n1 --> n2
+  n2 --> n3
+  n3 --> n4
+  n4 --> n5
+  n5 --> n6
+  n6 --> n7
+  n7 --> n8

@@ -18,8 +18,7 @@ public partial class KnowledgeItemAppService
     [UnitOfWork]
     public virtual async Task<KnowledgeVersionDto> UpdateDraftVersionAsync(Guid id, Guid versionId, CreateKnowledgeVersionDto input)
     {
-        await CheckMvpPermissionAsync(KnowPulsePermissions.KnowledgeBase.Versions);
-        await GetOwnedItemAsync(id);
+        await GetItemForOperationAsync(id, KnowPulsePermissions.KnowledgeBase.Versions);
         var version = await GetVersionOfItemAsync(id, versionId);
         if (version.Status != KnowledgeVersionStatus.Draft)
             throw new UserFriendlyException("只能修改资料草稿，已发布内容请创建新版本。");
@@ -66,7 +65,8 @@ public partial class KnowledgeItemAppService
     private async Task<KnowledgeItem> GetOwnedItemAsync(Guid id)
     {
         var item = await _itemRepository.GetAsync(id);
-        EnsureTeachingOwner(item.OwnerTeacherId);
+        await EnsurePersonalKnowledgeOwnerAsync(item);
+        EnsureTeachingOwner(item.OwnerUserId ?? item.OwnerTeacherId);
         return item;
     }
 

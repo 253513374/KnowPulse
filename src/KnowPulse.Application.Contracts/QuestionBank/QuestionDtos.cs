@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using KnowPulse.Education;
 using Volo.Abp.Application.Dtos;
 
 namespace KnowPulse.QuestionBank;
@@ -11,6 +12,18 @@ namespace KnowPulse.QuestionBank;
 public class QuestionDto : FullAuditedEntityDto<Guid>
 {
     public Guid? OwnerTeacherId { get; set; }
+    public QuestionScoringDefinition? ScoringDefinition { get; set; }
+    public Guid? ApprovedDefinitionRevisionId { get; set; }
+    public QuestionReviewOperationDto? ReviewOperation { get; set; }
+    public string ConcurrencyStamp { get; set; } = string.Empty;
+    public EducationCurriculumSnapshot? Curriculum { get; set; }
+    public List<Guid> CurriculumSuggestedMappingIds { get; set; } = [];
+    public List<QuestionCurriculumPointWeight> CurriculumPointWeights { get; set; } = [];
+    public List<EducationCurriculumScoringPointDto> CurriculumScoringPoints { get; set; } = [];
+    public decimal? CurriculumScore { get; set; }
+    public bool CurriculumConfirmed { get; set; }
+    public Guid? CurriculumConfirmedByUserId { get; set; }
+    public DateTime? CurriculumConfirmedAtUtc { get; set; }
     /// <summary>
     /// 题型，例如单选、多选、判断或填空。
     /// </summary>
@@ -172,6 +185,9 @@ public class QuestionKnowledgePointDto : EntityDto<Guid>
 /// </summary>
 public class QuestionSourceDto : EntityDto<Guid>
 {
+    public Guid? SchoolKnowledgeShareId { get; set; }
+    public List<Guid> CurriculumBindingIds { get; set; } = [];
+    public List<Guid> TextbookKnowledgePointMappingIds { get; set; } = [];
     /// <summary>
     /// 关联的知识条目编号。
     /// </summary>

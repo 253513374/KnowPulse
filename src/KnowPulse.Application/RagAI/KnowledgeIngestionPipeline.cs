@@ -82,6 +82,10 @@ public class KnowledgeIngestionPipeline : KnowPulseAppService, IKnowledgeIngesti
     {
         var version = await _versionRepository.GetAsync(knowledgeVersionId, cancellationToken: cancellationToken);
         var item = await _itemRepository.GetAsync(version.KnowledgeItemId, cancellationToken: cancellationToken);
+        if (!await KnowledgeIndexVersionQuery.CanIndexAsync(LazyServiceProvider, version.Id, item.Id, item.TenantId, cancellationToken))
+        {
+            throw new BusinessException(KnowPulseDomainErrorCodes.KnowledgeVersionNotPublished);
+        }
         var job = await GetOrCreateIndexJobAsync(version, knowledgeIndexJobId, cancellationToken);
         if (job.Status != KnowledgeIndexJobStatus.Processing)
         {
@@ -101,6 +105,14 @@ public class KnowledgeIngestionPipeline : KnowPulseAppService, IKnowledgeIngesti
             await ReportJobProgressAsync(job, "processor", 25, cancellationToken);
             var chunkDrafts = CreateChunkDrafts(processedDocuments);
             await ReportJobProgressAsync(job, "chunker", 35, cancellationToken);
+
+            if (!await KnowledgeIndexVersionQuery.CanIndexAsync(LazyServiceProvider, version.Id, item.Id, item.TenantId, cancellationToken))
+            {
+                job.MarkOutdated("Knowledge version became unavailable during ingestion.");
+                await _jobRepository.UpdateAsync(job, autoSave: true, cancellationToken: cancellationToken);
+                return new KnowledgeIngestionResult { KnowledgeVersionId = version.Id, Succeeded = false,
+                    FailureStage = "persistence", FailureReason = "Knowledge version is unavailable for indexing." };
+            }
 
             var chunkQuery = await _chunkRepository.GetQueryableAsync();
             var existingChunks = await AsyncExecuter.ToListAsync(
@@ -145,16 +157,19 @@ public class KnowledgeIngestionPipeline : KnowPulseAppService, IKnowledgeIngesti
                 records.Add(MapToVectorRecord(insertedChunk, item, version));
             }
 
+            job.ReportProgress("embedding", 60, DateTime.UtcNow);
+            await _jobRepository.UpdateAsync(job, autoSave: true, cancellationToken: cancellationToken);
+
             if (completeIndexJob)
             {
-                job.MarkIndexed(DateTime.UtcNow);
+                var embedding = await LazyServiceProvider.LazyGetRequiredService<IKnowledgeEmbeddingPipeline>()
+                    .GenerateForVersionAsync(version.Id, job.EmbeddingModelVersionId, job.Id, cancellationToken);
+                if (!embedding.Succeeded)
+                {
+                    return new KnowledgeIngestionResult { KnowledgeVersionId = version.Id, Succeeded = false,
+                        FailureStage = embedding.FailureStage, FailureReason = embedding.FailureReason };
+                }
             }
-            else
-            {
-                job.ReportProgress("embedding", 60, DateTime.UtcNow);
-            }
-
-            await _jobRepository.UpdateAsync(job, autoSave: true, cancellationToken: cancellationToken);
 
             return new KnowledgeIngestionResult
             {
@@ -200,7 +215,8 @@ public class KnowledgeIngestionPipeline : KnowPulseAppService, IKnowledgeIngesti
             var requestedJob = await _jobRepository.GetAsync(
                 knowledgeIndexJobId.Value,
                 cancellationToken: cancellationToken);
-            if (requestedJob.KnowledgeVersionId != version.Id)
+            if (requestedJob.KnowledgeVersionId != version.Id || requestedJob.KnowledgeItemId != version.KnowledgeItemId ||
+                requestedJob.TenantId != version.TenantId)
             {
                 throw new BusinessException(KnowPulseDomainErrorCodes.KnowledgeIndexJobVersionMismatch);
             }
@@ -544,6 +560,9 @@ public class KnowledgeIngestionPipeline : KnowPulseAppService, IKnowledgeIngesti
                 KnowledgeVersionId = chunk.KnowledgeVersionId,
                 ChunkId = chunk.Id,
                 CategoryId = item.CategoryId,
+                Visibility = item.LibraryId.HasValue || item.OwnerUserId.HasValue ? "Restricted" : "All",
+                UserIds = item.LibraryId.HasValue && item.LibraryId != Guid.Empty && item.OwnerUserId.HasValue && item.OwnerUserId != Guid.Empty
+                    ? new[] { item.OwnerUserId.Value } : Array.Empty<Guid>(),
                 SecurityLevel = chunk.SecurityLevelSnapshot,
                 IsPublished = version.Status == KnowledgeVersionStatus.Published,
                 SourceTitle = chunk.SourceTitle,

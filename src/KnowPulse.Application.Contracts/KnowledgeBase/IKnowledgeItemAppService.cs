@@ -20,45 +20,45 @@ public interface IKnowledgeItemAppService : IApplicationService
     [Authorize(KnowPulsePermissions.KnowledgeBase.Versions)]
     Task<KnowledgeIndexJobDto> RetryProcessingAsync(Guid id);
 
-    [Authorize(KnowPulsePermissions.KnowledgeBase.Items)]
+    [Authorize]
     Task<PagedResultDto<KnowledgeItemDto>> GetListAsync(PagedAndSortedResultRequestDto input);
-    [Authorize(KnowPulsePermissions.KnowledgeBase.Items)]
+    [Authorize]
     Task<KnowledgeItemDto> GetAsync(Guid id);
-    [Authorize(KnowPulsePermissions.KnowledgeBase.Items)]
+    [Authorize]
     Task<KnowledgeItemDto> CreateAsync(CreateKnowledgeItemDto input);
-    [Authorize(KnowPulsePermissions.KnowledgeBase.Items)]
+    [Authorize]
     Task<KnowledgeItemDto> UpdateAsync(Guid id, UpdateKnowledgeItemDto input);
-    [Authorize(KnowPulsePermissions.KnowledgeBase.Items)]
+    [Authorize]
     Task DeleteAsync(Guid id);
 
-    [Authorize(KnowPulsePermissions.KnowledgeBase.Items)]
+    [Authorize]
     Task<ListResultDto<KnowledgeVersionDto>> GetVersionsAsync(Guid id);
-    [Authorize(KnowPulsePermissions.KnowledgeBase.Versions)]
+    [Authorize]
     Task<KnowledgeVersionDto> CreateVersionAsync(Guid id, CreateKnowledgeVersionDto input);
     [Authorize(KnowPulsePermissions.KnowledgeBase.Versions)]
     Task<KnowledgeVersionDto> UpdateDraftVersionAsync(Guid id, Guid versionId, CreateKnowledgeVersionDto input);
-    [Authorize(KnowPulsePermissions.KnowledgeBase.Versions)]
+    [Authorize]
     Task<KnowledgeVersionDto> PublishVersionAsync(Guid id, Guid versionId);
-    [Authorize(KnowPulsePermissions.KnowledgeBase.Versions)]
+    [Authorize]
     Task<PublishKnowledgeVersionResultDto> PublishVersionWithAccessPolicyAsync(Guid id, PublishKnowledgeVersionInput input);
-    [Authorize(KnowPulsePermissions.KnowledgeBase.Versions)]
+    [Authorize]
     Task<KnowledgeVersionDto> WithdrawVersionAsync(Guid id, Guid versionId);
-    [Authorize(KnowPulsePermissions.KnowledgeBase.Versions)]
+    [Authorize]
     Task<KnowledgeVersionDto> ArchiveVersionAsync(Guid id, Guid versionId);
 
-    [Authorize(KnowPulsePermissions.KnowledgeBase.Attachments)]
+    [Authorize]
     Task<ListResultDto<KnowledgeAttachmentDto>> GetAttachmentsAsync(Guid id, Guid versionId);
-    [Authorize(KnowPulsePermissions.KnowledgeBase.Attachments)]
+    [Authorize]
     Task<KnowledgeAttachmentDto> UploadAttachmentAsync(Guid id, Guid versionId, IRemoteStreamContent file);
-    [Authorize(KnowPulsePermissions.KnowledgeBase.Attachments)]
+    [Authorize]
     Task<IRemoteStreamContent> DownloadAttachmentAsync(Guid id, Guid versionId, Guid attachmentId);
-    [Authorize(KnowPulsePermissions.KnowledgeBase.Attachments)]
+    [Authorize]
     Task DeleteAttachmentAsync(Guid id, Guid versionId, Guid attachmentId);
 
-    [Authorize(KnowPulsePermissions.KnowledgeBase.PermissionScopes)]
+    [Authorize]
     Task<ListResultDto<KnowledgePermissionScopeDto>> GetPermissionScopesAsync(Guid id);
-    [Authorize(KnowPulsePermissions.KnowledgeBase.PermissionScopes)]
+    [Authorize]
     Task<KnowledgePermissionScopeDto> CreatePermissionScopeAsync(Guid id, CreateKnowledgePermissionScopeDto input);
-    [Authorize(KnowPulsePermissions.KnowledgeBase.PermissionScopes)]
+    [Authorize]
     Task DeletePermissionScopeAsync(Guid id, Guid scopeId);
 }

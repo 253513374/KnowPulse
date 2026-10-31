@@ -4,14 +4,19 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using KnowPulse.Education;
+using KnowPulse.AiModelManagement;
 using KnowPulse.KnowledgeBase;
 using KnowPulse.KnowledgeIndexing;
 using KnowPulse.RagAI;
 using Microsoft.Extensions.Options;
 using Shouldly;
+using Volo.Abp;
 using Volo.Abp.Application.Dtos;
 using Volo.Abp.Content;
 using Volo.Abp.Domain.Repositories;
+using Volo.Abp.Identity;
+using Volo.Abp.Users;
 using Xunit;
 
 namespace KnowPulse.EntityFrameworkCore.Applications;
@@ -93,7 +98,8 @@ public class Mvp1KnowledgeIndexingAppServiceTests : KnowPulseEntityFrameworkCore
     public async Task RetryAsync_Should_Create_New_Job_And_Keep_Failed_Job_Auditable()
     {
         // Retry 不能覆盖失败任务；原任务的失败原因需要继续可查询。
-        var (_, version) = await CreateKnowledgeVersionAsync();
+        var (item, version) = await CreateKnowledgeVersionAsync();
+        await _itemAppService.PublishVersionAsync(item.Id, version.Id);
         var job = await _indexJobAppService.ReindexVersionAsync(version.Id);
 
         var processing = await _indexJobAppService.StartAsync(job.Id);
@@ -118,9 +124,18 @@ public class Mvp1KnowledgeIndexingAppServiceTests : KnowPulseEntityFrameworkCore
         retry.Status.ShouldBe(KnowledgeIndexJobStatus.Pending);
         retry.RetryCount.ShouldBe(0);
 
+        (await _indexJobAppService.GetAsync(retry.Id)).Status.ShouldBe(KnowledgeIndexJobStatus.Pending);
+        (await GetChunksAsync(version.Id)).ShouldBeEmpty();
+        (await GetEmbeddingRecordsAsync(version.Id)).ShouldBeEmpty();
+        _vectorStore.UpsertRequests.ShouldBeEmpty();
+
         var indexed = await _indexJobAppService.MarkIndexedAsync(retry.Id);
         indexed.Status.ShouldBe(KnowledgeIndexJobStatus.Indexed);
         indexed.CompletedTime.ShouldNotBeNull();
+        (await GetChunksAsync(version.Id)).ShouldNotBeEmpty();
+        (await GetEmbeddingRecordsAsync(version.Id)).ShouldNotBeEmpty();
+        _embeddingClient.CallCount.ShouldBeGreaterThan(0);
+        _vectorStore.UpsertRequests.Single().ShouldNotBeEmpty();
 
         var original = await _indexJobAppService.GetAsync(failed.Id);
         original.Status.ShouldBe(KnowledgeIndexJobStatus.Failed);
@@ -183,6 +198,71 @@ public class Mvp1KnowledgeIndexingAppServiceTests : KnowPulseEntityFrameworkCore
 
         _embeddingClient.CallCount.ShouldBe(embeddingCallCount);
         _vectorStore.UpsertRequests.Count.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task Shared_V1_Should_Keep_Its_Index_When_Private_V2_Is_Prepared_And_Rebuilt()
+    {
+        var (item, version, share) = await CreateSharedPersonalVersionAsync();
+        var oldJob = await GetSingleJobAsync(version.Id, KnowledgeIndexJobTriggerType.Publish);
+        var originalChunks = await GetChunksAsync(version.Id);
+        var originalEmbedding = await GetEmbeddingRecordsAsync(version.Id);
+        var next = await _itemAppService.CreateVersionAsync(item.Id, new CreateKnowledgeVersionDto
+        {
+            Title = "私有 v2", ContentText = "未共享的新教学反思。"
+        });
+        await _itemAppService.PublishVersionAsync(item.Id, next.Id);
+
+        (await _itemAppService.GetVersionsAsync(item.Id)).Items.Single(x => x.Id == version.Id)
+            .IsCurrentPublished.ShouldBeFalse();
+        (await _indexJobAppService.GetAsync(oldJob.Id)).Status.ShouldBe(KnowledgeIndexJobStatus.Indexed);
+        (await GetChunksAsync(version.Id)).ShouldAllBe(x => x.IsActive && x.IsPublishedSnapshot);
+        (await GetEmbeddingRecordsAsync(version.Id)).Select(x => x.Id).ShouldBe(originalEmbedding.Select(x => x.Id));
+        originalEmbedding.ShouldAllBe(x => x.IsActive);
+
+        var privateJob = await GetSingleJobAsync(next.Id, KnowledgeIndexJobTriggerType.Publish);
+        await _jobProcessor.ProcessAsync(privateJob.Id);
+        var privateChunks = await GetChunksAsync(next.Id);
+        var sharedRebuild = await _indexJobAppService.ReindexVersionAsync(version.Id);
+        await _jobProcessor.ProcessAsync(sharedRebuild.Id);
+        (await _indexJobAppService.GetAsync(sharedRebuild.Id)).Status.ShouldBe(KnowledgeIndexJobStatus.Indexed);
+        (await GetChunksAsync(version.Id)).Where(x => !originalChunks.Any(old => old.Id == x.Id))
+            .ShouldAllBe(x => x.IsActive && x.IsPublishedSnapshot);
+        (await GetChunksAsync(next.Id)).Select(x => x.Id).ShouldBe(privateChunks.Select(x => x.Id));
+        (await GetChunksAsync(next.Id)).ShouldAllBe(x => x.IsActive);
+
+        var pendingBeforeRevoke = await _indexJobAppService.ReindexVersionAsync(version.Id);
+        await GetRequiredService<IKnowledgeSchoolSharingAppService>().RevokeAsync(share.Id);
+        var embeddingCalls = _embeddingClient.CallCount;
+        await _jobProcessor.ProcessAsync(pendingBeforeRevoke.Id);
+        (await _indexJobAppService.GetAsync(pendingBeforeRevoke.Id)).Status.ShouldBe(KnowledgeIndexJobStatus.Outdated);
+        _embeddingClient.CallCount.ShouldBe(embeddingCalls);
+        (await Should.ThrowAsync<BusinessException>(() => _indexJobAppService.ReindexVersionAsync(version.Id)))
+            .Code.ShouldBe(KnowPulseDomainErrorCodes.KnowledgeVersionNotPublished);
+        (await _indexJobAppService.GetAsync(privateJob.Id)).Status.ShouldBe(KnowledgeIndexJobStatus.Indexed);
+        (await GetChunksAsync(next.Id)).ShouldAllBe(x => x.IsActive);
+    }
+
+    [Fact]
+    public async Task Share_Without_Current_Author_Teacher_Membership_Should_Not_Retain_Old_Index()
+    {
+        var (item, version, share) = await CreateSharedPersonalVersionAsync();
+        await WithUnitOfWorkAsync(async () =>
+        {
+            var memberships = GetRequiredService<IRepository<SchoolMembership, Guid>>();
+            var teacher = (await memberships.GetQueryableAsync()).Single(x =>
+                x.SchoolId == share.SchoolId && x.UserId == share.OwnerUserId && x.Role == SchoolMemberRole.Teacher);
+            teacher.EndAt(DateTime.UtcNow.AddSeconds(-1));
+            await memberships.UpdateAsync(teacher, autoSave: true);
+        });
+        var next = await _itemAppService.CreateVersionAsync(item.Id, new CreateKnowledgeVersionDto
+        {
+            Title = "离校后私有版本", ContentText = "新的个人教学资料。"
+        });
+        await _itemAppService.PublishVersionAsync(item.Id, next.Id);
+        (await GetChunksAsync(version.Id)).ShouldAllBe(x => !x.IsActive);
+        (await GetSingleJobAsync(version.Id, KnowledgeIndexJobTriggerType.Publish))
+            .Status.ShouldBe(KnowledgeIndexJobStatus.Outdated);
     }
 
     /// <summary>
@@ -393,6 +473,8 @@ public class Mvp1KnowledgeIndexingAppServiceTests : KnowPulseEntityFrameworkCore
 
         var job = await GetSingleJobAsync(version.Id, KnowledgeIndexJobTriggerType.Publish);
         job.Status.ShouldBe(KnowledgeIndexJobStatus.Indexed);
+        (await GetEmbeddingRecordsAsync(version.Id)).Count.ShouldBe(chunks.Count);
+        _vectorStore.UpsertRequests.Single().Count.ShouldBe(chunks.Count);
     }
 
     /// <summary>
@@ -526,7 +608,7 @@ public class Mvp1KnowledgeIndexingAppServiceTests : KnowPulseEntityFrameworkCore
         // embedding 记录必须绑定模型版本、维度和 content hash，支持后续模型升级和重建判断。
         var (item, version) = await CreateKnowledgeVersionAsync("## Embedding\n\n需要生成向量的知识内容。");
         await _itemAppService.PublishVersionAsync(item.Id, version.Id);
-        await _ingestionPipeline.IngestAsync(version.Id);
+        await _ingestionPipeline.IngestAsync(version.Id, completeIndexJob: false);
         var chunks = await GetChunksAsync(version.Id);
 
         var result = await _embeddingPipeline.GenerateForVersionAsync(version.Id);
@@ -539,9 +621,9 @@ public class Mvp1KnowledgeIndexingAppServiceTests : KnowPulseEntityFrameworkCore
         var modelVersion = await GetModelVersionAsync(result.EmbeddingModelVersionId!.Value);
         modelVersion.Provider.ShouldBe("LiteLLM");
         modelVersion.ModelName.ShouldBe("knowpulse-embedding-default");
-        modelVersion.ModelVersion.ShouldBe("2026-06-mvp1");
+        modelVersion.ModelVersion.ShouldBe((await WithUnitOfWorkAsync(() => GetRequiredService<IAiModelResolver>().ResolveEmbeddingAsync())).BusinessModelVersion);
         modelVersion.VectorDimension.ShouldBe(1536);
-        modelVersion.CollectionName.ShouldBe("knowledge_chunks_1536_mvp1");
+        modelVersion.CollectionName.ShouldBe(GetRequiredService<IOptions<RagAiOptions>>().Value.VectorStore.KnowledgeCollectionName);
         modelVersion.IsDefault.ShouldBeTrue();
 
         var records = await GetEmbeddingRecordsAsync(version.Id);
@@ -574,7 +656,7 @@ public class Mvp1KnowledgeIndexingAppServiceTests : KnowPulseEntityFrameworkCore
     {
         var (item, version) = await CreateKnowledgeVersionAsync("切换模型前已有的资料分块。");
         await _itemAppService.PublishVersionAsync(item.Id, version.Id);
-        await _ingestionPipeline.IngestAsync(version.Id);
+        await _ingestionPipeline.IngestAsync(version.Id, completeIndexJob: false);
         var chunk = (await GetChunksAsync(version.Id)).Single();
         var modelVersionId = await InsertEmbeddingModelVersionAsync(
             "previous-embedding-model", "previous-provider-version", collectionName, vectorDimension);
@@ -611,7 +693,7 @@ public class Mvp1KnowledgeIndexingAppServiceTests : KnowPulseEntityFrameworkCore
         // 重建计划按模型版本计算，避免不同模型版本的记录互相抵消。
         var (item, version) = await CreateKnowledgeVersionAsync("重建查询测试内容。");
         await _itemAppService.PublishVersionAsync(item.Id, version.Id);
-        await _ingestionPipeline.IngestAsync(version.Id);
+        await _ingestionPipeline.IngestAsync(version.Id, completeIndexJob: false);
         var chunks = await GetChunksAsync(version.Id);
         var modelVersionId = await InsertEmbeddingModelVersionAsync("knowpulse-embedding-shadow", "2026-06-shadow");
 
@@ -637,7 +719,7 @@ public class Mvp1KnowledgeIndexingAppServiceTests : KnowPulseEntityFrameworkCore
         // embedding client 失败时不应写入半成品 embedding 记录，任务状态应落为 Failed。
         var (item, version) = await CreateKnowledgeVersionAsync("会触发 embedding 失败的测试内容。");
         await _itemAppService.PublishVersionAsync(item.Id, version.Id);
-        await _ingestionPipeline.IngestAsync(version.Id);
+        await _ingestionPipeline.IngestAsync(version.Id, completeIndexJob: false);
         _embeddingClient.ShouldFail = true;
         _embeddingClient.FailureReason = "Test gateway timeout.";
 
@@ -726,8 +808,50 @@ public class Mvp1KnowledgeIndexingAppServiceTests : KnowPulseEntityFrameworkCore
     }
 
     /// <summary>
-    /// 上传测试附件到知识版本。
+    /// 用真实发布、索引及学校授权流程准备共享版本。
     /// </summary>
+    private async Task<(KnowledgeItemDto Item, KnowledgeVersionDto Version, SchoolKnowledgeShareDto Share)>
+        CreateSharedPersonalVersionAsync()
+    {
+        var ownerId = GetRequiredService<ICurrentUser>().Id!.Value;
+        await WithUnitOfWorkAsync(async () =>
+        {
+            var users = GetRequiredService<IRepository<IdentityUser, Guid>>();
+            if (await users.FindAsync(ownerId) == null)
+            {
+                await users.InsertAsync(new IdentityUser(ownerId, $"index-owner-{ownerId:N}",
+                    $"index-owner-{ownerId:N}@example.invalid"), autoSave: true);
+            }
+        });
+        var schoolService = GetRequiredService<IEducationSchoolAppService>();
+        var school = await schoolService.CreateSchoolAsync(new CreateSchoolDto
+        {
+            Code = $"IDX-{Guid.NewGuid():N}", Name = "索引测试初中"
+        });
+        await schoolService.AddMembershipAsync(school.Id, new AddSchoolMembershipDto
+        {
+            UserId = ownerId, Role = SchoolMemberRole.Teacher, EffectiveFromUtc = DateTime.UtcNow.AddMinutes(-1)
+        });
+        var item = await GetRequiredService<IKnowledgeLibraryAppService>().CreateItemAsync(new CreateKnowledgeItemDto
+        {
+            Title = "教师个人材料"
+        });
+        var version = await _itemAppService.CreateVersionAsync(item.Id, new CreateKnowledgeVersionDto
+        {
+            Title = "共享 v1", ContentText = "第一版可共享的教学方法。"
+        });
+        await _itemAppService.PublishVersionAsync(item.Id, version.Id);
+        var job = await GetSingleJobAsync(version.Id, KnowledgeIndexJobTriggerType.Publish);
+        await _jobProcessor.ProcessAsync(job.Id);
+        (await _indexJobAppService.GetAsync(job.Id)).Status.ShouldBe(KnowledgeIndexJobStatus.Indexed);
+        var share = await GetRequiredService<IKnowledgeSchoolSharingAppService>().ShareVersionAsync(new CreateSchoolKnowledgeShareDto
+        {
+            IdempotencyKey = Guid.NewGuid(), KnowledgeItemId = item.Id, KnowledgeVersionId = version.Id,
+            SchoolId = school.Id, Uses = SchoolKnowledgeShareUses.Read | SchoolKnowledgeShareUses.Retrieve
+        });
+        return (item, version, share);
+    }
+
     private Task UploadAttachmentAsync(Guid itemId, Guid versionId, string fileName, string contentType, string content)
     {
         var bytes = Encoding.UTF8.GetBytes(content);
@@ -826,7 +950,7 @@ public class Mvp1KnowledgeIndexingAppServiceTests : KnowPulseEntityFrameworkCore
     private Task<Guid> InsertEmbeddingModelVersionAsync(
         string modelName,
         string modelVersion,
-        string collectionName = "knowledge_chunks_1536_mvp1",
+        string? collectionName = null,
         int vectorDimension = 1536)
     {
         return WithUnitOfWorkAsync(async () =>
@@ -838,7 +962,7 @@ public class Mvp1KnowledgeIndexingAppServiceTests : KnowPulseEntityFrameworkCore
                 modelName,
                 modelVersion,
                 vectorDimension,
-                collectionName);
+                collectionName ?? GetRequiredService<IOptions<RagAiOptions>>().Value.VectorStore.KnowledgeCollectionName);
 
             await _modelVersionRepository.InsertAsync(model, autoSave: true);
             return model.Id;

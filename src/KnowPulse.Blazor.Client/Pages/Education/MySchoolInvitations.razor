@@ -1,0 +1,67 @@
+@page "/education/invitations"
+@attribute [Authorize]
+@inherits KnowPulseComponentBase
+@implements IDisposable
+@using KnowPulse.Education
+@using System.Text.Json
+@inject IEducationSchoolAppService Schools
+@inject IJSRuntime JS
+@inject Volo.Abp.Users.ICurrentUser Account
+@inject Volo.Abp.MultiTenancy.ICurrentTenant Tenant
+@inject AuthenticationStateProvider Authentication
+
+<PageTitle>@L["SchoolInvites:Mine"]</PageTitle>
+<h1 class="kp-heading-4">@L["SchoolInvites:Mine"]</h1><p>@L["SchoolInvites:RecipientHint"]</p><a href="/education/workspace">@L["EducationWorkspace:Title"]</a>
+@if (Error != null) { <p class="kp-alert kp-alert--error" role="alert">@Error</p> }
+@if (Notice != null) { <p class="kp-alert kp-alert--info" role="status">@Notice</p> }
+@if (Pending != null) { <section class="kp-alert kp-alert--warning"><h2 class="kp-heading-6">@L["SchoolInvites:Pending"]</h2><p>@L["SchoolInvites:Uncertain"]</p><button class="kp-button kp-button--primary-outline kp-me-2" disabled="@Busy" @onclick="RecoverAsync">@L["SchoolInvites:Recover"]</button><button class="kp-button kp-button--primary-outline kp-me-2" disabled="@(Busy || Input == null)" @onclick="RetryAsync">@L["SchoolInvites:Retry"]</button><button class="kp-button kp-button--secondary" disabled="@Busy" @onclick="AbandonAsync">@L["SchoolInvites:Clear"]</button></section> }
+<label class="kp-check my-3"><input type="checkbox" class="kp-check__input" checked="@IncludeInactive" @onchange="ToggleAsync" disabled="@(Busy || Pending != null)" />@L["SchoolInvites:IncludeInactive"]</label>
+@foreach (var row in Items) { <article class="kp-border kp-rounded kp-p-3 my-2" @key="row.Id"><p><strong>@row.SchoolName（@row.SchoolCode）</strong> · @RoleName(row.Role) · @StatusName(row.Status)</p><p>@L["SchoolInvites:Expires"] @Local(row.ExpiresAtUtc)</p><button class="kp-button kp-button--primary-outline" disabled="@(Busy || Pending != null || !StorageReady)" @onclick="() => OpenAsync(row.Id)">@L["SchoolInvites:Review"]</button></article> }
+@if (!Busy && Items.Count == 0) { <p>@L["SchoolInvites:Empty"]</p> }
+<div class="kp-flex kp-align-center kp-gap-2"><button class="kp-button kp-button--secondary" disabled="@(Busy || Pending != null || Offset == 0)" @onclick="() => PageAsync(-1)">@L["EducationPaper:Previous"]</button><span>@L["SchoolInvites:Count", Total]</span><button class="kp-button kp-button--secondary" disabled="@(Busy || Pending != null || Offset + 20 >= Total)" @onclick="() => PageAsync(1)">@L["EducationPaper:Next"]</button><button class="kp-button kp-button--secondary" disabled="@Busy" @onclick="RefreshAsync">@L["EducationSchools:Refresh"]</button></div>
+@if (Selected != null) { <section class="kp-card kp-mt-4"><div class="kp-card__body"><h2 class="kp-heading-5">@Selected.SchoolName（@Selected.SchoolCode） · @RoleName(Selected.Role)</h2><p>@StatusName(Selected.Status)</p><p>@L["SchoolInvites:From"] @Local(Selected.EffectiveFromUtc) → @Local(Selected.EffectiveToUtc)</p><p>@L["SchoolInvites:Expires"] @Local(Selected.ExpiresAtUtc)</p><p class="kp-text-muted">@L["SchoolInvites:PeriodHint"]</p>
+@if (Selected.DeclineReason.HasValue) { <p>@DeclineName(Selected.DeclineReason.Value)</p> }
+@if (Selected.CanRespond && Pending == null) { <fieldset disabled="@(Busy || !StorageReady)"><label class="kp-check"><input type="checkbox" class="kp-check__input" @bind="Verified" />@L["SchoolInvites:RecipientVerified"]</label><button class="kp-button kp-button--primary my-2" disabled="@(!Verified)" @onclick="() => RespondAsync(SchoolInvitationResponse.Accept)">@L["SchoolInvites:Accept"]</button><div class="kp-flex kp-gap-2"><label for="invite-decline" class="visually-hidden">@L["SchoolInvites:Decline"]</label><select id="invite-decline" class="kp-select" @bind="DeclineReason">@foreach (var reason in Enum.GetValues<SchoolInvitationDeclineReason>()) { <option value="@reason">@DeclineName(reason)</option> }</select><button class="kp-button kp-button--secondary" @onclick="() => RespondAsync(SchoolInvitationResponse.Decline)">@L["SchoolInvites:Decline"]</button></div></fieldset> }
+else if (Selected.Status == SchoolInvitationStatus.Pending) { <p>@L["SchoolInvites:Unavailable"]</p> }
+</div></section> }
+
+@code {
+    private List<MySchoolInvitationDto> Items = []; private MySchoolInvitationDto? Selected; private PendingCommand? Pending; private RespondSchoolInvitationDto? Input;
+    private string? Error, Notice; private bool Busy, Disposed, IncludeInactive, Verified, StorageReady, StorageAttempted; private int Offset, Epoch; private long Total;
+    private SchoolInvitationDeclineReason DeclineReason; private string StorageKey => $"education-my-school-invite:{Tenant.Id}:{Account.Id}";
+    private (Guid? User, Guid? Tenant, int Epoch) Ticket() => (Account.Id, Tenant.Id, Epoch);
+    private bool Current((Guid? User, Guid? Tenant, int Epoch) t) => !Disposed && Account.IsAuthenticated && Account.Id == t.User && Tenant.Id == t.Tenant && Epoch == t.Epoch;
+    protected override async Task OnInitializedAsync() { Authentication.AuthenticationStateChanged += AuthChanged; await RefreshAsync(); }
+    private void AuthChanged(Task<AuthenticationState> state) => _ = InvokeAsync(() => { Epoch++; Busy = StorageReady = StorageAttempted = false; Items.Clear(); Selected = null; Pending = null; Input = null; Verified = false; StateHasChanged(); });
+    protected override async Task OnAfterRenderAsync(bool firstRender) {
+        if (StorageAttempted || Busy) return; StorageAttempted = true; await RunAsync(async t => {
+            var raw = await JS.InvokeAsync<string?>("sessionStorage.getItem", StorageKey); if (!Current(t)) return;
+            if (raw != null) { var row = JsonSerializer.Deserialize<PendingCommand>(raw); if (row == null || row.User != Account.Id || row.Tenant != Tenant.Id || row.Invitation == Guid.Empty || row.Operation == Guid.Empty || !Enum.IsDefined(row.Response)) throw new InvalidOperationException(L["SchoolInvites:InvalidLocal"]); Pending = row; }
+            StorageReady = true; }); StateHasChanged();
+    }
+    private Task RefreshAsync() => RunAsync(async t => { var page = await Schools.GetMyInvitationsAsync(new() { IncludeInactive = IncludeInactive, SkipCount = Offset, MaxResultCount = 20 }); if (Current(t)) { Items = page.Items.ToList(); Total = page.TotalCount; } });
+    private Task PageAsync(int n) { Offset += n * 20; return RefreshAsync(); }
+    private Task ToggleAsync(ChangeEventArgs e) { IncludeInactive = e.Value is true; Offset = 0; Selected = null; return RefreshAsync(); }
+    private Task OpenAsync(Guid id) => RunAsync(async t => { if (Pending != null) return; Selected = null; Verified = false; var row = await Schools.GetMyInvitationAsync(id); if (Current(t) && row.TargetUserId == t.User) Selected = row; });
+    private Task RespondAsync(SchoolInvitationResponse response) => RunAsync(async t => {
+        if (!StorageReady || Pending != null || Selected?.CanRespond != true || response == SchoolInvitationResponse.Accept && !Verified) return; var row = Selected;
+        var input = new RespondSchoolInvitationDto { OperationId = Guid.NewGuid(), ConcurrencyStamp = row.ConcurrencyStamp, Response = response, ConfirmIdentityAndSchool = response == SchoolInvitationResponse.Accept, DeclineReason = response == SchoolInvitationResponse.Decline ? DeclineReason : null };
+        if (!await JS.InvokeAsync<bool>("confirm", L[response == SchoolInvitationResponse.Accept ? "SchoolInvites:AcceptConfirm" : "SchoolInvites:DeclineConfirm", row.SchoolName + " (" + row.SchoolCode + ")", RoleName(row.Role)].Value) || !Current(t)) return;
+        var pending = new PendingCommand { User = t.User, Tenant = t.Tenant, Invitation = row.Id, Operation = input.OperationId, Response = response };
+        await JS.InvokeVoidAsync("sessionStorage.setItem", StorageKey, JsonSerializer.Serialize(pending)); if (!Current(t)) return; Pending = pending; Input = input;
+        await FinishAsync(await Schools.RespondToInvitationAsync(row.Id, input), t);
+    });
+    private Task RecoverAsync() => RunAsync(async t => { if (Pending != null) await FinishAsync(await Schools.GetMyInvitationAsync(Pending.Invitation), t); });
+    private Task RetryAsync() => RunAsync(async t => { if (Pending != null && Input != null) await FinishAsync(await Schools.RespondToInvitationAsync(Pending.Invitation, Input), t); });
+    private async Task FinishAsync(MySchoolInvitationDto row, (Guid? User, Guid? Tenant, int Epoch) t) {
+        if (!Current(t)) return; if (Pending == null || row.Id != Pending.Invitation || row.TargetUserId != t.User || row.ResponseOperationId != Pending.Operation || row.Status != (Pending.Response == SchoolInvitationResponse.Accept ? SchoolInvitationStatus.Accepted : SchoolInvitationStatus.Declined)) throw new InvalidOperationException(L["SchoolInvites:NoReceipt"]);
+        await JS.InvokeVoidAsync("sessionStorage.removeItem", StorageKey); if (!Current(t)) return; Pending = null; Input = null; Selected = row; Verified = false; Notice = L["SchoolInvites:Responded"];
+        var page = await Schools.GetMyInvitationsAsync(new() { IncludeInactive = IncludeInactive, SkipCount = Offset, MaxResultCount = 20 }); if (Current(t)) { Items = page.Items.ToList(); Total = page.TotalCount; }
+    }
+    private Task AbandonAsync() => RunAsync(async t => { if (!await JS.InvokeAsync<bool>("confirm", L["SchoolInvites:ClearConfirm"].Value) || !Current(t)) return; await JS.InvokeVoidAsync("sessionStorage.removeItem", StorageKey); if (Current(t)) { Pending = null; Input = null; } });
+    private async Task RunAsync(Func<(Guid? User, Guid? Tenant, int Epoch), Task> action) { if (Busy || Disposed) return; var t = Ticket(); Busy = true; Error = null; try { await action(t); } catch (Exception ex) { if (Current(t)) Error = GetUserFriendlyErrorMessage(ex); } finally { if (Current(t)) Busy = false; } }
+    private static string Local(DateTime? value) => value?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") ?? "—";
+    private string RoleName(SchoolMemberRole value) => L["EducationSchools:Role:" + value]; private string StatusName(SchoolInvitationStatus value) => L["SchoolInvites:Status" + value]; private string DeclineName(SchoolInvitationDeclineReason value) => L["SchoolInvites:Reason" + value];
+    public void Dispose() { Disposed = true; Epoch++; Authentication.AuthenticationStateChanged -= AuthChanged; Pending = null; Input = null; }
+    private sealed class PendingCommand { public Guid? User { get; set; } public Guid? Tenant { get; set; } public Guid Invitation { get; set; } public Guid Operation { get; set; } public SchoolInvitationResponse Response { get; set; } }
+}

@@ -48,6 +48,11 @@ public static class KnowPulsePermissions
     public static class KnowledgeBase
     {
         /// <summary>
+        /// 管理当前用户自己的个人知识库，不授予组织资料管理权限。
+        /// </summary>
+        public const string PersonalLibrary = Default + ".PersonalLibrary";
+
+        /// <summary>
         /// 知识库根权限，用于菜单分组显示。
         /// </summary>
         public const string Default = GroupName + ".KnowledgeBase";

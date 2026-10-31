@@ -130,6 +130,17 @@ public class KnowledgeVersion : FullAuditedAggregateRoot<Guid>, IMultiTenant
     }
 
     /// <summary>
+    /// 个人附件属于草稿内容；准备索引后的版本冻结，修订须创建新草稿。
+    /// </summary>
+    public void EnsureCanChangePersonalAttachments()
+    {
+        if (Status != KnowledgeVersionStatus.Draft)
+        {
+            throw new BusinessException(KnowPulseDomainErrorCodes.PersonalKnowledgeAttachmentRequiresDraft);
+        }
+    }
+
+    /// <summary>
     /// 发布版本，并将其标记为当前发布版本。
     /// 应用服务会先清理同一知识下其他版本的当前发布标记，再调用该方法。
     /// </summary>
@@ -176,6 +187,11 @@ public class KnowledgeVersion : FullAuditedAggregateRoot<Guid>, IMultiTenant
     /// </summary>
     public void Archive(DateTime now)
     {
+        if (Status == KnowledgeVersionStatus.Archived)
+        {
+            return;
+        }
+
         Status = KnowledgeVersionStatus.Archived;
         ArchivedTime = now;
         IsCurrentPublished = false;

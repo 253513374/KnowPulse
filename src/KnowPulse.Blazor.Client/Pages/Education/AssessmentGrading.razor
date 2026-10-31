@@ -1,0 +1,228 @@
+@page "/education/assessment-grading/{TaskId:guid}"
+@attribute [Authorize(EducationPermissions.AssessmentManage)]
+@inherits KnowPulseComponentBase
+@using KnowPulse.Education
+@using KnowPulse.Exam
+@using System.Text.Json
+@using System.Globalization
+@inject IEducationAssessmentGradingAppService Grading
+@inject IJSRuntime JS
+@inject Volo.Abp.Users.ICurrentUser Account
+@inject Volo.Abp.MultiTenancy.ICurrentTenant Tenant
+
+<PageTitle>@L["EducationGrading:Title"]</PageTitle>
+<NavigationLock ConfirmExternalNavigation="@(Pending != null || Unsaved)" OnBeforeInternalNavigation="LeaveAsync" />
+<div class="kp-flex kp-flex-wrap kp-justify-between kp-gap-2 kp-mb-3"><h1 class="kp-heading-4">@L["EducationGrading:Title"]</h1><a href="/education/assessment-tasks">@L["EducationGrading:Back"]</a></div>
+<AuthorizeView Policy="@EducationPermissions.AnalysisManage"><Authorized><p><a href="/education/learning-reports">@L["EducationReport:Title"]</a></p></Authorized></AuthorizeView>
+@if (Error != null) { <div class="kp-alert kp-alert--error" role="alert">@Error</div> }
+@if (Receipt != null) { <div class="kp-alert kp-alert--success" role="status">@L["EducationGrading:Receipt", Receipt]</div> }
+@if (Pending != null)
+{
+    <div class="kp-alert kp-alert--info" role="status"><p>@L["EducationGrading:Unknown"]</p><button class="kp-button kp-button--primary-outline kp-me-2" @onclick="RecoverAsync" disabled="@Busy">@L["EducationGrading:Recover"]</button><button class="kp-button kp-button--secondary" @onclick="() => RunAsync(() => ExecuteAsync(true))" disabled="@Busy">@L["EducationGrading:Retry"]</button></div>
+}
+@if (Overview is { } overview)
+{
+    <p>@L["EducationGrading:Counts", overview.RecipientCount, overview.SubmittedCount, overview.InProgressCount, overview.UnstartedCount, overview.PendingQuestionCount]</p>
+    <button class="kp-button kp-button--secondary kp-mb-3" disabled="@(Busy || Pending != null)" @onclick="RefreshAsync">@L["EducationGrading:Refresh"]</button>
+    <div class="kp-grid kp-grid-gap-3">
+        <aside class="kp-col-12 kp-col-lg-4"><div class="kp-list">
+            @foreach (var submission in overview.Submissions)
+            {
+                <button class="kp-list__item list-group-item-action" disabled="@(Busy || Pending != null)" @onclick="() => OpenAsync(submission.SubmissionId)">
+                    <strong>@submission.StudentName (@submission.AccountName)</strong><br />
+                    <span>@submission.ConfirmedQuestionCount / @submission.QuestionCount · @(submission.TotalScore?.ToString("0.##") ?? L["EducationGrading:Pending"].Value)</span>
+                </button>
+            }
+        </div></aside>
+        <section class="kp-col-12 kp-col-lg-8">
+            @if (Submission is { } sheet)
+            {
+                <h2 class="kp-heading-5">@sheet.StudentName (@sheet.AccountName)</h2>
+                <label class="kp-label" for="grading-question">@L["EducationGrading:Question"]</label>
+                <select id="grading-question" class="kp-select kp-mb-3" value="@Question?.Id" @onchange="SelectQuestionAsync" disabled="@(Busy || Pending != null)">
+                    @foreach (var q in sheet.Questions) { <option value="@q.Id">@q.DisplayOrder. @q.Title</option> }
+                </select>
+                @if (Question is { } question)
+                {
+                    <h3 class="kp-heading-6">@question.Title (@question.MaxScore)</h3><p style="white-space:pre-wrap">@question.Stem</p>
+                    <a class="kp-button kp-button--sm kp-button--secondary kp-mb-3" href="@($"/education/evidence/{question.Grade.Id}")">@L["EducationEvidence:Title"]</a>
+                    <AuthorizeView Policy="@EducationPermissions.LearningManage"><Authorized><a class="kp-button kp-button--sm kp-button--secondary kp-mb-3" href="@($"/education/corrections?gradeId={question.Grade.Id}")">@L["EducationCorrection:Assign"]</a></Authorized></AuthorizeView>
+                    <AuthorizeView Policy="@EducationPermissions.LearningManage"><Authorized><a class="kp-button kp-button--sm kp-button--secondary kp-mb-3" href="@($"/education/practice-submissions?submissionId={sheet.Submission.Id:D}&questionId={question.Id:D}")">@L["EducationPractice:TeacherTitle"]</a></Authorized></AuthorizeView>
+                    @foreach (var option in question.Options) { <p>@option.OptionKey. @option.Content</p> }
+                    <h4 class="kp-heading-6">@L["EducationGrading:SubmittedAnswer"]</h4>
+                    @if (question.Response == null) { <p>@L["EducationGrading:Unanswered"]</p> }
+                    else
+                    {
+                        <p style="white-space:pre-wrap">@question.Response.Text</p><p>@string.Join(", ", question.Response.SelectedOptionKeys)</p>
+                        @foreach (var blank in question.Response.Blanks) { <p style="white-space:pre-wrap">@BlankLabel(question, blank.BlankId): @blank.Text</p> }
+                        @foreach (var image in question.Images) { <button class="kp-button kp-button--sm kp-button--secondary kp-me-2" @onclick="() => ShowImageAsync(image.Id)" disabled="@Busy">@image.FileName</button> }
+                    }
+                    <EducationAssessmentImagePreview ImageData="@ImageData" Rotation="@ImageRotation" Alt="@L["EducationGrading:SubmittedImage"]" Closed="@(() => ImageData = null)" />
+                    <details class="my-3"><summary>@L["EducationGrading:Rubric"]</summary>
+                        <p>@string.Join(", ", question.CorrectAnswers)</p><p style="white-space:pre-wrap">@question.ScoringDefinition?.ReferenceAnswer</p><p>@question.Analysis</p>
+                        @if (question.ScoringDefinition != null)
+                        { @foreach (var point in question.ScoringDefinition.ScoringPoints) { <p>@point.Description (@point.Score)</p> }
+                          @foreach (var blank in question.ScoringDefinition.Blanks) { <p>@blank.StemMarker: @string.Join(" / ", blank.AllowedAnswers) (@blank.Score)</p> } }
+                    </details>
+                    <p>@L["EducationGrading:OfficialQuestionScore"]: @(question.Grade.Confirmed?.ObtainedScore?.ToString("0.##") ?? L["EducationGrading:Pending"].Value)</p>
+                    <fieldset disabled="@(Busy || Pending != null)"><legend class="kp-heading-6">@L["EducationGrading:Marks"]</legend>
+                        @foreach (var part in Parts)
+                        {
+                            <div class="kp-mb-2"><label for="@($"grade-{part.PartId:N}")" class="kp-label">@PartLabel(question, part.PartId) / @part.MaxScore</label>
+                                <InputNumber id="@($"grade-{part.PartId:N}")" class="kp-input" @bind-Value="Marks[part.PartId]" min="0" max="@part.MaxScore" step="0.01" /></div>
+                        }
+                        <label for="grade-feedback" class="kp-label">@L["EducationGrading:Feedback"]</label><textarea id="grade-feedback" class="kp-input kp-mb-2" maxlength="4000" @bind="Feedback" @bind:event="oninput"></textarea>
+                        <label for="grade-reason" class="kp-label">@L["EducationGrading:Reason"]</label><textarea id="grade-reason" class="kp-input kp-mb-3" maxlength="2048" @bind="Reason" @bind:event="oninput"></textarea>
+                        <button class="kp-button kp-button--primary kp-me-2" @onclick="SaveAsync">@L["EducationGrading:SaveDraft"]</button>
+                        <button class="kp-button kp-button--primary-outline" @onclick="ConfirmAsync" disabled="@(Dirty || question.Grade.Draft == null)">@L["EducationGrading:ConfirmGrade"]</button>
+                    </fieldset>
+                }
+            }
+        </section>
+    </div>
+    <section class="kp-card kp-mt-4"><div class="kp-card__body"><h2 class="kp-heading-5">@L["EducationGrading:Release"]</h2><p>@L["EducationGrading:ReleaseHint"]</p>
+        <button class="kp-button kp-button--secondary kp-mb-3" @onclick="PreviewAsync" disabled="@(Busy || Pending != null || Dirty)">@L["EducationGrading:Preview"]</button>
+        @if (Preview is { } preview)
+        {
+            <p>@L["EducationGrading:Deadline", preview.EndsAtUtc.ToLocalTime().ToString("g")] · @L["EducationGrading:CompleteCount", preview.GradingCompleteCount, preview.SubmittedCount]</p>
+            <button class="kp-button kp-button--primary-outline kp-mb-3" @onclick="CloseAsync" disabled="@(Busy || Pending != null || !preview.CanClose)">@L["EducationGrading:Close"]</button>
+            <fieldset disabled="@(Busy || Pending != null || !preview.CanPublish)">
+                <label for="result-visibility" class="kp-label">@L["EducationGrading:Visibility"]</label><select id="result-visibility" class="kp-select kp-mb-2" @bind="Visibility">
+                    @foreach (var mode in Enum.GetValues<ExamResultVisibility>()) { <option value="@mode">@L[$"EducationGrading:Visibility:{mode}"]</option> }
+                </select>
+                <label for="score-opens" class="kp-label">@L["EducationGrading:ScoreTime"]</label><input id="score-opens" class="kp-input kp-mb-2" type="datetime-local" @bind="ScoreTime" />
+                <label for="review-opens" class="kp-label">@L["EducationGrading:ReviewTime"]</label><input id="review-opens" class="kp-input kp-mb-2" type="datetime-local" @bind="ReviewTime" />
+                <label for="release-reason" class="kp-label">@L["EducationGrading:ReleaseReason"]</label><textarea id="release-reason" class="kp-input kp-mb-2" maxlength="2048" @bind="ReleaseReason"></textarea>
+                <label class="kp-block kp-mb-2"><input type="checkbox" @bind="ConfirmVisibility" /> @L["EducationGrading:ConfirmVisibility"]</label>
+                <button class="kp-button kp-button--primary" @onclick="PublishAsync" disabled="@(!ConfirmVisibility)">@L["EducationGrading:Publish"]</button>
+            </fieldset>
+        }
+    </div></section>
+}
+
+@code {
+    [Parameter] public Guid TaskId { get; set; }
+    private EducationAssessmentGradingOverviewDto? Overview;
+    private EducationAssessmentSubmissionForGradingDto? Submission;
+    private EducationAssessmentQuestionForGradingDto? Question;
+    private EducationAssessmentFinalizationPreviewDto? Preview;
+    private List<EducationAssessmentGradePart> Parts = [];
+    private Dictionary<Guid, decimal?> Marks = [];
+    private string? Feedback, Reason, ReleaseReason, Error, Receipt, ImageData;
+    private int ImageRotation;
+    private bool Busy, ConfirmVisibility;
+    private string InitialForm = "";
+    private DateTime ScoreTime = DateTime.Now, ReviewTime = DateTime.Now;
+    private ExamResultVisibility Visibility = ExamResultVisibility.Hidden;
+    private Command? Pending;
+    private string StorageKey => $"knowpulse.grading.{Tenant.Id}.{Account.Id}.{TaskId}";
+    private string FormState() => JsonSerializer.Serialize(new { Marks, Feedback });
+    private bool Dirty => Question != null && InitialForm != FormState();
+    private bool Unsaved => Dirty || !string.IsNullOrEmpty(Reason);
+    protected override async Task OnParametersSetAsync() => await RunAsync(LoadAsync);
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        await RunAsync(async () => { var raw = await JS.InvokeAsync<string?>("sessionStorage.getItem", StorageKey);
+            if (raw != null) { var restored = JsonSerializer.Deserialize<Command>(raw); if (restored?.TaskId == TaskId) Pending = restored; } });
+        StateHasChanged();
+    }
+    private async Task LoadAsync() { Overview = await Grading.GetGradingOverviewAsync(TaskId); Preview = null; }
+    private async Task<bool> DiscardAsync() => !Unsaved || await JS.InvokeAsync<bool>("confirm", L["EducationGrading:Discard"].Value);
+    private Task RefreshAsync() => RunAsync(async () => { if (!await DiscardAsync()) return; await LoadAsync(); if (Submission != null) await OpenCoreAsync(Submission.Submission.Id); });
+    private Task OpenAsync(Guid id) => RunAsync(async () => { if (await DiscardAsync()) await OpenCoreAsync(id); });
+    private async Task OpenCoreAsync(Guid id)
+    {
+        var questionId = Question?.Id; Submission = await Grading.GetSubmissionForGradingAsync(id);
+        SetQuestion(Submission.Questions.FirstOrDefault(x => x.Id == questionId) ?? Submission.Questions.First());
+        Overview = await Grading.GetGradingOverviewAsync(TaskId); Preview = null;
+    }
+    private Task SelectQuestionAsync(ChangeEventArgs value) => RunAsync(async () => { if (await DiscardAsync() && Guid.TryParse(value.Value?.ToString(), out var id)) SetQuestion(Submission!.Questions.Single(x => x.Id == id)); });
+    private void SetQuestion(EducationAssessmentQuestionForGradingDto q)
+    {
+        Question = q; var content = q.Grade.Draft?.Content ?? q.Grade.Confirmed!.Content; Parts = content.Parts;
+        Marks = Parts.ToDictionary(x => x.PartId, x => x.ObtainedScore); Feedback = q.Grade.Draft?.Feedback ?? q.Grade.Confirmed?.Feedback;
+        Reason = null; ImageData = null; InitialForm = FormState();
+    }
+    private string BlankLabel(EducationAssessmentQuestionForGradingDto q, Guid id) => q.ScoringDefinition?.Blanks.FirstOrDefault(x => x.Id == id)?.StemMarker ?? id.ToString();
+    private string PartLabel(EducationAssessmentQuestionForGradingDto q, Guid id) => q.ScoringDefinition?.ScoringPoints.FirstOrDefault(x => x.Id == id)?.Description ??
+        q.ScoringDefinition?.Blanks.FirstOrDefault(x => x.Id == id)?.StemMarker ?? L["EducationGrading:Question"].Value;
+    private Task ShowImageAsync(Guid id) => RunAsync(async () => { using var file = await Grading.DownloadSubmissionImageAsync(Submission!.Submission.Id, id);
+        using var bytes = new System.IO.MemoryStream(); await file.GetStream().CopyToAsync(bytes);
+        ImageRotation = Question!.Response!.Images.Single(x => x.AttachmentId == id).RotationDegrees;
+        ImageData = $"data:{file.ContentType};base64,{Convert.ToBase64String(bytes.ToArray())}"; });
+    private Task SaveAsync() => RunAsync(async () => await StartAsync(new Command { Kind = "draft", TaskId = TaskId, SubmissionId = Submission!.Submission.Id,
+        Draft = new() { OperationId = Guid.NewGuid(), PaperQuestionId = Question!.Id, ConcurrencyStamp = Question.Grade.ConcurrencyStamp,
+            ExpectedGradeRevisionId = Question.Grade.CurrentRevisionId, Feedback = Feedback,
+            PartMarks = Marks.Select(x => new EducationAssessmentPartMark { PartId = x.Key, ObtainedScore = x.Value }).ToList() } }));
+    private Task ConfirmAsync() => RunAsync(async () => { if (Dirty || Question?.Grade.Draft == null || !await JS.InvokeAsync<bool>("confirm", L["EducationGrading:ConfirmGradePrompt"].Value)) return;
+        await StartAsync(new Command { Kind = "confirm", TaskId = TaskId, SubmissionId = Submission!.Submission.Id, GradeId = Question!.Grade.Id,
+            Confirm = new() { OperationId = Guid.NewGuid(), ConcurrencyStamp = Question.Grade.ConcurrencyStamp, ExpectedDraftRevisionId = Question.Grade.Draft!.Id,
+                ExpectedGradeSetVersion = Submission.ConfirmedGradeSetVersion, Reason = Reason } }); });
+    private Task PreviewAsync() => RunAsync(async () => Preview = await Grading.PreviewFinalizationAsync(TaskId));
+    private Task CloseAsync() => RunAsync(async () => { if (!await JS.InvokeAsync<bool>("confirm", L["EducationGrading:ClosePrompt"].Value)) return;
+        await StartAsync(new Command { Kind = "close", TaskId = TaskId, Close = new() { OperationId = Guid.NewGuid(), ConcurrencyStamp = Preview!.ConcurrencyStamp,
+            ExpectedPublishedRevisionId = Preview.PublishedRevisionId, FinalizationFingerprint = Preview.FinalizationFingerprint } }); });
+    private Task PublishAsync() => RunAsync(async () => { if (!ConfirmVisibility || !await JS.InvokeAsync<bool>("confirm", L["EducationGrading:PublishPrompt"].Value)) return;
+        await StartAsync(new Command { Kind = "release", TaskId = TaskId, Release = new() { OperationId = Guid.NewGuid(), ConcurrencyStamp = Preview!.ConcurrencyStamp,
+            ExpectedClosureId = Preview.ClosureId!.Value, ExpectedGradeSetVersion = Preview.ConfirmedGradeSetVersion, ConfiguredVisibility = Visibility,
+            ScoreOpensAtUtc = ScoreTime.ToUniversalTime(), ReviewOpensAtUtc = ReviewTime.ToUniversalTime(), ConfirmVisibilityChange = ConfirmVisibility, Reason = ReleaseReason } }); });
+    private async Task StartAsync(Command command)
+    { if (Pending != null) return; Pending = command; await ExecuteAsync(false); }
+    private async Task PersistAsync()
+    { if (Pending == null) await JS.InvokeVoidAsync("sessionStorage.removeItem", StorageKey); else await JS.InvokeVoidAsync("sessionStorage.setItem", StorageKey, JsonSerializer.Serialize(Pending)); }
+    private async Task ExecuteAsync(bool retry)
+    {
+        if (Pending is not { } op) return;
+        await PersistAsync();
+        try
+        {
+            if (op.Kind == "draft") await CompleteGradeAsync(await Grading.SaveGradeDraftAsync(op.SubmissionId, op.Draft!));
+            else if (op.Kind == "confirm") await CompleteGradeAsync(await Grading.ConfirmGradeAsync(op.GradeId, op.Confirm!));
+            else if (op.Kind == "close") await CompleteAsync((await Grading.CloseTaskAsync(TaskId, op.Close!)).Id);
+            else if (op.Kind == "release") await CompleteAsync((await Grading.PublishResultsAsync(TaskId, op.Release!)).Id);
+        }
+        catch (Exception ex)
+        {
+            if (!retry && Definitive(ex)) { Pending = null; await PersistAsync(); }
+            throw;
+        }
+    }
+    private async Task CompleteGradeAsync(EducationAssessmentGradeRevisionDto receipt)
+    { if (Pending == null || receipt.SubmissionId != Pending.SubmissionId) throw new InvalidOperationException(L["EducationGrading:NoReceipt"]); await CompleteAsync(receipt.Id); }
+    private async Task CompleteAsync(Guid id)
+    {
+        if (Pending == null || id != Pending.OperationId) throw new InvalidOperationException(L["EducationGrading:NoReceipt"]);
+        Receipt = id.ToString(); Pending = null; await PersistAsync(); await LoadAsync();
+        if (Submission != null) await OpenCoreAsync(Submission.Submission.Id);
+    }
+    private Task RecoverAsync() => RunAsync(async () =>
+    {
+        if (Pending is not { } op) return;
+        if (op.Kind is "draft" or "confirm") { var receipt = await Grading.GetGradeOperationAsync(op.SubmissionId, op.OperationId); if (receipt != null) { await CompleteGradeAsync(receipt); return; } }
+        else if (op.Kind == "close") { var receipt = await Grading.GetClosureOperationAsync(TaskId, op.OperationId); if (receipt != null) { await CompleteAsync(receipt.Id); return; } }
+        else { var receipt = await Grading.GetReleaseOperationAsync(TaskId, op.OperationId); if (receipt != null) { await CompleteAsync(receipt.Id); return; } }
+        Error = L["EducationGrading:Unknown"];
+    });
+    private static bool Definitive(Exception ex)
+    {
+        for (Exception? e = ex; e != null; e = e.InnerException)
+        {
+            if (e is Volo.Abp.BusinessException or Volo.Abp.Authorization.AbpAuthorizationException or Volo.Abp.Data.AbpDbConcurrencyException or Volo.Abp.Validation.AbpValidationException) return true;
+            var code = e.GetType().GetProperty("HttpStatusCode")?.GetValue(e) ?? e.GetType().GetProperty("StatusCode")?.GetValue(e);
+            if (code is System.Net.HttpStatusCode status && (int)status is 400 or 401 or 403 or 409 or 422) return true;
+        }
+        return false;
+    }
+    private async Task RunAsync(Func<Task> action)
+    { if (Busy) return; Busy = true; Error = null; try { await action(); } catch (Exception ex) { Error = GetUserFriendlyErrorMessage(ex); } finally { Busy = false; } }
+    private async Task LeaveAsync(Microsoft.AspNetCore.Components.Routing.LocationChangingContext context)
+    { if ((Pending != null || Unsaved) && !await JS.InvokeAsync<bool>("confirm", L["EducationGrading:Discard"].Value)) context.PreventNavigation(); }
+    private sealed class Command
+    {
+        public string Kind { get; set; } = ""; public Guid TaskId { get; set; } public Guid SubmissionId { get; set; } public Guid GradeId { get; set; }
+        public SaveEducationAssessmentGradeDraftDto? Draft { get; set; } public ConfirmEducationAssessmentGradeDto? Confirm { get; set; }
+        public CloseEducationAssessmentTaskDto? Close { get; set; } public PublishEducationAssessmentResultsDto? Release { get; set; }
+        public Guid OperationId => Draft?.OperationId ?? Confirm?.OperationId ?? Close?.OperationId ?? Release?.OperationId ?? Guid.Empty;
+    }
+}

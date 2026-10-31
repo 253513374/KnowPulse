@@ -5,9 +5,11 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using KnowPulse.AiModelManagement;
+using KnowPulse.Education;
 using KnowPulse.KnowledgeBase;
 using KnowPulse.KnowledgeIndexing;
 using Microsoft.Extensions.Options;
+using Volo.Abp;
 using Volo.Abp.Domain.Repositories;
 
 namespace KnowPulse.RagAI;
@@ -16,9 +18,12 @@ namespace KnowPulse.RagAI;
 /// 权限化知识检索。Qdrant 只做候选召回和 payload 粗过滤，
 /// 返回给调用方前必须回 PostgreSQL 校验知识状态、版本和权限范围。
 /// </summary>
-[Volo.Abp.RemoteService(false)]
+[RemoteService(false)]
 public class KnowledgeRetriever : KnowPulseAppService, IKnowledgeRetriever
 {
+    private KnowledgeSchoolSharingAppService SchoolSharing => LazyServiceProvider.LazyGetRequiredService<KnowledgeSchoolSharingAppService>();
+    private EducationCurriculumAccessGuard CurriculumAccess => LazyServiceProvider.LazyGetRequiredService<EducationCurriculumAccessGuard>();
+    private EducationMaterialScope MaterialScope => LazyServiceProvider.LazyGetRequiredService<EducationMaterialScope>();
     // 向量库只能做候选召回，TopK 过小会导致权限二次校验后没有足够结果；
     // 因此这里先多取一批候选，再由 PostgreSQL 状态和权限规则裁掉。
     private const int MaxCandidateMultiplier = 3;
@@ -111,10 +116,12 @@ public class KnowledgeRetriever : KnowPulseAppService, IKnowledgeRetriever
         }
 
         var accessContext = await _accessContextProvider.CreateAsync(cancellationToken);
+        if (!Enum.IsDefined(request.Scope) || (request.Scope == KnowledgeSearchScope.PersonalLibrary && request.SchoolId.HasValue))
+            throw new ArgumentException("The requested knowledge search scope is invalid.", nameof(request));
         // DTO 中的 UserId/TenantId 只允许表达“当前主体”的上下文，不允许调用方替别人检索。
         // 真正的可见范围来自服务端的 KnowledgeAccessContext，而不是请求体里的自报身份。
-        if ((request.UserId.HasValue && accessContext.UserId.HasValue && request.UserId.Value != accessContext.UserId.Value) ||
-            (request.TenantId.HasValue && CurrentTenant.Id.HasValue && request.TenantId.Value != CurrentTenant.Id.Value))
+        if ((request.UserId.HasValue && request.UserId != accessContext.UserId) ||
+            (request.TenantId.HasValue && request.TenantId != CurrentTenant.Id))
         {
             await WriteSearchLogAsync(
                 request,
@@ -131,6 +138,10 @@ public class KnowledgeRetriever : KnowPulseAppService, IKnowledgeRetriever
             return Array.Empty<RetrievedChunk>();
         }
 
+        // 授权版本来自数据库。客户端只能收窄检索范围，不能提交可见版本编号。
+        var curriculum = await ResolveCurriculumAsync(request, cancellationToken);
+        var allowedShares = await GetAvailableSharesAsync(request, cancellationToken, curriculum?.SchoolId);
+        var curriculumMatches = curriculum == null ? null : await MaterialScope.GetMatchesAsync(curriculum, request.Scope, allowedShares, cancellationToken);
         ReadOnlyMemory<float> embedding;
         try
         {
@@ -175,6 +186,9 @@ public class KnowledgeRetriever : KnowPulseAppService, IKnowledgeRetriever
                         ? new[] { accessContext.UserId.Value }
                         : Array.Empty<Guid>(),
                     SecurityLevel = accessContext.SecurityLevel,
+                    Scope = request.Scope,
+                    AllowedSharedVersionIds = allowedShares.Keys.ToArray(),
+                    AllowedCurriculumChunkIds = curriculumMatches?.Keys.ToArray(),
                     PublishedOnly = true
                 }
             }, cancellationToken);
@@ -202,7 +216,7 @@ public class KnowledgeRetriever : KnowPulseAppService, IKnowledgeRetriever
             // 如果主库中版本已下架、权限已收窄或知识已停用，命中会在这里被丢弃。
             var scopedHits = request.KnowledgeItemIds.Count == 0 ? vectorHits :
                 vectorHits.Where(x => request.KnowledgeItemIds.Contains(x.KnowledgeItemId)).ToList();
-            results = await ApplyBusinessAuthorizationAsync(scopedHits, accessContext, tenantId, topK, request.KnowledgeItemIds, cancellationToken);
+            results = await ApplyBusinessAuthorizationAsync(scopedHits, accessContext, tenantId, topK, request, cancellationToken);
         }
         catch (Exception ex)
         {
@@ -315,7 +329,7 @@ public class KnowledgeRetriever : KnowPulseAppService, IKnowledgeRetriever
         KnowledgeAccessContext accessContext,
         Guid? tenantId,
         int topK,
-        IReadOnlyList<Guid> selectedKnowledgeIds,
+        RagSearchRequest request,
         CancellationToken cancellationToken)
     {
         if (vectorHits.Count == 0)
@@ -334,6 +348,14 @@ public class KnowledgeRetriever : KnowPulseAppService, IKnowledgeRetriever
         var versionsById = await GetVersionsByIdAsync(chunksById.Values.Select(x => x.KnowledgeVersionId), cancellationToken);
         var itemsById = await GetItemsByIdAsync(chunksById.Values.Select(x => x.KnowledgeItemId), cancellationToken);
         var scopesByItemId = await GetScopeLookupAsync(chunksById.Values.Select(x => x.KnowledgeItemId), cancellationToken);
+        // 再执行关系型查询，撤回共享或教师离校后的旧向量命中立即失去使用权。
+        var curriculum = await ResolveCurriculumAsync(request, cancellationToken);
+        var availableShares = await GetAvailableSharesAsync(request, cancellationToken, curriculum?.SchoolId);
+        var curriculumMatches = curriculum == null ? null : await MaterialScope.GetMatchesAsync(curriculum, request.Scope, availableShares, cancellationToken);
+        var chunkJobIds = chunksById.Values.Select(x => x.KnowledgeIndexJobId).Distinct().ToList();
+        var jobQuery = await LazyServiceProvider.LazyGetRequiredService<IRepository<KnowledgeIndexJob, Guid>>().GetQueryableAsync();
+        var indexedJobs = (await AsyncExecuter.ToListAsync(jobQuery.Where(x => !x.IsDeleted && x.TenantId == tenantId &&
+            chunkJobIds.Contains(x.Id) && x.Status == KnowledgeIndexJobStatus.Indexed), cancellationToken)).ToDictionary(x => x.Id);
         var results = new List<RetrievedChunk>();
         var returnedChunkIds = new HashSet<Guid>();
 
@@ -345,18 +367,36 @@ public class KnowledgeRetriever : KnowPulseAppService, IKnowledgeRetriever
             {
                 continue;
             }
+            CurriculumChunkMatch? curriculumMatch = null;
+            if (curriculumMatches != null && !curriculumMatches.TryGetValue(chunk.Id, out curriculumMatch)) continue;
 
-            if ((selectedKnowledgeIds.Count > 0 && !selectedKnowledgeIds.Contains(item.Id)) ||
-                !CanReturnChunk(chunk, version, item, scopesByItemId.GetValueOrDefault(item.Id) ?? new List<KnowledgePermissionScope>(), accessContext, tenantId))
+            if (request.KnowledgeItemIds.Count > 0 && !request.KnowledgeItemIds.Contains(item.Id)) continue;
+            availableShares.TryGetValue(version.Id, out var share);
+            var sharedAccess = share != null && share.KnowledgeItemId == item.Id &&
+                !chunk.IsDeleted && chunk.IsActive && chunk.IsPublishedSnapshot && chunk.KnowledgeItemId == item.Id &&
+                !version.IsDeleted && version.Status == KnowledgeVersionStatus.Published && version.KnowledgeItemId == item.Id &&
+                TenantMatches(chunk.TenantId, tenantId) && TenantMatches(version.TenantId, tenantId) &&
+                TenantMatches(item.TenantId, tenantId) && indexedJobs.TryGetValue(chunk.KnowledgeIndexJobId, out var job) &&
+                job.KnowledgeVersionId == version.Id && job.KnowledgeItemId == item.Id;
+            if (curriculumMatch != null && curriculumMatch.SharedBindings.Count == 0) sharedAccess = false;
+            var directAccess = request.Scope != KnowledgeSearchScope.SchoolShared &&
+                (request.Scope != KnowledgeSearchScope.PersonalLibrary ||
+                    (item.LibraryId.HasValue && item.OwnerUserId.HasValue && item.OwnerUserId == CurrentUser.Id)) &&
+                CanReturnChunk(chunk, version, item, scopesByItemId.GetValueOrDefault(item.Id) ?? new List<KnowledgePermissionScope>(), accessContext, tenantId);
+            if (directAccess)
             {
-                continue;
+                try { await EnsurePersonalKnowledgeOwnerAsync(item); }
+                catch (Volo.Abp.Authorization.AbpAuthorizationException) { directAccess = false; }
             }
+            if (curriculumMatch != null && curriculumMatch.PersonalBindings.Count == 0) directAccess = false;
+            if (!sharedAccess && !directAccess) continue;
 
             if (!returnedChunkIds.Add(chunk.Id))
             {
                 continue;
             }
 
+            var matchedBindings = sharedAccess ? curriculumMatch?.SharedBindings : curriculumMatch?.PersonalBindings;
             results.Add(new RetrievedChunk
             {
                 ChunkId = chunk.Id,
@@ -364,7 +404,10 @@ public class KnowledgeRetriever : KnowPulseAppService, IKnowledgeRetriever
                 KnowledgeVersionId = version.Id,
                 Content = chunk.Content,
                 Score = hit.Score,
-                SourceTitle = string.IsNullOrWhiteSpace(chunk.SourceTitle) ? item.Title : chunk.SourceTitle,
+                SourceTitle = sharedAccess ? share!.Title : (string.IsNullOrWhiteSpace(chunk.SourceTitle) ? item.Title : chunk.SourceTitle),
+                SchoolKnowledgeShareId = sharedAccess ? share!.Id : null,
+                CurriculumBindingIds = matchedBindings?.Keys.OrderBy(x => x).ToArray() ?? Array.Empty<Guid>(),
+                TextbookKnowledgePointMappingIds = matchedBindings?.Values.Distinct().OrderBy(x => x).ToArray() ?? Array.Empty<Guid>(),
                 SourcePage = chunk.SourcePage
             });
 
@@ -375,6 +418,35 @@ public class KnowledgeRetriever : KnowPulseAppService, IKnowledgeRetriever
         }
 
         return results;
+    }
+
+    private async Task<EducationCurriculumSnapshot?> ResolveCurriculumAsync(RagSearchRequest request, CancellationToken ct)
+    {
+        if (request.CurriculumScope == null) return null;
+        var curriculum = await CurriculumAccess.ResolveAsync(request.CurriculumScope, ct);
+        if (request.SchoolId.HasValue && request.SchoolId != curriculum.SchoolId)
+            throw new Volo.Abp.Authorization.AbpAuthorizationException("The knowledge school scope must match the confirmed curriculum.");
+        return curriculum;
+    }
+
+    private async Task<Dictionary<Guid, SchoolKnowledgeShare>> GetAvailableSharesAsync(RagSearchRequest request, CancellationToken cancellationToken,
+        Guid? curriculumSchoolId = null)
+    {
+        if (request.Scope == KnowledgeSearchScope.PersonalLibrary) return new();
+        var uses = SchoolKnowledgeShareUses.Read | SchoolKnowledgeShareUses.Retrieve;
+        if (request.ForQuestionGeneration) uses |= SchoolKnowledgeShareUses.GenerateQuestions;
+        try
+        {
+            var query = await SchoolSharing.GetAvailableSharesQueryAsync(uses, curriculumSchoolId ?? request.SchoolId);
+            // ponytail: 展开当前可用共享版本集合；校内版本规模增大时改用分页候选召回，保留逐次数据库校验。
+            var shares = await AsyncExecuter.ToListAsync(query.OrderBy(x => x.Id), cancellationToken);
+            return shares.GroupBy(x => x.KnowledgeVersionId).ToDictionary(x => x.Key, x => x.First());
+        }
+        catch (Volo.Abp.Authorization.AbpAuthorizationException) when (!request.SchoolId.HasValue && !curriculumSchoolId.HasValue)
+        {
+            // 既有个人/组织检索保持原授权路径；无可用学校账号绝不能获得共享候选。
+            return new();
+        }
     }
 
     /// <summary>
@@ -471,7 +543,9 @@ public class KnowledgeRetriever : KnowPulseAppService, IKnowledgeRetriever
     {
         // 返回条件故意同时校验 chunk 快照、KnowledgeItem 当前发布版本和 KnowledgeVersion 状态。
         // 这样即使 Qdrant 中存在旧 payload，权限收窄、下架、归档或停用后也不会泄漏 citation。
-        return chunk.IsActive &&
+        return !chunk.IsDeleted && !version.IsDeleted && !item.IsDeleted &&
+               chunk.KnowledgeItemId == item.Id &&
+               chunk.IsActive &&
                chunk.IsPublishedSnapshot &&
                item.IsActive &&
                item.CurrentPublishedVersionId == version.Id &&

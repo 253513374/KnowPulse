@@ -1,0 +1,918 @@
+{
+  "counts": {
+    "src/KnowPulse.Application": [
+      128,
+      29011
+    ],
+    "src/KnowPulse.Application.Contracts": [
+      114,
+      10316
+    ],
+    "src/KnowPulse.Blazor": [
+      4,
+      164
+    ],
+    "src/KnowPulse.Blazor.Client": [
+      97,
+      22555
+    ],
+    "src/KnowPulse.DbMigrator": [
+      3,
+      106
+    ],
+    "src/KnowPulse.Domain": [
+      119,
+      12485
+    ],
+    "src/KnowPulse.Domain.Shared": [
+      73,
+      2796
+    ],
+    "src/KnowPulse.HttpApi": [
+      20,
+      1328
+    ],
+    "src/KnowPulse.HttpApi.Client": [
+      1,
+      38
+    ],
+    "src/KnowPulse.HttpApi.Host": [
+      17,
+      1225
+    ],
+    "src/KnowPulse.EntityFrameworkCore": [
+      130,
+      587585
+    ],
+    "test/KnowPulse.Application.Tests": [
+      44,
+      2521
+    ],
+    "test/KnowPulse.Domain.Tests": [
+      43,
+      4599
+    ],
+    "test/KnowPulse.HttpApi.Client.ConsoleTestApp": [
+      4,
+      117
+    ],
+    "test/KnowPulse.TestBase": [
+      5,
+      154
+    ],
+    "test/KnowPulse.EntityFrameworkCore.Tests": [
+      92,
+      22026
+    ],
+    "miniprogram": [
+      135,
+      8483
+    ],
+    "ops": [
+      17,
+      5030
+    ]
+  },
+  "largest": [
+    [
+      1626,
+      "src/KnowPulse.Application/AiQuestioning/AiQuestionGenerationAppService.cs"
+    ],
+    [
+      1495,
+      "src/KnowPulse.Blazor.Client/Pages/Knowledge/Items.razor"
+    ],
+    [
+      1421,
+      "src/KnowPulse.Blazor.Client/Pages/Knowledge/Upload.razor"
+    ],
+    [
+      1273,
+      "src/KnowPulse.Application/Exam/ExamAppService.cs"
+    ],
+    [
+      1244,
+      "src/KnowPulse.Blazor.Client/Pages/QuestionBank/AiCandidates.razor"
+    ],
+    [
+      1200,
+      "src/KnowPulse.Application/QuestionBank/QuestionAppService.cs"
+    ],
+    [
+      1131,
+      "src/KnowPulse.EntityFrameworkCore/EntityFrameworkCore/KnowPulseDbContext.cs"
+    ],
+    [
+      1053,
+      "src/KnowPulse.Application.Contracts/RagAI/RagContracts.cs"
+    ],
+    [
+      1043,
+      "src/KnowPulse.Application/KnowledgeBase/KnowledgeItemAppService.cs"
+    ],
+    [
+      958,
+      "src/KnowPulse.Application/Learning/LearningPathAppService.cs"
+    ],
+    [
+      915,
+      "src/KnowPulse.Blazor.Client/Pages/QuestionBank/QuestionEditor.razor"
+    ],
+    [
+      899,
+      "src/KnowPulse.Application/RagAI/QdrantKnowledgeVectorStore.cs"
+    ],
+    [
+      888,
+      "test/KnowPulse.EntityFrameworkCore.Tests/EntityFrameworkCore/Applications/Mvp1KnowledgeIndexingAppServiceTests.cs"
+    ],
+    [
+      845,
+      "src/KnowPulse.Blazor.Client/Pages/Knowledge/PersonalLibrary.razor"
+    ],
+    [
+      795,
+      "test/KnowPulse.EntityFrameworkCore.Tests/EntityFrameworkCore/Applications/Mvp2AiQuestionGenerationAppServiceTests.cs"
+    ],
+    [
+      783,
+      "src/KnowPulse.Application/RagAI/RagEvaluationAppService.cs"
+    ]
+  ],
+  "projects": [
+    {
+      "name": "KnowPulse.Application",
+      "path": "src/KnowPulse.Application/KnowPulse.Application.csproj",
+      "framework": "net10.0",
+      "refs": [
+        "..\\KnowPulse.Domain\\KnowPulse.Domain.csproj",
+        "..\\KnowPulse.Application.Contracts\\KnowPulse.Application.Contracts.csproj"
+      ],
+      "packages": [
+        {
+          "Include": "Volo.Abp.BlobStoring",
+          "Version": "10.6.0"
+        },
+        {
+          "Include": "Volo.Abp.Account.Application",
+          "Version": "10.6.0"
+        },
+        {
+          "Include": "Volo.Abp.Identity.Application",
+          "Version": "10.6.0"
+        },
+        {
+          "Include": "Volo.Abp.PermissionManagement.Application",
+          "Version": "10.6.0"
+        },
+        {
+          "Include": "Volo.Abp.TenantManagement.Application",
+          "Version": "10.6.0"
+        },
+        {
+          "Include": "Volo.Abp.FeatureManagement.Application",
+          "Version": "10.6.0"
+        },
+        {
+          "Include": "Volo.Abp.SettingManagement.Application",
+          "Version": "10.6.0"
+        },
+        {
+          "Include": "Microsoft.Extensions.DataIngestion.Abstractions",
+          "Version": "10.7.0-preview.1.26309.5"
+        },
+        {
+          "Include": "Microsoft.Extensions.DataIngestion.MarkItDown",
+          "Version": "10.7.0-preview.1.26309.5"
+        }
+      ]
+    },
+    {
+      "name": "KnowPulse.Application.Contracts",
+      "path": "src/KnowPulse.Application.Contracts/KnowPulse.Application.Contracts.csproj",
+      "framework": "net10.0",
+      "refs": [
+        "..\\KnowPulse.Domain.Shared\\KnowPulse.Domain.Shared.csproj"
+      ],
+      "packages": [
+        {
+          "Include": "Volo.Abp.ObjectExtending",
+          "Version": "10.6.0"
+        },
+        {
+          "Include": "Volo.Abp.Account.Application.Contracts",
+          "Version": "10.6.0"
+        },
+        {
+          "Include": "Volo.Abp.Identity.Application.Contracts",
+          "Version": "10.6.0"
+        },
+        {
+          "Include": "Volo.Abp.PermissionManagement.Application.Contracts",
+          "Version": "10.6.0"
+        },
+        {
+          "Include": "Volo.Abp.TenantManagement.Application.Contracts",
+          "Version": "10.6.0"
+        },
+        {
+          "Include": "Volo.Abp.FeatureManagement.Application.Contracts",
+          "Version": "10.6.0"
+        },
+        {
+          "Include": "Volo.Abp.SettingManagement.Application.Contracts",
+          "Version": "10.6.0"
+        }
+      ]
+    },
+    {
+      "name": "KnowPulse.Blazor",
+      "path": "src/KnowPulse.Blazor/KnowPulse.Blazor.csproj",
+      "framework": "net10.0",
+      "refs": [
+        "..\\KnowPulse.Blazor.Client\\KnowPulse.Blazor.Client.csproj"
+      ],
+      "packages": [
+        {
+          "Include": "Serilog.AspNetCore",
+          "Version": "9.0.0"
+        },
+        {
+          "Include": "Serilog.Sinks.Async",
+          "Version": "2.1.0"
+        },
+        {
+          "Include": "Microsoft.AspNetCore.Components.WebAssembly.Server",
+          "Version": "10.0.13"
+        },
+        {
+          "Include": "Volo.Abp.Autofac",
+          "Version": "10.6.0"
+        },
+        {
+          "Include": "Volo.Abp.AspNetCore.Mvc.UI.Bundling",
+          "Version": "10.6.0"
+        },
+        {
+          "Include": "Volo.Abp.AspNetCore.Components.WebAssembly.LeptonXLiteTheme.Bundling",
+          "Version": "5.6.0"
+        }
+      ]
+    },
+    {
+      "name": "KnowPulse.Blazor.Client",
+      "path": "src/KnowPulse.Blazor.Client/KnowPulse.Blazor.Client.csproj",
+      "framework": "net10.0",
+      "refs": [
+        "..\\..\\src\\KnowPulse.HttpApi.Client\\KnowPulse.HttpApi.Client.csproj"
+      ],
+      "packages": [
+        {
+          "Include": "Blazorise.Bootstrap5",
+          "Version": "2.2.1"
+        },
+        {
+          "Include": "Blazorise.Icons.FontAwesome",
+          "Version": "2.2.1"
+        },
+        {
+          "Include": "Microsoft.AspNetCore.Components.WebAssembly",
+          "Version": "10.0.9"
+        },
+        {
+          "Include": "Microsoft.AspNetCore.Components.WebAssembly.DevServer",
+          "Version": "10.0.9"
+        },
+        {
+          "Include": "Volo.Abp.AspNetCore.Components.WebAssembly.LeptonXLiteTheme",
+          "Version": "5.6.0"
+        },
+        {
+          "Include": "Volo.Abp.Autofac.WebAssembly",
+          "Version": "10.6.0"
+        },
+        {
+          "Include": "Volo.Abp.Identity.Blazor.WebAssembly",
+          "Version": "10.6.0"
+        },
+        {
+          "Include": "Volo.Abp.TenantManagement.Blazor.WebAssembly",
+          "Version": "10.6.0"
+        },
+        {
+          "Include": "Volo.Abp.SettingManagement.Blazor.WebAssembly",
+          "Version": "10.6.0"
+        }
+      ]
+    },
+    {
+      "name": "KnowPulse.DbMigrator",
+      "path": "src/KnowPulse.DbMigrator/KnowPulse.DbMigrator.csproj",
+      "framework": "net10.0",
+      "refs": [
+        "..\\KnowPulse.Application.Contracts\\KnowPulse.Application.Contracts.csproj",
+        "..\\KnowPulse.EntityFrameworkCore\\KnowPulse.EntityFrameworkCore.csproj"
+      ],
+      "packages": [
+        {
+          "Include": "Serilog.Extensions.Logging",
+          "Version": "9.0.2"
+        },
+        {
+          "Include": "Serilog.Sinks.Async",
+          "Version": "2.1.0"
+        },
+        {
+          "Include": "Serilog.Sinks.File",
+          "Version": "7.0.0"
+        },
+        {
+          "Include": "Serilog.Sinks.Console",
+          "Version": "6.0.0"
+        },
+        {
+          "Include": "Microsoft.Extensions.Hosting",
+          "Version": "10.0.9"
+        },
+        {
+          "Include": "Volo.Abp.Autofac",
+          "Version": "10.6.0"
+        }
+      ]
+    },
+    {
+      "name": "KnowPulse.Domain",
+      "path": "src/KnowPulse.Domain/KnowPulse.Domain.csproj",
+      "framework": "net10.0",
+      "refs": [
+        "..\\KnowPulse.Domain.Shared\\KnowPulse.Domain.Shared.csproj"
+      ],
+      "packages": [
+        {
+          "Include": "Volo.Abp.Emailing",
+          "Version": "10.6.0"
+        },
+        {
+          "Include": "Volo.Abp.Identity.Domain",
+          "Version": "10.6.0"
+        },
+        {
+          "Include": "Volo.Abp.PermissionManagement.Domain.Identity",
+          "Version": "10.6.0"
+        },
+        {
+          "Include": "Volo.Abp.BackgroundJobs.Domain",
+          "Version": "10.6.0"
+        },
+        {
+          "Include": "Volo.Abp.AuditLogging.Domain",
+          "Version": "10.6.0"
+        },
+        {
+          "Include": "Volo.Abp.TenantManagement.Domain",
+          "Version": "10.6.0"
+        },
+        {
+          "Include": "Volo.Abp.FeatureManagement.Domain",
+          "Version": "10.6.0"
+        },
+        {
+          "Include": "Volo.Abp.SettingManagement.Domain",
+          "Version": "10.6.0"
+        },
+        {
+          "Include": "Volo.Abp.OpenIddict.Domain",
+          "Version": "10.6.0"
+        },
+        {
+          "Include": "Volo.Abp.PermissionManagement.Domain.OpenIddict",
+          "Version": "10.6.0"
+        }
+      ]
+    },
+    {
+      "name": "KnowPulse.Domain.Shared",
+      "path": "src/KnowPulse.Domain.Shared/KnowPulse.Domain.Shared.csproj",
+      "framework": "net10.0",
+      "refs": [],
+      "packages": [
+        {
+          "Include": "Volo.Abp.Identity.Domain.Shared",
+          "Version": "10.6.0"
+        },
+        {
+          "Include": "Volo.Abp.BackgroundJobs.Domain.Shared",
+          "Version": "10.6.0"
+        },
+        {
+          "Include": "Volo.Abp.AuditLogging.Domain.Shared",
+          "Version": "10.6.0"
+        },
+        {
+          "Include": "Volo.Abp.TenantManagement.Domain.Shared",
+          "Version": "10.6.0"
+        },
+        {
+          "Include": "Volo.Abp.FeatureManagement.Domain.Shared",
+          "Version": "10.6.0"
+        },
+        {
+          "Include": "Volo.Abp.PermissionManagement.Domain.Shared",
+          "Version": "10.6.0"
+        },
+        {
+          "Include": "Volo.Abp.SettingManagement.Domain.Shared",
+          "Version": "10.6.0"
+        },
+        {
+          "Include": "Volo.Abp.OpenIddict.Domain.Shared",
+          "Version": "10.6.0"
+        },
+        {
+          "Include": "Microsoft.Extensions.FileProviders.Embedded",
+          "Version": "10.0.9"
+        }
+      ]
+    },
+    {
+      "name": "KnowPulse.EntityFrameworkCore",
+      "path": "src/KnowPulse.EntityFrameworkCore/KnowPulse.EntityFrameworkCore.csproj",
+      "framework": "net10.0",
+      "refs": [
+        "..\\KnowPulse.Domain\\KnowPulse.Domain.csproj"
+      ],
+      "packages": [
+        {
+          "Include": "Volo.Abp.EntityFrameworkCore.PostgreSql",
+          "Version": "10.6.0"
+        },
+        {
+          "Include": "Volo.Abp.PermissionManagement.EntityFrameworkCore",
+          "Version": "10.6.0"
+        },
+        {
+          "Include": "Volo.Abp.SettingManagement.EntityFrameworkCore",
+          "Version": "10.6.0"
+        },
+        {
+          "Include": "Volo.Abp.Identity.EntityFrameworkCore",
+          "Version": "10.6.0"
+        },
+        {
+          "Include": "Volo.Abp.BackgroundJobs.EntityFrameworkCore",
+          "Version": "10.6.0"
+        },
+        {
+          "Include": "Volo.Abp.AuditLogging.EntityFrameworkCore",
+          "Version": "10.6.0"
+        },
+        {
+          "Include": "Volo.Abp.TenantManagement.EntityFrameworkCore",
+          "Version": "10.6.0"
+        },
+        {
+          "Include": "Volo.Abp.FeatureManagement.EntityFrameworkCore",
+          "Version": "10.6.0"
+        },
+        {
+          "Include": "Volo.Abp.OpenIddict.EntityFrameworkCore",
+          "Version": "10.6.0"
+        },
+        {
+          "Include": "Microsoft.EntityFrameworkCore.Tools",
+          "Version": "10.0.9"
+        }
+      ]
+    },
+    {
+      "name": "KnowPulse.HttpApi",
+      "path": "src/KnowPulse.HttpApi/KnowPulse.HttpApi.csproj",
+      "framework": "net10.0",
+      "refs": [
+        "..\\KnowPulse.Application.Contracts\\KnowPulse.Application.Contracts.csproj"
+      ],
+      "packages": [
+        {
+          "Include": "Volo.Abp.Account.HttpApi",
+          "Version": "10.6.0"
+        },
+        {
+          "Include": "Volo.Abp.Identity.HttpApi",
+          "Version": "10.6.0"
+        },
+        {
+          "Include": "Volo.Abp.PermissionManagement.HttpApi",
+          "Version": "10.6.0"
+        },
+        {
+          "Include": "Volo.Abp.TenantManagement.HttpApi",
+          "Version": "10.6.0"
+        },
+        {
+          "Include": "Volo.Abp.FeatureManagement.HttpApi",
+          "Version": "10.6.0"
+        },
+        {
+          "Include": "Volo.Abp.SettingManagement.HttpApi",
+          "Version": "10.6.0"
+        }
+      ]
+    },
+    {
+      "name": "KnowPulse.HttpApi.Client",
+      "path": "src/KnowPulse.HttpApi.Client/KnowPulse.HttpApi.Client.csproj",
+      "framework": "net10.0",
+      "refs": [
+        "..\\KnowPulse.Application.Contracts\\KnowPulse.Application.Contracts.csproj"
+      ],
+      "packages": [
+        {
+          "Include": "Volo.Abp.Account.HttpApi.Client",
+          "Version": "10.6.0"
+        },
+        {
+          "Include": "Volo.Abp.Identity.HttpApi.Client",
+          "Version": "10.6.0"
+        },
+        {
+          "Include": "Volo.Abp.PermissionManagement.HttpApi.Client",
+          "Version": "10.6.0"
+        },
+        {
+          "Include": "Volo.Abp.TenantManagement.HttpApi.Client",
+          "Version": "10.6.0"
+        },
+        {
+          "Include": "Volo.Abp.FeatureManagement.HttpApi.Client",
+          "Version": "10.6.0"
+        },
+        {
+          "Include": "Volo.Abp.SettingManagement.HttpApi.Client",
+          "Version": "10.6.0"
+        }
+      ]
+    },
+    {
+      "name": "KnowPulse.HttpApi.Host",
+      "path": "src/KnowPulse.HttpApi.Host/KnowPulse.HttpApi.Host.csproj",
+      "framework": "net10.0",
+      "refs": [
+        "..\\KnowPulse.Application\\KnowPulse.Application.csproj",
+        "..\\KnowPulse.EntityFrameworkCore\\KnowPulse.EntityFrameworkCore.csproj",
+        "..\\KnowPulse.HttpApi\\KnowPulse.HttpApi.csproj"
+      ],
+      "packages": [
+        {
+          "Include": "Serilog.AspNetCore",
+          "Version": "9.0.0"
+        },
+        {
+          "Include": "Serilog.Sinks.Async",
+          "Version": "2.1.0"
+        },
+        {
+          "Include": "Volo.Abp.AspNetCore.MultiTenancy",
+          "Version": "10.6.0"
+        },
+        {
+          "Include": "Volo.Abp.Autofac",
+          "Version": "10.6.0"
+        },
+        {
+          "Include": "Volo.Abp.AspNetCore.Serilog",
+          "Version": "10.6.0"
+        },
+        {
+          "Include": "Volo.Abp.BlobStoring.Minio",
+          "Version": "10.6.0"
+        },
+        {
+          "Include": "Volo.Abp.Swashbuckle",
+          "Version": "10.6.0"
+        },
+        {
+          "Include": "Volo.Abp.Account.Web.OpenIddict",
+          "Version": "10.6.0"
+        },
+        {
+          "Include": "Volo.Abp.AspNetCore.Mvc.UI.Theme.LeptonXLite",
+          "Version": "5.6.0"
+        }
+      ]
+    },
+    {
+      "name": "KnowPulse.Application.Tests",
+      "path": "test/KnowPulse.Application.Tests/KnowPulse.Application.Tests.csproj",
+      "framework": "net10.0",
+      "refs": [
+        "..\\..\\src\\KnowPulse.Application\\KnowPulse.Application.csproj",
+        "..\\..\\src\\KnowPulse.HttpApi\\KnowPulse.HttpApi.csproj",
+        "..\\..\\src\\KnowPulse.HttpApi.Host\\KnowPulse.HttpApi.Host.csproj",
+        "..\\KnowPulse.Domain.Tests\\KnowPulse.Domain.Tests.csproj"
+      ],
+      "packages": [
+        {
+          "Include": "Microsoft.NET.Test.Sdk",
+          "Version": "17.14.1"
+        }
+      ]
+    },
+    {
+      "name": "KnowPulse.Domain.Tests",
+      "path": "test/KnowPulse.Domain.Tests/KnowPulse.Domain.Tests.csproj",
+      "framework": "net10.0",
+      "refs": [
+        "..\\..\\src\\KnowPulse.Domain\\KnowPulse.Domain.csproj",
+        "..\\KnowPulse.TestBase\\KnowPulse.TestBase.csproj"
+      ],
+      "packages": [
+        {
+          "Include": "Microsoft.NET.Test.Sdk",
+          "Version": "17.14.1"
+        }
+      ]
+    },
+    {
+      "name": "KnowPulse.EntityFrameworkCore.Tests",
+      "path": "test/KnowPulse.EntityFrameworkCore.Tests/KnowPulse.EntityFrameworkCore.Tests.csproj",
+      "framework": "net10.0",
+      "refs": [
+        "..\\..\\src\\KnowPulse.EntityFrameworkCore\\KnowPulse.EntityFrameworkCore.csproj",
+        "..\\KnowPulse.Application.Tests\\KnowPulse.Application.Tests.csproj"
+      ],
+      "packages": [
+        {
+          "Include": "SQLitePCLRaw.bundle_e_sqlite3",
+          "Version": "2.1.12"
+        },
+        {
+          "Include": "Volo.Abp.BlobStoring.FileSystem",
+          "Version": "10.6.0"
+        },
+        {
+          "Include": "Volo.Abp.EntityFrameworkCore.Sqlite",
+          "Version": "10.6.0"
+        },
+        {
+          "Include": "Microsoft.NET.Test.Sdk",
+          "Version": "17.14.1"
+        }
+      ]
+    },
+    {
+      "name": "KnowPulse.HttpApi.Client.ConsoleTestApp",
+      "path": "test/KnowPulse.HttpApi.Client.ConsoleTestApp/KnowPulse.HttpApi.Client.ConsoleTestApp.csproj",
+      "framework": "net10.0",
+      "refs": [
+        "..\\..\\src\\KnowPulse.HttpApi.Client\\KnowPulse.HttpApi.Client.csproj"
+      ],
+      "packages": [
+        {
+          "Include": "Volo.Abp.Http.Client.IdentityModel",
+          "Version": "10.6.0"
+        },
+        {
+          "Include": "Volo.Abp.Autofac",
+          "Version": "10.6.0"
+        },
+        {
+          "Include": "Microsoft.Extensions.Hosting",
+          "Version": "10.0.9"
+        },
+        {
+          "Include": "Microsoft.Extensions.Http.Polly",
+          "Version": "10.0.9"
+        }
+      ]
+    },
+    {
+      "name": "KnowPulse.TestBase",
+      "path": "test/KnowPulse.TestBase/KnowPulse.TestBase.csproj",
+      "framework": "net10.0",
+      "refs": [],
+      "packages": [
+        {
+          "Include": "Volo.Abp.TestBase",
+          "Version": "10.6.0"
+        },
+        {
+          "Include": "Volo.Abp.Autofac",
+          "Version": "10.6.0"
+        },
+        {
+          "Include": "Volo.Abp.Authorization",
+          "Version": "10.6.0"
+        },
+        {
+          "Include": "Volo.Abp.BackgroundJobs.Abstractions",
+          "Version": "10.6.0"
+        },
+        {
+          "Include": "Microsoft.NET.Test.Sdk",
+          "Version": "17.14.1"
+        },
+        {
+          "Include": "NSubstitute",
+          "Version": "5.3.0"
+        },
+        {
+          "Include": "NSubstitute.Analyzers.CSharp",
+          "Version": "1.0.17"
+        },
+        {
+          "Include": "Shouldly",
+          "Version": "4.3.0"
+        },
+        {
+          "Include": "xunit",
+          "Version": "2.9.3"
+        },
+        {
+          "Include": "xunit.extensibility.execution",
+          "Version": "2.9.3"
+        },
+        {
+          "Include": "xunit.runner.visualstudio",
+          "Version": "3.1.4"
+        }
+      ]
+    }
+  ],
+  "migrationCount": 49,
+  "adrs": 53,
+  "nativePages": 35,
+  "manualCodeCounts": [
+    {
+      "path": "src/KnowPulse.Application",
+      "files": 128,
+      "lines": 29011,
+      "migrationFiles": 0,
+      "migrationLines": 0
+    },
+    {
+      "path": "src/KnowPulse.Application.Contracts",
+      "files": 114,
+      "lines": 10316,
+      "migrationFiles": 0,
+      "migrationLines": 0
+    },
+    {
+      "path": "src/KnowPulse.Blazor",
+      "files": 4,
+      "lines": 164,
+      "migrationFiles": 0,
+      "migrationLines": 0
+    },
+    {
+      "path": "src/KnowPulse.Blazor.Client",
+      "files": 97,
+      "lines": 22555,
+      "migrationFiles": 0,
+      "migrationLines": 0
+    },
+    {
+      "path": "src/KnowPulse.DbMigrator",
+      "files": 3,
+      "lines": 106,
+      "migrationFiles": 0,
+      "migrationLines": 0
+    },
+    {
+      "path": "src/KnowPulse.Domain",
+      "files": 119,
+      "lines": 12485,
+      "migrationFiles": 0,
+      "migrationLines": 0
+    },
+    {
+      "path": "src/KnowPulse.Domain.Shared",
+      "files": 73,
+      "lines": 2796,
+      "migrationFiles": 0,
+      "migrationLines": 0
+    },
+    {
+      "path": "src/KnowPulse.HttpApi",
+      "files": 20,
+      "lines": 1328,
+      "migrationFiles": 0,
+      "migrationLines": 0
+    },
+    {
+      "path": "src/KnowPulse.HttpApi.Client",
+      "files": 1,
+      "lines": 38,
+      "migrationFiles": 0,
+      "migrationLines": 0
+    },
+    {
+      "path": "src/KnowPulse.HttpApi.Host",
+      "files": 17,
+      "lines": 1225,
+      "migrationFiles": 0,
+      "migrationLines": 0
+    },
+    {
+      "path": "src/KnowPulse.EntityFrameworkCore",
+      "files": 32,
+      "lines": 3351,
+      "migrationFiles": 98,
+      "migrationLines": 584234
+    },
+    {
+      "path": "test/KnowPulse.Application.Tests",
+      "files": 44,
+      "lines": 2521,
+      "migrationFiles": 0,
+      "migrationLines": 0
+    },
+    {
+      "path": "test/KnowPulse.Domain.Tests",
+      "files": 43,
+      "lines": 4599,
+      "migrationFiles": 0,
+      "migrationLines": 0
+    },
+    {
+      "path": "test/KnowPulse.HttpApi.Client.ConsoleTestApp",
+      "files": 4,
+      "lines": 117,
+      "migrationFiles": 0,
+      "migrationLines": 0
+    },
+    {
+      "path": "test/KnowPulse.TestBase",
+      "files": 5,
+      "lines": 154,
+      "migrationFiles": 0,
+      "migrationLines": 0
+    },
+    {
+      "path": "test/KnowPulse.EntityFrameworkCore.Tests",
+      "files": 92,
+      "lines": 22026,
+      "migrationFiles": 0,
+      "migrationLines": 0
+    },
+    {
+      "path": "miniprogram",
+      "files": 135,
+      "lines": 8483,
+      "migrationFiles": 0,
+      "migrationLines": 0
+    },
+    {
+      "path": "ops",
+      "files": 17,
+      "lines": 5030,
+      "migrationFiles": 0,
+      "migrationLines": 0
+    }
+  ],
+  "snapshotDate": "2026-10-18",
+  "gitHead": null,
+  "gitLimitation": "Worktree gitdir target does not exist; current filesystem snapshot only.",
+  "dbSetDeclarations": 151,
+  "webPageRouteDeclarations": 73,
+  "explicitHttpVerbAttributes": 85,
+  "diagramIds": [
+    "01-system",
+    "02-projects",
+    "03-modules",
+    "04-knowledge-pipeline",
+    "05-rag",
+    "06-assessment",
+    "07-knowledge-data",
+    "08-assessment-data",
+    "09-wechat",
+    "10-learning-loop",
+    "11-deployment",
+    "12-client-state"
+  ],
+  "snapshotHashes": {
+    "CONTEXT.md": "8c4c20f157a711dbfba92d113ed96d4f9bc5a06be5bd7b21bf01f4e682dd5aa2",
+    "global.json": "8728dc037bf8b1723d21a66fb518e62729557dc9b5d703031b2e28b15f9e1da9",
+    "docker-compose.yml": "1833a821133adcf67d424fd69506e001a12baa052b631776f35273e12389c961",
+    "src/KnowPulse.Application/KnowPulse.Application.csproj": "b011b74a866ef15be29a27826c40cfc24704beca545d9a2650e33b655fb38b24",
+    "src/KnowPulse.Application.Contracts/KnowPulse.Application.Contracts.csproj": "410a6621f35ec1cf70a0e5d31f09f34f57bbe4ab4bc20534ff4d1a601283888e",
+    "src/KnowPulse.Blazor/KnowPulse.Blazor.csproj": "935cdf9da0e753cdc27a61d8f2da04c6cd03d802339441f600e02f0336a85c9a",
+    "src/KnowPulse.Blazor.Client/KnowPulse.Blazor.Client.csproj": "df1bc1b61c828375b603313d6d8595d108e3337edf7fdcc95c5d3d36e75d7c6a",
+    "src/KnowPulse.DbMigrator/KnowPulse.DbMigrator.csproj": "3bb79a7204fba1fa5cdb6b05c29b921d68a1967790fa84b31f6af685e7605da0",
+    "src/KnowPulse.Domain/KnowPulse.Domain.csproj": "e33cf3b1d8e36800f735c8c018a13872c42987b35feeaa3da29132b3ebca3772",
+    "src/KnowPulse.Domain.Shared/KnowPulse.Domain.Shared.csproj": "17e7b5160cf0a9f0b6f802ae60106203a28ad015de47dbc3466f5e0583d05434",
+    "src/KnowPulse.EntityFrameworkCore/KnowPulse.EntityFrameworkCore.csproj": "0a4de4a169e8e2d3a529b9759bde6aa26cbdf47a16a059bc313acdf0552cdaa5",
+    "src/KnowPulse.HttpApi/KnowPulse.HttpApi.csproj": "65d7de9e5cb60969927fad0a4ddaab4a5c3de9966d4793254d6be8545c8938f6",
+    "src/KnowPulse.HttpApi.Client/KnowPulse.HttpApi.Client.csproj": "1ff331d89c6ed12f1370af68f0a1fcc0839025490deb606a91b5a4f7a11d881d",
+    "src/KnowPulse.HttpApi.Host/KnowPulse.HttpApi.Host.csproj": "a957df334ddc27e70349947e64a7de201481c9a96f367c92fe5942415a42dc82",
+    "test/KnowPulse.Application.Tests/KnowPulse.Application.Tests.csproj": "9060b17d5ba97742b403f6e2991cb8fd363acf5c372f3d477c5e1757ce94207a",
+    "test/KnowPulse.Domain.Tests/KnowPulse.Domain.Tests.csproj": "4539b890bccee6f8a5054a623c95d2ff44de16c7091e5d65a234cc81dcf8739d",
+    "test/KnowPulse.EntityFrameworkCore.Tests/KnowPulse.EntityFrameworkCore.Tests.csproj": "2aee2b702641ab250b405cc41ae62e8a5bda4578c953900a7c332544b1fb9db4",
+    "test/KnowPulse.HttpApi.Client.ConsoleTestApp/KnowPulse.HttpApi.Client.ConsoleTestApp.csproj": "eccbbbd462443ba5b35c8071ecd071bfa53eb4eae55d4a2c10df733053632aac",
+    "test/KnowPulse.TestBase/KnowPulse.TestBase.csproj": "32677cc59a517c8f1d1d7a27b900b0cc96aa026ca1bd7ec4c11c2cd1887d235f",
+    "src/KnowPulse.Application/Exam/ExamAppService.cs": "ec01f3d94cd713b17959f8aa0b334e6fda43c815b7abc026b81e844ff82bf1bf",
+    "src/KnowPulse.Domain/Exam/ExamAnswer.cs": "6a1a16d5f9429e916a1b5a4faef3f504c5b22273b00286d4721044d33592b486",
+    "src/KnowPulse.Domain/Exam/ExamAttempt.cs": "2dc327483414002c2390f1e70bcf1b7c784252396bf58ba1c0e242012dde9452",
+    "src/KnowPulse.Application/RagAI/KnowledgeRetriever.cs": "36cc1000d2f2f2c14e0a68c2d41f7559f19c045cc9628dbe4c4ef8781fbc174b",
+    "src/KnowPulse.Application/KnowledgeIndexing/KnowledgeIndexJobProcessor.cs": "bc652ddc48b3314eb7ae61e697de0d68f677c66ca04b42459ea46fa622c17d6a"
+  }
+}

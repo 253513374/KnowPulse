@@ -109,7 +109,7 @@
         _busy = true; _error = null;
         try
         {
-            _task = await Generation.CreateAsync(new() { KnowledgeItemIds = _selected.Keys.ToList(), KnowledgeScope = _theme.Trim(), KnowledgePointText = _requirements, Type = _type, RequestedCount = _count });
+            _task = await Generation.CreateAsync(new() { Scope = KnowledgeSearchScope.AllAccessible, KnowledgeItemIds = _selected.Keys.ToList(), KnowledgeScope = _theme.Trim(), KnowledgePointText = _requirements, Type = _type, RequestedCount = _count });
             TaskId = _task.Id;
         }
         catch (Exception ex) { _error = GetUserFriendlyErrorMessage(ex); }

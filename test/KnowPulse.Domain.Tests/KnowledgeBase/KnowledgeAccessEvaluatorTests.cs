@@ -8,6 +8,26 @@ namespace KnowPulse.KnowledgeBase;
 public class KnowledgeAccessEvaluatorTests
 {
     [Fact]
+    public void Should_Keep_Teacher_Ownership_With_Item_Aware_Three_Argument_Calls()
+    {
+        var ownerId = Guid.NewGuid();
+        var otherUserId = Guid.NewGuid();
+        var item = new KnowledgeItem(Guid.NewGuid(), null, "教师资料");
+        item.AssignTeacher(ownerId);
+        var allScope = new KnowledgePermissionScope(Guid.NewGuid(), null, item.Id, KnowledgePermissionScopeType.All);
+
+        KnowledgeAccessEvaluator.CanAccess(item, new[] { allScope }, new KnowledgeAccessContext(ownerId)).ShouldBeTrue();
+        KnowledgeAccessEvaluator.CanAccess(item, new[] { allScope }, new KnowledgeAccessContext(otherUserId)).ShouldBeFalse();
+        KnowledgeAccessEvaluator.CanAccess(item, new[] { allScope }, new KnowledgeAccessContext(otherUserId), allowLegacy: true).ShouldBeFalse();
+
+        var version = new KnowledgeVersion(Guid.NewGuid(), null, item.Id, 1, "公开内容");
+        item.SetCurrentPublishedVersion(version.Id);
+        var userScope = new KnowledgePermissionScope(Guid.NewGuid(), null, item.Id, KnowledgePermissionScopeType.User, otherUserId);
+
+        KnowledgeAccessEvaluator.CanAccess(item, new[] { userScope }, new KnowledgeAccessContext(otherUserId)).ShouldBeTrue();
+    }
+
+    [Fact]
     public void Should_Allow_When_No_Enabled_Scopes()
     {
         var context = new KnowledgeAccessContext(Guid.NewGuid());

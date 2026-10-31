@@ -12,7 +12,7 @@ namespace KnowPulse.Controllers.KnowledgeIndexing;
 /// 知识索引任务 HTTP API。
 /// Controller 只暴露稳定路由和授权标记，状态校验、归属校验和审计规则全部委托给应用服务。
 /// </summary>
-[Authorize(KnowPulsePermissions.KnowledgeIndexing.IndexJobs)]
+[Authorize]
 [Route("api/knowledge")]
 public class KnowledgeIndexJobsController : KnowPulseController
 {

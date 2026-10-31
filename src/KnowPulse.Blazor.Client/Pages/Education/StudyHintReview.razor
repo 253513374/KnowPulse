@@ -1,0 +1,91 @@
+@page "/education/study-tasks/recipients/{RecipientId:guid}/hints"
+@attribute [Authorize(EducationPermissions.LearningManage)]
+@attribute [Authorize(EducationPermissions.AssessmentManage)]
+@attribute [Authorize(KnowPulsePermissions.KnowledgeBase.PersonalLibrary)]
+@inherits KnowPulseComponentBase
+@using KnowPulse.Education
+@using System.Text.Json
+@inject IEducationStudyHintReviewAppService Reviews
+@inject IEducationStudyTaskAppService Study
+@inject IJSRuntime JS
+@inject Volo.Abp.Users.ICurrentUser Account
+@inject Volo.Abp.MultiTenancy.ICurrentTenant Tenant
+<PageTitle>@L["EducationStudyHint:Title"]</PageTitle>
+<NavigationLock ConfirmExternalNavigation="@(Busy || Dirty || Pending != null)" OnBeforeInternalNavigation="LeaveAsync" />
+<h1 class="kp-heading-4">@L["EducationStudyHint:Title"]</h1><p>@L["EducationStudyHint:Description"]</p><p class="kp-text-small kp-text-muted">@L["EducationStudy:LocalReceiptHint"]</p>
+@if (Error != null) { <p class="kp-alert kp-alert--error" role="alert">@Error</p> }
+@if (Receipt != null) { <p class="kp-alert kp-alert--success" role="status">@L["EducationGrading:Receipt", Receipt]</p> }
+@if (StorageAttempted && !StorageReady && Pending == null) { <p class="kp-alert kp-alert--warning" role="alert">@L["EducationGrading:NoReceipt"] <button class="kp-button kp-button--sm kp-button--secondary" disabled="@Busy" @onclick="AbandonAsync">@L["EducationReport:Abandon"]</button></p> }
+@if (Pending != null) { <div class="kp-alert kp-alert--info" role="status">@L["EducationGrading:Unknown"]
+    <button class="kp-button kp-button--sm kp-button--primary-outline" disabled="@Busy" @onclick="RecoverAsync">@L["EducationGrading:Recover"]</button>
+    <button class="kp-button kp-button--sm kp-button--primary-outline" disabled="@Busy" @onclick="(() => RunAsync(SendAsync))">@L["EducationReport:RetryCommand"]</button>
+    <button class="kp-button kp-button--sm kp-button--secondary" disabled="@Busy" @onclick="AbandonAsync">@L["EducationReport:Abandon"]</button></div> }
+<div class="kp-grid kp-grid-gap-3"><aside class="kp-col-12 kp-col-lg-4"><h2 class="kp-heading-6">@L["EducationStudyHint:Questions"]</h2><p class="kp-text-small kp-text-muted">@L["EducationStudyHint:CandidatesHint"]</p>
+    <div class="kp-list">@foreach (var item in Candidates) { <button class="kp-list__item list-group-item-action" disabled="@Locked" @onclick="(() => SelectAsync(item.Id))">@item.AssessmentTitle<br /><small>@L["EducationStudyHint:QuestionNumber", item.DisplayOrder] · @item.QuestionTitle</small></button> }</div>
+    @if (Candidates.Count == 0) { <p>@L["EducationStudyHint:Empty"]</p> }
+    <div class="kp-flex kp-gap-2 kp-mt-2"><button class="kp-button kp-button--sm kp-button--secondary" disabled="@(Locked || Offset == 0)" @onclick="(() => PageAsync(-1))">@L["EducationPaper:Previous"]</button><button class="kp-button kp-button--sm kp-button--secondary" disabled="@(Locked || Offset + 20 >= Total)" @onclick="(() => PageAsync(1))">@L["EducationPaper:Next"]</button></div>
+</aside><main class="kp-col-12 kp-col-lg-8">@if (Context is { } context) {
+    <a href="@($"/education/study-tasks/{context.TaskId}/progress")">@L["EducationStudy:Progress"]</a>
+    <section class="kp-card kp-card__body my-3"><h2 class="kp-heading-5">@context.TaskTitle · @L["EducationPlan:Version", context.VersionNumber]</h2>
+        <p>@context.StudentName · @context.ClassName · @context.SubjectName · @context.TextbookTitle</p><p>@L["EducationStudyHint:Provided", context.ExposedAtUtc.ToLocalTime().ToString("g")]</p>
+        <p class="text-break" style="white-space:pre-wrap">@context.Instructions</p>
+        <p>@context.StartsAtUtc.ToLocalTime().ToString("g") → @context.EndsAtUtc.ToLocalTime().ToString("g") · @L["EducationPlan:TotalMinutes", context.EstimatedMinutes]</p>
+        @if (!context.MaterialsAvailable) { <p class="kp-alert kp-alert--warning">@L["EducationStudyHint:MaterialUnavailable"]</p> }
+        <TeachingMaterialReader @key="context.PublicationId" ContextKey="@($"study-hint:{context.PublicationId}:{SelectionId}")" Materials="context.Materials" ReadMaterial="@(id => Study.GetTeacherMaterialAsync(context.TaskId, context.PublicationId, id))" DownloadMaterial="@((id, file) => Study.DownloadTeacherMaterialAsync(context.TaskId, context.PublicationId, id, file))" Disabled="@Locked" />
+    </section>
+    <section class="kp-card kp-card__body kp-mb-3"><h2 class="kp-heading-6">@context.Question.Title</h2><p class="text-break" style="white-space:pre-wrap">@context.Question.Stem</p>
+        <ul>@foreach (var option in context.Question.Options) { <li>@option.OptionKey · @option.Content</li> }</ul>
+        <details><summary>@L["EducationFormal:FrozenQuestions"]</summary><p class="text-break" style="white-space:pre-wrap">@context.Question.ReferenceAnswer</p><p>@string.Join(" / ", context.Question.CorrectAnswers)</p>
+            @foreach (var blank in context.Question.BlankAnswers) { <p class="text-break" style="white-space:pre-wrap">@blank</p> }
+            <p class="text-break" style="white-space:pre-wrap">@context.Question.Analysis</p><ul>@foreach (var point in context.Question.ScoringPoints) { <li>@point</li> }</ul>
+        </details>
+    </section>
+    @if (context.Current is { } current) { <p>@L["EducationEvidence:Version", current.RevisionNumber, current.RecordedAtUtc.ToLocalTime().ToString("g")] · @L[$"EducationEvidence:HintUse:{current.Use}"]</p><p class="text-break" style="white-space:pre-wrap">@current.Reason</p> }
+    @if (Historical is { } historical) { <aside class="kp-border kp-rounded kp-p-2 kp-mb-2"><h3 class="kp-heading-6">@L["EducationStudyHint:Historical"]</h3><p>@L["EducationEvidence:Version", historical.RevisionNumber, historical.RecordedAtUtc.ToLocalTime().ToString("g")] · @L[$"EducationEvidence:HintUse:{historical.Use}"]</p><p class="text-break" style="white-space:pre-wrap">@historical.Reason</p></aside> }
+    <button class="kp-button kp-button--sm kp-button--secondary kp-mb-3" disabled="@(Locked || (Historical == null ? context.Current?.BasedOnRevisionId : Historical.BasedOnRevisionId) == null)" @onclick="EarlierAsync">@L["EducationStudyHint:Earlier"]</button>
+    <button class="kp-button kp-button--secondary kp-mb-3" disabled="@Locked" @onclick="RefreshAsync">@L["EducationGrading:Refresh"]</button>
+    <fieldset disabled="@(Locked || !StorageReady)" @oninput="Changed" @onchange="Changed">
+        <label class="kp-block kp-mb-2">@L["EducationEvidence:ContextDecision"]<select class="kp-select" @bind="Use">@foreach (var use in Enum.GetValues<EducationLearningExposureUse>()) { <option value="@use" disabled="@(use == EducationLearningExposureUse.ConfirmedNoHints && !context.MaterialsAvailable)">@L[$"EducationEvidence:HintUse:{use}"]</option> }</select></label>
+        <label class="kp-block kp-mb-2"><input type="checkbox" @bind="Exact" /> @L["EducationStudyHint:Exact"]</label>
+        <label class="kp-block kp-mb-2">@L["EducationEvidence:Reason"]<textarea class="kp-input" maxlength="2048" rows="4" @bind="Reason"></textarea></label>
+        <button class="kp-button kp-button--primary" disabled="@(!Exact || string.IsNullOrWhiteSpace(Reason) || Use == EducationLearningExposureUse.ConfirmedNoHints && !context.MaterialsAvailable)" @onclick="SaveAsync">@L["EducationEvidence:Save"]</button>
+    </fieldset>
+}</main></div>
+@code {
+    [Parameter] public Guid RecipientId { get; set; }
+    [SupplyParameterFromQuery(Name = "questionId")] public Guid? QuestionId { get; set; }
+    private bool Busy, Dirty, StorageReady, StorageAttempted, Exact; private string? Error, LoadedKey; private Guid? Receipt, SelectionId;
+    private string Reason = ""; private EducationLearningExposureUse Use; private int Offset; private long Total;
+    private List<EducationStudyHintCandidateDto> Candidates = []; private EducationStudyHintContextDto? Context; private EducationStudyHintReviewRevisionDto? Historical; private Command? Pending;
+    private bool Locked => Busy || Pending != null; private string StorageKey => $"education-study-hints-v1:{Tenant.Id}:{Account.Id}:{RecipientId}";
+    protected override Task OnParametersSetAsync() => RunAsync(async () => { var key = $"{RecipientId}:{QuestionId}"; if (key == LoadedKey) return; LoadedKey = key;
+        Pending = null; StorageReady = StorageAttempted = false; SelectionId = QuestionId; Offset = 0; await LoadCandidatesAsync(); if (SelectionId is Guid id) await LoadContextAsync(id); });
+    protected override async Task OnAfterRenderAsync(bool firstRender) { if (StorageAttempted || Busy) return; StorageAttempted = true;
+        await RunAsync(async () => { var raw = await JS.InvokeAsync<string?>("sessionStorage.getItem", StorageKey); if (raw != null) { Pending = JsonSerializer.Deserialize<Command>(raw); ValidatePending(); } StorageReady = true; }); StateHasChanged(); }
+    private async Task LoadCandidatesAsync() { Candidates.Clear(); var page = await Reviews.GetHintCandidatesAsync(RecipientId, new() { SkipCount = Offset, MaxResultCount = 20 }); Candidates = page.Items.ToList(); Total = page.TotalCount; }
+    private async Task LoadContextAsync(Guid id) { Context = null; Historical = null; Dirty = Exact = false; Reason = ""; Context = await Reviews.GetHintContextAsync(RecipientId, id); SelectionId = id; Use = Context.Current?.Use ?? EducationLearningExposureUse.Unverified; }
+    private Task EarlierAsync() => RunAsync(async () => { var previous = Historical == null ? Context?.Current?.BasedOnRevisionId : Historical.BasedOnRevisionId;
+        if (previous is not Guid operation || SelectionId is not Guid question) return;
+        var value = await Reviews.GetHintReviewOperationAsync(RecipientId, question, operation) ?? throw new InvalidOperationException(L["EducationGrading:NoReceipt"]);
+        if (value.Id != operation || value.RecipientId != RecipientId || value.PaperQuestionId != question) throw new InvalidOperationException(L["EducationGrading:NoReceipt"]); Historical = value; });
+    private void Changed() => Dirty = true;
+    private async Task<bool> DiscardAsync() => !Dirty || await JS.InvokeAsync<bool>("confirm", L["EducationGrading:Discard"].Value);
+    private Task SelectAsync(Guid id) => RunAsync(async () => { if (await DiscardAsync()) await LoadContextAsync(id); });
+    private Task PageAsync(int direction) => RunAsync(async () => { Offset += direction * 20; await LoadCandidatesAsync(); });
+    private Task RefreshAsync() => RunAsync(async () => { if (SelectionId is Guid id && await DiscardAsync()) await LoadContextAsync(id); });
+    private Task SaveAsync() => RunAsync(async () => { if (Pending != null || !StorageReady || Context == null || SelectionId is not Guid question) return;
+        var command = new Command { RecipientId = RecipientId, PaperQuestionId = question, AccountId = Account.Id, TenantId = Tenant.Id,
+            Input = new() { OperationId = Guid.NewGuid(), ExpectedRevisionId = Context.Current?.Id, ConcurrencyStamp = Context.ConcurrencyStamp, Use = Use, ConfirmedExactContext = Exact, Reason = Reason } };
+        await JS.InvokeVoidAsync("sessionStorage.setItem", StorageKey, JsonSerializer.Serialize(command)); Pending = command; await SendAsync(); });
+    private void ValidatePending() { if (Pending is not { } p || p.RecipientId != RecipientId || p.PaperQuestionId == Guid.Empty || p.AccountId != Account.Id || p.TenantId != Tenant.Id ||
+        p.Input == null || p.Input.OperationId == Guid.Empty || !Enum.IsDefined(p.Input.Use) || !p.Input.ConfirmedExactContext || string.IsNullOrWhiteSpace(p.Input.Reason) || p.Input.Reason.Length > 2048) throw new InvalidOperationException(L["EducationGrading:NoReceipt"]); }
+    private async Task SendAsync() { ValidatePending(); var p = Pending!; await FinishAsync(await Reviews.SaveHintReviewAsync(p.RecipientId, p.PaperQuestionId, p.Input)); }
+    private Task RecoverAsync() => RunAsync(async () => { ValidatePending(); var p = Pending!; await FinishAsync(await Reviews.GetHintReviewOperationAsync(p.RecipientId, p.PaperQuestionId, p.Input.OperationId) ?? throw new InvalidOperationException(L["EducationGrading:NoReceipt"])); });
+    private async Task FinishAsync(EducationStudyHintReviewRevisionDto result) { ValidatePending(); var p = Pending!;
+        if (result.Id != p.Input.OperationId || result.RecipientId != p.RecipientId || result.PaperQuestionId != p.PaperQuestionId || result.RequestFingerprint != EducationStudyTaskFingerprint.HintReview(p.RecipientId, p.PaperQuestionId, p.Input)) throw new InvalidOperationException(L["EducationGrading:NoReceipt"]);
+        await JS.InvokeVoidAsync("sessionStorage.removeItem", StorageKey); Pending = null; Receipt = result.Id; await LoadContextAsync(result.PaperQuestionId); }
+    private Task AbandonAsync() => RunAsync(async () => { if (!await JS.InvokeAsync<bool>("confirm", L["EducationReport:AbandonHint"].Value)) return; await JS.InvokeVoidAsync("sessionStorage.removeItem", StorageKey); Pending = null; StorageReady = true; if (SelectionId is Guid id) await LoadContextAsync(id); });
+    private async Task LeaveAsync(Microsoft.AspNetCore.Components.Routing.LocationChangingContext context) { if (Busy || (Dirty || Pending != null) && !await JS.InvokeAsync<bool>("confirm", L["EducationGrading:Discard"].Value)) context.PreventNavigation(); }
+    private async Task RunAsync(Func<Task> action) { if (Busy) return; Busy = true; Error = null; try { await action(); } catch (Exception ex) { Error = GetUserFriendlyErrorMessage(ex); } finally { Busy = false; } }
+    private sealed class Command { public Guid RecipientId { get; set; } public Guid PaperQuestionId { get; set; } public Guid? AccountId { get; set; } public Guid? TenantId { get; set; } public SaveEducationHintReviewDto Input { get; set; } = new(); }
+}

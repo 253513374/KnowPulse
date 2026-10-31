@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1029 647" role="img" aria-labelledby="title desc"><title id="title">知识发布与后台索引</title><desc id="desc">实线是现有执行顺序；发布事务不包含后续外部处理；索引长事务为审计发现。</desc>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10Z" fill="#63768c"/></marker></defs>
+<rect width="1029" height="647" rx="18" fill="#f6f8fb"/>
+<text x="40" y="35" font-size="22" font-weight="700" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">知识发布与后台索引</text>
+<path d="M304,136.0 L330,140 L350,140 L370,136.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M634,136.0 L660,140 L680,140 L700,136.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M832.0,192 L830,210 L830,250 L832.0,275" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M700,331.0 L680,330 L660,330 L634,331.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M370,331.0 L350,330 L330,330 L304,331.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M172.0,387 L170,410 L170,450 L172.0,470" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M304,526.0 L330,530 L350,530 L370,526.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M634,526.0 L660,530 L680,530 L700,526.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<rect x="40" y="80" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="40" y="80" width="5" height="112" rx="2" fill="#126b82"/>
+<text x="172.0" y="124.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">条目 + 草稿</text>
+<text x="172.0" y="148.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">确认本人归属与范围</text>
+<rect x="370" y="80" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="370" y="80" width="5" height="112" rx="2" fill="#3654a5"/>
+<text x="502.0" y="124.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">附件上传</text>
+<text x="502.0" y="148.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">Blob + 元数据</text>
+<rect x="700" y="80" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="700" y="80" width="5" height="112" rx="2" fill="#80539b"/>
+<text x="832.0" y="124.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">发布事务</text>
+<text x="832.0" y="148.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">策略 / 当前版本 / 待处理任务</text>
+<rect x="700" y="275" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="700" y="275" width="5" height="112" rx="2" fill="#126b82"/>
+<text x="832.0" y="319.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">worker 认领任务</text>
+<text x="832.0" y="343.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">当前实现为长 UoW</text>
+<rect x="370" y="275" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="370" y="275" width="5" height="112" rx="2" fill="#3654a5"/>
+<text x="502.0" y="319.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">reader / processor</text>
+<text x="502.0" y="343.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">正文、附件、MarkItDown</text>
+<rect x="40" y="275" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="40" y="275" width="5" height="112" rx="2" fill="#80539b"/>
+<text x="172.0" y="319.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">chunker / persistence</text>
+<text x="172.0" y="343.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">停用旧块、保存新块</text>
+<rect x="40" y="470" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="40" y="470" width="5" height="112" rx="2" fill="#126b82"/>
+<text x="172.0" y="514.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">Embedding</text>
+<text x="172.0" y="538.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">模型版本与维度检查</text>
+<rect x="370" y="470" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="370" y="470" width="5" height="112" rx="2" fill="#3654a5"/>
+<text x="502.0" y="514.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">Qdrant upsert</text>
+<text x="502.0" y="538.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">分块 ID 为 point ID</text>
+<rect x="700" y="470" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="700" y="470" width="5" height="112" rx="2" fill="#80539b"/>
+<text x="832.0" y="514.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">Indexed / Failed</text>
+<text x="832.0" y="538.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">进度、退避与恢复链</text>
+</svg>

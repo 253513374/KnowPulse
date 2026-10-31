@@ -1,0 +1,98 @@
+@page "/education/teaching-plans/contexts/{ExposureId:guid}"
+@attribute [Authorize(EducationPermissions.TeachingPlanManage)]
+@attribute [Authorize(EducationPermissions.AnalysisManage)]
+@attribute [Authorize(EducationPermissions.AssessmentManage)]
+@inherits KnowPulseComponentBase
+@using KnowPulse.Education
+@using System.Text.Json
+@inject IEducationTeachingPlanAppService Plans
+@inject IJSRuntime JS
+@inject Volo.Abp.Users.ICurrentUser Account
+@inject Volo.Abp.MultiTenancy.ICurrentTenant Tenant
+
+<PageTitle>@L["EducationPlan:HintTitle"]</PageTitle>
+<NavigationLock ConfirmExternalNavigation="@(Busy || Dirty || Pending != null)" OnBeforeInternalNavigation="LeaveAsync" />
+<h1 class="kp-heading-4">@L["EducationPlan:HintTitle"]</h1><p>@L["EducationPlan:HintExplanation"]</p>
+@if (Error != null) { <div class="kp-alert kp-alert--error" role="alert">@Error</div> }
+@if (Receipt != null) { <p class="kp-alert kp-alert--success" role="status">@L["EducationGrading:Receipt", Receipt]</p> }
+@if (Pending != null) {
+    <div class="kp-alert kp-alert--info" role="status">@L["EducationGrading:Unknown"]
+        <button class="kp-button kp-button--sm kp-button--primary-outline" disabled="@Busy" @onclick="RecoverAsync">@L["EducationGrading:Recover"]</button>
+        <button class="kp-button kp-button--sm kp-button--primary-outline" disabled="@Busy" @onclick="(() => RunAsync(SendAsync))">@L["EducationReport:RetryCommand"]</button>
+        <button class="kp-button kp-button--sm kp-button--secondary" disabled="@Busy" @onclick="DiscardAsync">@L["EducationReport:Abandon"]</button>
+    </div>
+}
+else if (StorageAttempted && !StorageReady) { <button class="kp-button kp-button--secondary" disabled="@Busy" @onclick="DiscardAsync">@L["EducationReport:Abandon"]</button> }
+@if (Context is { } context) {
+    <a href="@($"/education/teaching-plans?planId={context.PlanId}")">@L["EducationPlan:Title"]</a>
+    <p class="kp-mt-3">@L["EducationPlan:HintVersion", context.PlanRevisionNumber, context.ExposedAtUtc.ToLocalTime().ToString("g")]</p>
+    <section class="kp-card kp-mb-3"><div class="kp-card__body">
+        <h2 class="kp-heading-5">@context.Content.Title</h2><p style="white-space:pre-wrap">@context.Content.StudentGoal</p>
+        <p>@context.Content.StartsAtUtc.ToLocalTime().ToString("g") → @context.Content.EndsAtUtc.ToLocalTime().ToString("g")</p>
+        <ul>@foreach (var point in context.Content.Targets) { <li>@point.Code · @point.Name · @L["EducationCurriculum:RevisionNumber", point.RevisionNumber]</li> }</ul>
+        <h3 class="kp-heading-6">@L["EducationPlan:Actions"]</h3><p style="white-space:pre-wrap">@context.Content.TeacherActions</p>
+        <ol>@foreach (var step in context.Content.Steps) { <li><strong>@step.Title</strong> · @L[$"EducationPlan:Step:{(int)step.Kind}"]<p style="white-space:pre-wrap">@step.Instructions</p><p>@L["EducationPlan:TotalMinutes", step.EstimatedMinutes] · @step.DueAtUtc.ToLocalTime().ToString("g")</p></li> }</ol>
+        <p>@L["EducationPlan:Reassessment"] · @context.Content.ReassessmentAtUtc.ToLocalTime().ToString("g")</p><p style="white-space:pre-wrap">@context.Content.SuccessCriteria</p>
+        <TeachingMaterialReader PlanId="context.PlanId" RevisionId="context.PlanRevisionId" Materials="context.Content.Materials" Disabled="@(Busy || Pending != null)" />
+        @if (context.Content.Materials.Count > 0) { <p class="kp-alert kp-alert--warning">@L["EducationMaterial:HintReview"]</p> }
+    </div></section>
+    <details class="kp-mb-3"><summary>@context.QuestionTitle</summary><p style="white-space:pre-wrap">@context.QuestionStem</p><p style="white-space:pre-wrap">@context.ReferenceAnswer</p><p>@string.Join(" / ", context.CorrectAnswers)</p>@foreach (var answer in context.BlankAnswers) { <p style="white-space:pre-wrap">@answer</p> }</details>
+    @if (context.Current is { } current) { <p>@L["EducationEvidence:Version", current.RevisionNumber, current.RecordedAtUtc.ToLocalTime().ToString("g")]</p><p style="white-space:pre-wrap">@current.Reason</p> }
+    <button class="kp-button kp-button--secondary kp-mb-3" disabled="@(Busy || Pending != null)" @onclick="RefreshAsync">@L["EducationGrading:Refresh"]</button>
+    <fieldset disabled="@(Busy || Pending != null || !StorageReady)" @oninput="Changed" @onchange="Changed">
+        <label for="plan-hint-use" class="kp-label">@L["EducationEvidence:ContextDecision"]</label>
+        <select id="plan-hint-use" class="kp-select kp-mb-2" @bind="Use">@foreach (var use in Enum.GetValues<EducationLearningExposureUse>()) { <option value="@use">@L[$"EducationEvidence:HintUse:{use}"]</option> }</select>
+        <label class="kp-block kp-mb-2"><input type="checkbox" @bind="ExactContext" /> @L["EducationPlan:HintExact"]</label>
+        <label for="plan-hint-reason" class="kp-label">@L["EducationEvidence:Reason"]</label><textarea id="plan-hint-reason" class="kp-input kp-mb-2" maxlength="2048" @bind="Reason" @bind:event="oninput"></textarea>
+        <button class="kp-button kp-button--primary" disabled="@(!ExactContext || string.IsNullOrWhiteSpace(Reason))" @onclick="SaveAsync">@L["EducationEvidence:Save"]</button>
+    </fieldset>
+}
+
+@code {
+    [Parameter] public Guid ExposureId { get; set; }
+    private bool Busy, Dirty, ExactContext, StorageReady, StorageAttempted; private Guid? LoadedId, Receipt;
+    private string? Error; private string Reason = ""; private EducationLearningExposureUse Use;
+    private EducationTeachingPlanHintContextDto? Context; private Command? Pending;
+    private string StorageKey => $"knowpulse-plan-context-review-v1:{Tenant.Id}:{Account.Id}:{ExposureId}";
+    protected override Task OnParametersSetAsync() => RunAsync(async () => { if (LoadedId == ExposureId) return; LoadedId = ExposureId; StorageReady = StorageAttempted = false; Pending = null; await LoadAsync(); });
+    protected override async Task OnAfterRenderAsync(bool firstRender) {
+        if (StorageAttempted || Busy) return; StorageAttempted = true;
+        await RunAsync(async () => {
+            var raw = await JS.InvokeAsync<string?>("sessionStorage.getItem", StorageKey);
+            if (raw != null) { var saved = JsonSerializer.Deserialize<Command>(raw); if (saved == null || !Matches(saved)) throw new InvalidOperationException(L["EducationGrading:NoReceipt"]); Pending = saved; }
+            StorageReady = true;
+        }); StateHasChanged();
+    }
+    private bool Matches(Command command) => command.ExposureId == ExposureId && command.AccountId == Account.Id && command.TenantId == Tenant.Id && command.Input != null &&
+        command.Input.OperationId != Guid.Empty && Enum.IsDefined(command.Input.Use) && !string.IsNullOrWhiteSpace(command.Input.Reason) && command.Input.Reason.Length <= 2048 && command.Input.ConfirmedExactContext;
+    private async Task LoadAsync() { Context = null; Dirty = false; ExactContext = false; Reason = ""; Context = await Plans.GetHintContextAsync(ExposureId); Use = Context.Current?.Use ?? EducationLearningExposureUse.Unverified; }
+    private void Changed() => Dirty = true;
+    private Task RefreshAsync() => RunAsync(async () => { if (!Dirty || await JS.InvokeAsync<bool>("confirm", L["EducationGrading:Discard"].Value)) await LoadAsync(); });
+    private Task SaveAsync() => RunAsync(async () => {
+        if (Pending != null || !StorageReady || Context == null) return;
+        var command = new Command { ExposureId = ExposureId, AccountId = Account.Id, TenantId = Tenant.Id, Input = new() { OperationId = Guid.NewGuid(),
+            ExpectedRevisionId = Context.Current?.Id, ConcurrencyStamp = Context.ConcurrencyStamp, Use = Use, ConfirmedExactContext = ExactContext, Reason = Reason } };
+        await JS.InvokeVoidAsync("sessionStorage.setItem", StorageKey, JsonSerializer.Serialize(command)); Pending = command; await SendAsync();
+    });
+    private async Task SendAsync() {
+        if (Pending == null || !Matches(Pending)) throw new InvalidOperationException(L["EducationGrading:NoReceipt"]);
+        await FinishAsync(await Plans.SaveHintReviewAsync(ExposureId, Pending.Input));
+    }
+    private Task RecoverAsync() => RunAsync(async () => {
+        if (Pending == null || !Matches(Pending)) throw new InvalidOperationException(L["EducationGrading:NoReceipt"]);
+        var receipt = await Plans.GetHintReviewOperationAsync(ExposureId, Pending.Input.OperationId);
+        if (receipt == null) throw new InvalidOperationException(L["EducationGrading:NoReceipt"]); await FinishAsync(receipt);
+    });
+    private async Task FinishAsync(EducationTeachingPlanHintReviewRevisionDto receipt) {
+        Receipt = receipt.Id; await JS.InvokeVoidAsync("sessionStorage.removeItem", StorageKey); Pending = null; await LoadAsync();
+    }
+    private Task DiscardAsync() => RunAsync(async () => {
+        if (!await JS.InvokeAsync<bool>("confirm", L["EducationReport:AbandonHint"].Value)) return;
+        await JS.InvokeVoidAsync("sessionStorage.removeItem", StorageKey); Pending = null; StorageReady = true; await LoadAsync();
+    });
+    private async Task LeaveAsync(Microsoft.AspNetCore.Components.Routing.LocationChangingContext context) {
+        if (Busy || (Dirty || Pending != null) && !await JS.InvokeAsync<bool>("confirm", L["EducationGrading:Discard"].Value)) context.PreventNavigation();
+    }
+    private async Task RunAsync(Func<Task> action) { if (Busy) return; Busy = true; Error = null; try { await action(); } catch (Exception ex) { Error = GetUserFriendlyErrorMessage(ex); } finally { Busy = false; } }
+    private sealed class Command { public Guid ExposureId { get; set; } public Guid? AccountId { get; set; } public Guid? TenantId { get; set; } public SaveEducationHintReviewDto Input { get; set; } = new(); }
+}

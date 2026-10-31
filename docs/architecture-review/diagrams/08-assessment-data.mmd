@@ -1,0 +1,26 @@
+flowchart TD
+  %% 箭头表示持久引用或派生依据；当前指针与历史修订分开，省略外围关系。
+  n0["ExamPaper / Question · 冻结卷与题目"]
+  n1["AssessmentTask / Revision · 发布任务"]
+  n2["Recipient / Attempt · 固定接收人与尝试"]
+  n3["CurrentResponse / Revision · 当前答案与原修订"]
+  n4["Submission · 封存清单"]
+  n5["QuestionGrade / Revision · 确认评分与全量证据"]
+  n6["Closure / ResultRelease · 全名单封存与统一开放"]
+  n7["ReleaseItem · 每份提交的评分版本"]
+  n8["LearningReportSnapshot · 规则、窗口、证据指纹"]
+  n9["TeachingPlan / Revision · 老师确认与下发"]
+  n10["Activity / Decision · 执行、困难与复盘"]
+  n11["FormalAssessmentLink · 诊断 / 新题复测"]
+  n0 -->|"引用"| n1
+  n1 -->|"分配"| n2
+  n2 -->|"作答"| n3
+  n3 -->|"封存"| n4
+  n4 -->|"评分"| n5
+  n5 -->|"冻结引用"| n7
+  n6 -->|"包含"| n7
+  n7 -->|"正式证据"| n8
+  n8 -->|"拟定"| n9
+  n9 -->|"执行"| n10
+  n10 -->|"关联"| n11
+  n11 -->|"独立任务"| n1

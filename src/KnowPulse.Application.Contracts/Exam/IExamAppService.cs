@@ -10,6 +10,11 @@ namespace KnowPulse.Exam;
 public interface IExamAppService : IApplicationService
 {
     [Authorize(KnowPulsePermissions.Exam.Manage)]
+    Task<ExamPaperDto> SavePaperAsync(GenerateExamPaperDto input);
+
+    [Authorize(KnowPulsePermissions.Exam.Manage)]
+    Task<ExamPaperDto> GetSavedPaperAsync(Guid id);
+    [Authorize(KnowPulsePermissions.Exam.Manage)]
     Task<PagedResultDto<ExamPlanDto>> GetPlanListAsync(GetExamPlanListInput input);
 
     [Authorize(KnowPulsePermissions.Exam.Manage)]

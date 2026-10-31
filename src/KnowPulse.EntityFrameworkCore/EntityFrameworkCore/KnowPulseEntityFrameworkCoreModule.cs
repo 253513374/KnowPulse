@@ -1,6 +1,7 @@
-﻿using System;
+using System;
 using Microsoft.Extensions.DependencyInjection;
 using Volo.Abp.Uow;
+using KnowPulse.WeChat;
 using Volo.Abp.AuditLogging.EntityFrameworkCore;
 using Volo.Abp.BackgroundJobs.EntityFrameworkCore;
 using Volo.Abp.EntityFrameworkCore;
@@ -45,7 +46,9 @@ public class KnowPulseEntityFrameworkCoreModule : AbpModule
                  * default repositories only for aggregate roots */
             options.AddDefaultRepositories(includeAllEntities: true);
             options.AddRepository<KnowPulse.Exam.ExamAttempt, KnowPulse.EntityFrameworkCore.Exam.EfCoreExamAttemptRepository>();
+            options.AddRepository<WeChatAccountBinding, WeChatAccountBindingRepository>();
         });
+        context.Services.AddTransient<IWeChatAccountBindingRepository, WeChatAccountBindingRepository>();
 
         Configure<AbpDbContextOptions>(options =>
         {

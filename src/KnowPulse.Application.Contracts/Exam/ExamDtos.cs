@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using KnowPulse.Education;
 using KnowPulse.QuestionBank;
 using Volo.Abp.Application.Dtos;
 
@@ -29,6 +30,8 @@ public class ExamPlanDto : FullAuditedEntityDto<Guid>
 
 public class ExamPaperDto : FullAuditedEntityDto<Guid>
 {
+    public Guid? OperationId { get; set; }
+    public EducationCurriculumSnapshot? Curriculum { get; set; }
     public string Title { get; set; } = string.Empty;
     public ExamPaperBuildMode BuildMode { get; set; }
     public Guid? ApplicablePositionId { get; set; }
@@ -40,6 +43,16 @@ public class ExamPaperDto : FullAuditedEntityDto<Guid>
 
 public class ExamPaperQuestionDto : EntityDto<Guid>
 {
+    /// <summary>仅教师管理视角返回；学生控件信息见 ResponseFields。</summary>
+    public QuestionScoringDefinition? ScoringDefinition { get; set; }
+    public Guid? QuestionDefinitionRevisionId { get; set; }
+    public List<ExamResponseFieldDto> ResponseFields { get; set; } = [];
+    public EducationCurriculumSnapshot? Curriculum { get; set; }
+    public List<QuestionCurriculumPointWeight> CurriculumPointWeights { get; set; } = [];
+    public List<EducationCurriculumScoringPointDto> CurriculumScoringPoints { get; set; } = [];
+    public List<EducationCurriculumSourceReference> CurriculumSources { get; set; } = [];
+    public Guid? CurriculumConfirmedByUserId { get; set; }
+    public DateTime? CurriculumConfirmedAtUtc { get; set; }
     public Guid PaperId { get; set; }
     public Guid OriginalQuestionId { get; set; }
     public QuestionType Type { get; set; }
@@ -55,6 +68,13 @@ public class ExamPaperQuestionDto : EntityDto<Guid>
     public decimal Score { get; set; }
     public MultipleChoiceScoringMode MultipleChoiceScoringMode { get; set; }
     public int DisplayOrder { get; set; }
+}
+
+public class ExamResponseFieldDto
+{
+    public Guid Id { get; set; }
+    public int DisplayOrder { get; set; }
+    public string StemMarker { get; set; } = string.Empty;
 }
 
 public class ExamPaperQuestionOptionDto

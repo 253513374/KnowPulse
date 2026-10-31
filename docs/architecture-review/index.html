@@ -1,0 +1,2229 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>KnowPulse 技术与架构审查 · 2026-10-18</title><style>*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;color:#1c2b42;background:#eef2f7;font:16px/1.85 "Microsoft YaHei","Segoe UI",sans-serif}aside{position:fixed;inset:0 auto 0 0;width:260px;background:#10223a;color:white;padding:30px 22px;overflow:auto}aside h2{font-size:24px;margin:0 0 6px}aside small{color:#b6c6dc}nav{margin-top:28px}nav a{display:block;color:#c9d7e8;text-decoration:none;margin:6px 0;padding:9px 10px;border-radius:6px;font-size:14px}nav a:hover{background:#243e5d;color:white}main{margin-left:260px;padding:28px 44px 80px;max-width:1540px}section{background:white;margin-bottom:26px;padding:34px 42px;border:1px solid #dbe3ed;border-radius:12px;scroll-margin-top:20px}h1{font-size:29px;line-height:1.35;color:#10223a;margin-top:0}h2{font-size:23px;border-bottom:1px solid #e1e8f0;padding-bottom:10px;margin-top:38px}h3{font-size:19px;margin-top:30px}p,li{max-width:100ch}a{overflow-wrap:anywhere;color:#096b91;text-underline-offset:3px}table{width:100%;border-collapse:collapse;margin:20px 0;font-size:14px;line-height:1.7;display:table;table-layout:auto}th{background:#eaf1f8;text-align:left;color:#153854}td,th{padding:10px 12px;border:1px solid #dbe3ed;overflow-wrap:anywhere}code{font:13px/1.6 Consolas,monospace;background:#eef3f8;border-radius:3px;padding:2px 4px;overflow-wrap:anywhere}pre{background:#10223a;color:#eaf3ff;padding:18px;overflow:auto;border-radius:7px}pre code{background:transparent;color:inherit}figure{margin:25px 0}.diagram{background:transparent;border:0;padding:0;width:100%;cursor:zoom-in}.diagram svg{width:100%;height:auto;display:block}figcaption{color:#5b6d82;font-size:13px;text-align:center}dialog{border:0;border-radius:12px;padding:25px;max-width:96vw;max-height:94vh;width:1450px;overflow:auto}dialog::backdrop{background:#0b1a30d9}dialog svg{display:block;width:100%;min-width:800px;height:auto}#close{position:sticky;top:0;float:right;font-size:16px;padding:8px 18px;cursor:pointer}#filter{width:100%;margin-top:20px;padding:9px;border:1px solid #6b83a1;border-radius:6px;background:#19314f;color:white}section[hidden]{display:none}@media(max-width:900px){aside{position:static;width:auto}nav{display:flex;flex-wrap:wrap}main{margin:0;padding:12px}section{padding:22px 18px}table{display:block;overflow:auto}h1{font-size:25px}}@media print{aside{display:none}main{margin:0;padding:0}section{border:0;padding:0;break-before:page}section:first-child{break-before:auto}figure,table{break-inside:avoid}dialog{display:none}}</style></head><body><aside><h2>KnowPulse</h2><small>技术与架构审查<br>2026-10-18 · 文件快照</small><label for="filter"><input id="filter" placeholder="筛选章节" type="search" aria-label="按关键词筛选章节"></label><nav><a href="#README">KnowPulse 全仓库技术与架构审查</a><a href="#audit-report">全仓库审计报告</a><a href="#technical-architecture">技术架构：当前实现</a><a href="#code-map">代码结构与开发导航</a><a href="#data-and-flows">数据关系与核心流程</a><a href="#operations-and-validation">部署、运行与验证</a><a href="#sources-and-coverage">来源、覆盖范围与证据等级</a></nav></aside><main><section id="README"><h1>KnowPulse 全仓库技术与架构审查</h1>
+<p>审查日期：2026-10-18（Asia/Shanghai）。范围：当前工作区中的服务端、Web、小程序、数据库模型、后台任务、测试与运维脚本。本文档描述<strong>实际代码</strong>，不是未来架构承诺，也不替代产品 PRD。</p>
+<p>推荐打开 <a href="index.html">离线图文阅读版</a>。它包含本目录全文、可放大的架构图和目录导航，无需联网。Markdown 是可编辑正文，<code>diagrams/</code> 同时保存 SVG 和 Mermaid 图源。</p>
+<table>
+<thead>
+<tr>
+<th>文档</th>
+<th>主要内容</th>
+<th>适合读者</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="#audit-report">审计报告</a></td>
+<td>8 项经核对的问题、触发场景、最小修复与验证边界</td>
+<td>技术负责人、维护者</td>
+</tr>
+<tr>
+<td><a href="#technical-architecture">技术架构</a></td>
+<td>系统边界、真实技术栈、分层、授权、外部适配、关键取舍</td>
+<td>架构师、新成员</td>
+</tr>
+<tr>
+<td><a href="#code-map">代码结构</a></td>
+<td>项目引用图、模块入口、修改导航、源码体量、依赖清单</td>
+<td>开发者</td>
+</tr>
+<tr>
+<td><a href="#data-and-flows">数据与核心流程</a></td>
+<td>知识、教材、考试、分析、方案、微信和通知的关系与时序</td>
+<td>后端、前端、测试</td>
+</tr>
+<tr>
+<td><a href="#operations-and-validation">部署、运行与验证</a></td>
+<td>本地拓扑、六类消费者、一致性、配置、恢复与发布条件</td>
+<td>运维、后端、测试</td>
+</tr>
+<tr>
+<td><a href="#sources-and-coverage">来源与覆盖范围</a></td>
+<td>证据索引、实际检查、未查区域、已确认产品决定</td>
+<td>评审者</td>
+</tr>
+<tr>
+<td><a href="inventory.json">结构化清单</a></td>
+<td>实际项目引用、直接包依赖与文件统计</td>
+<td>工具、后续维护者</td>
+</tr>
+</tbody>
+</table>
+<h2>结论先读</h2>
+<p>项目适合继续采用 ABP 分层单体。PostgreSQL 保存事实、Blob 保存原件、Qdrant 保存可重建索引的职责划分清楚；教育路径已经具备冻结答卷、评分修订、统一成绩发布和教师确认方案的完整数据模型。没有证据支持现在拆成微服务或引入新的通用工作流平台。</p>
+<p>优先处理审计报告的 <strong>1–4 项</strong>：旧考试答案覆盖、旧考试超时恢复、旧向量挤占召回、索引长事务。它们不等同于“教育闭环全部失效”；旧企业考试与教育测评必须分别评估。</p>
+<p>本轮只新增审查文档和图，并同步已确认的账号支持决策文字。<strong>没有修复业务代码，没有应用迁移，没有提交或部署。</strong></p>
+<h2>基线与阅读约定</h2>
+<ul>
+<li>当前 <code>.git</code> 指向的外部 worktree 元数据目录不存在，<code>git status</code> / <code>git rev-parse HEAD</code> 失败。因此不能给出可信的本轮 commit SHA 或干净 diff；审查对象是当时文件内容，不能套用此前回合的提交信息。</li>
+<li>负载假设：单个学校可同时有多个教师和多个班级使用；默认共享 PostgreSQL 数据库，单 API Host 是最低部署；多 Host 只作为扩容边界检查，未假定已经通过压测。D09 尚无正式人数、吞吐和 P95 指标。</li>
+<li>“已实现”指找到对应调用与模型，不自动表示真机、真实教材、生产数据和并发场景已验收。</li>
+<li>箭头含义在每张图标题说明中定义；项目引用图是编译依赖，系统图是运行调用，数据关系图是简化业务关系，不能互相替代。</li>
+<li>不计入第三方库、构建产物；迁移及快照单列。检查没有把重复生成的 EF Designer 当作业务复杂度。</li>
+</ul>
+<p><figure><button class="diagram" aria-label="放大 系统运行架构"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1029 837" role="img" aria-labelledby="title desc"><title id="title">系统运行架构</title><desc id="desc">箭头表示运行调用或数据访问；外部服务不保存最终业务权限。</desc>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10Z" fill="#63768c"/></marker></defs>
+<rect width="1029" height="837" rx="18" fill="#f6f8fb"/>
+<text x="40" y="35" font-size="22" font-weight="700" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">系统运行架构</text>
+<path d="M304,136.0 L330,140 L350,140 L370,136.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M172.0,192 L170,210 L170,250 L172.0,270" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M634,136.0 L660,140 L660,330 L680,330 L700,326.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M304,326.0 L330,330 L680,330 L700,326.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M832.0,382 L830,400 L830,440 L832.0,465" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M700,326.0 L680,330 L680,520 L660,520 L634,521.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M700,326.0 L680,330 L680,340 L330,340 L330,720 L304,716.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M832.0,382 L830,400 L650,400 L650,640 L500,640 L502.0,660" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M634,716.0 L660,720 L680,720 L700,716.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<rect x="40" y="80" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="40" y="80" width="5" height="112" rx="2" fill="#126b82"/>
+<text x="172.0" y="136.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">教师 / 学生 / 学校管理员</text>
+<rect x="370" y="80" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="370" y="80" width="5" height="112" rx="2" fill="#3654a5"/>
+<text x="502.0" y="124.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">Blazor WebAssembly</text>
+<text x="502.0" y="148.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">网页工作区</text>
+<rect x="700" y="270" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="700" y="270" width="5" height="112" rx="2" fill="#80539b"/>
+<text x="832.0" y="314.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">HttpApi.Host</text>
+<text x="832.0" y="338.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">API / Account / workers</text>
+<rect x="700" y="465" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="700" y="465" width="5" height="112" rx="2" fill="#126b82"/>
+<text x="832.0" y="509.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">PostgreSQL</text>
+<text x="832.0" y="533.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">业务事实与任务</text>
+<rect x="370" y="465" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="370" y="465" width="5" height="112" rx="2" fill="#3654a5"/>
+<text x="502.0" y="509.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">MinIO / Blob</text>
+<text x="502.0" y="533.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">原件、图片、导出</text>
+<rect x="40" y="270" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="40" y="270" width="5" height="112" rx="2" fill="#80539b"/>
+<text x="172.0" y="314.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">原生微信小程序</text>
+<text x="172.0" y="338.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">一个 AppID · 两个工作区</text>
+<rect x="40" y="660" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="40" y="660" width="5" height="112" rx="2" fill="#126b82"/>
+<text x="172.0" y="704.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">Qdrant</text>
+<text x="172.0" y="728.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">候选向量索引</text>
+<rect x="370" y="660" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="370" y="660" width="5" height="112" rx="2" fill="#3654a5"/>
+<text x="502.0" y="704.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">LiteLLM</text>
+<text x="502.0" y="728.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">Chat 与 Embedding 网关</text>
+<rect x="700" y="660" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="700" y="660" width="5" height="112" rx="2" fill="#80539b"/>
+<text x="832.0" y="704.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">模型供应商</text>
+<text x="832.0" y="728.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">具体模型与费用</text>
+<rect x="316.0" y="130.0" width="38" height="20" rx="4" fill="#f6f8fb"/><text x="335.0" y="140.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#43526b">网页</text>
+<rect x="151.0" y="210.0" width="38" height="20" rx="4" fill="#f6f8fb"/><text x="170.0" y="220.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#43526b">微信</text>
+<rect x="595.5" y="225.0" width="129" height="20" rx="4" fill="#f6f8fb"/><text x="660.0" y="235.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#43526b">契约 / HTTP</text>
+<rect x="379.0" y="320.0" width="77" height="20" rx="4" fill="#f6f8fb"/><text x="417.5" y="330.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#43526b">HTTPS</text>
+<rect x="811.0" y="400.0" width="38" height="20" rx="4" fill="#f6f8fb"/><text x="830.0" y="410.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#43526b">事务</text>
+<rect x="661.0" y="415.0" width="38" height="20" rx="4" fill="#f6f8fb"/><text x="680.0" y="425.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#43526b">文件</text>
+<rect x="298.0" y="425.0" width="64" height="20" rx="4" fill="#f6f8fb"/><text x="330.0" y="435.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#43526b">REST</text>
+<rect x="637.0" y="390.0" width="116" height="20" rx="4" fill="#f6f8fb"/><text x="695.0" y="400.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#43526b">模型 alias</text>
+<rect x="646.0" y="710.0" width="38" height="20" rx="4" fill="#f6f8fb"/><text x="665.0" y="720.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#43526b">调用</text>
+</svg></button><figcaption>系统运行架构 · 点击放大 · <a href="diagrams/01-system.mmd">Mermaid 图源</a></figcaption></figure></p>
+<h2>图目录</h2>
+<ol>
+<li>系统运行架构：师生入口、API、事实库与外部服务。</li>
+<li>.NET 项目引用：由当前 <code>.csproj</code> 生成的实际依赖方向。</li>
+<li>业务代码结构：主模块与代码位置。</li>
+<li>知识发布及索引：关系型提交与外部处理的边界。</li>
+<li>权限感知 RAG：候选召回与主库复核。</li>
+<li>教育测评生命周期：冻结、封存、批改和发布。</li>
+<li>知识与学校数据关系：账号所有权、成员、课程与共享。</li>
+<li>教育证据数据关系：答卷、修订、成绩、报告和方案。</li>
+<li>微信绑定及请求校验：原账号、微信证明、令牌与失效。</li>
+<li>学情与教学闭环：证据、规则、教师确认和新题复测。</li>
+<li>本地部署拓扑：实际进程、容器和端口。</li>
+<li>小程序会话与恢复：内存令牌、身份代次、回执和正文分离。</li>
+</ol>
+</section><section id="audit-report"><h1>全仓库审计报告</h1>
+<p><strong>What this repo does:</strong> KnowPulse 管理企业和教师的知识资料、检索问答、题库、考试与学习。教育模块进一步支持学校关系、师生微信工作区、冻结测评、学情证据和教师确认的教学方案。按共享 PostgreSQL、多个师生同时使用的学校场景审查；生产容量未给定，不虚构承载人数。</p>
+<p>本报告只列能落到输入或执行路径的问题，共 <strong>8 项</strong>。1、2 有本轮纯领域代码探针；3、4、5、6 是源码路径结论，其中 4 另外核对了当前 ABP 版本的事务规则；7 是可复现的脚本失败；8 是测试边界缺口。没有把已记录的规模限制、尚未确认的产品政策和推测性安全问题当成缺陷。</p>
+<h2>Must fix · 优先修复</h2>
+<h3>1. 旧考试会用迟到的答案覆盖较新的答案</h3>
+<ul>
+<li><strong>What this is:</strong> 企业旧考试的 <code>ExamAnswer.Save</code> 接收答案内容和客户端版本。入口为 <a href="../../src/KnowPulse.Application/Exam/ExamAppService.cs#L322">ExamAppService.SaveAnswersAsync</a>，规则在 <a href="../../src/KnowPulse.Domain/Exam/ExamAnswer.cs#L45">ExamAnswer.cs</a>。</li>
+<li><strong>Problem:</strong> 已保存版本 2 的答案 B，另一设备迟到地提交版本 1 的答案 A；代码接受 A 并将其升为版本 3。本轮实际调用领域对象复现，旧版本没有被当成冲突。</li>
+<li><strong>Fix:</strong> 按现有客户端协议拒绝低于或等于当前版本的非重复请求；同一操作标识仅在内容一致时返回旧回执。检查 Web 调用方的版本含义后同步修正，并增加一个双设备乱序保存用例。</li>
+<li><strong>If we skip it:</strong> 网络乱序或换设备后会静默丢失较新的作答。教育专用响应修订使用另一套版本检查，不可因该路径较完善而忽略仍可访问的企业旧入口。</li>
+</ul>
+<h3>2. 旧考试超时后仍恢复同一份不可编辑的答卷</h3>
+<ul>
+<li><strong>What this is:</strong> <a href="../../src/KnowPulse.Application/Exam/ExamAppService.cs#L264">StartAttemptAsync</a> 优先返回任一 <code>InProgress</code> 答卷；<a href="../../src/KnowPulse.Domain/Exam/ExamAttempt.cs#L64">ExamAttempt</a> 控制作答时限。</li>
+<li><strong>Problem:</strong> 计划还开放且允许两次尝试时，第一次答卷已经超时，恢复入口仍返回它。保存只抛异常而不改变状态；提交先设 <code>Expired</code> 再抛异常，正常事务回滚后不会持久化这个变化；当前后台截止任务只处理教育答卷。</li>
+<li><strong>Fix:</strong> 在同一事务内先结束已经超时的旧答卷，再判断剩余次数并返回或创建有效尝试。不要依赖抛出异常前的状态赋值完成持久化；保留已经保存的答案。</li>
+<li><strong>If we skip it:</strong> 用户进入“能恢复、不能保存或提交、也不能开始下一次”的死路。本轮探针确认超时保存被拒后对象仍为 <code>InProgress</code>，数据库回滚部分为源码与事务规则推导，未做真实 PostgreSQL 复现。</li>
+</ul>
+<h3>3. 重建知识索引后，过期向量可能挤掉有效检索结果</h3>
+<ul>
+<li><strong>What this is:</strong> <a href="../../src/KnowPulse.Application/RagAI/KnowledgeIngestionPipeline.cs#L117">摄取管道</a> 重建时停用旧分块并生成新分块 ID；<a href="../../src/KnowPulse.Application/RagAI/QdrantKnowledgeVectorStore.cs#L105">Qdrant 适配</a> 以分块 ID upsert。</li>
+<li><strong>Problem:</strong> 停用只写主库，旧向量仍保留原来的已发布 payload。全树查找 <code>DeleteByKnowledgeVersionAsync</code> 只有定义和测试，没有生产调用；<a href="../../src/KnowPulse.Application/RagAI/KnowledgeRetriever.cs#L176">检索器</a> 只取最多 100、通常为 TopK 三倍的候选，复核后不补召回。若前 15 个都是同一文档历次重建留下的高分旧块，TopK=5 可以返回空，即使有效新块排在第 16 位。</li>
+<li><strong>Fix:</strong> 在重建完成后按确切旧分块 ID 清理或停用旧向量，保留可重试的清理事实；或把当前有效索引代次加入候选过滤。不能直接无条件调用“删整个版本”，那会误删并发产生的新向量。</li>
+<li><strong>If we skip it:</strong> 索引显示成功，但重建次数越多越可能查不到内容，向量存储也持续膨胀。数据库复核仍阻止旧正文泄漏，这项首先是检索正确性和清理问题。</li>
+</ul>
+<h3>4. 知识索引把外部转换和模型调用包在一笔长事务里</h3>
+<ul>
+<li><strong>What this is:</strong> <a href="../../src/KnowPulse.Application/KnowledgeIndexing/KnowledgeIndexJobProcessor.cs#L47">KnowledgeIndexJobProcessor.ProcessAsync</a> 带普通 <code>[UnitOfWork]</code>，内部依次调用摄取、Embedding 和 Qdrant。进度写入使用 <code>autoSave: true</code>。</li>
+<li><strong>Problem:</strong> 在当前默认事务配置下，<code>ProcessAsync</code> 的事务到整个方法结束才提交。假如模型调用耗时 60 秒，其他连接不能看到中途已 flush 的心跳，且已更新行的锁持续存在；<code>autoSave</code> 不是事务提交。<a href="https://raw.githubusercontent.com/abpframework/abp/10.6.0/framework/src/Volo.Abp.Uow/Volo/Abp/Uow/UnitOfWorkInterceptor.cs">ABP 10.6.0 拦截器</a> 和 <a href="https://raw.githubusercontent.com/abpframework/abp/10.6.0/framework/src/Volo.Abp.Uow/Volo/Abp/Uow/AbpUnitOfWorkDefaultOptions.cs">默认选项</a> 支持这一判断。</li>
+<li><strong>Fix:</strong> 参考已有 AI 出题处理器，用短事务认领、独立心跳、事务外外部调用、带执行编号复核的短事务完成。必须同时保留过期执行者的防回写检查，不能仅关闭事务或给心跳另开事务却继续持有外层锁。</li>
+<li><strong>If we skip it:</strong> 进度和卡住检测失真，慢模型拖住数据库事务，恢复操作可能等待锁。当前 SQLite 测试主动关闭事务，因此“管道通过测试”不能证明该场景正常。</li>
+</ul>
+<h2>Should fix · 随后修复</h2>
+<h3>5. 日志分页会先读取和授权检查全部历史记录</h3>
+<ul>
+<li><strong>What this is:</strong> <a href="../../src/KnowPulse.Application/RagAI/RagCallLogAppService.cs#L94">RagCallLogAppService.GetListAsync</a> 提供带来源校验的分页日志。</li>
+<li><strong>Problem:</strong> 代码先载入过滤后的全部日志和全部引用，再逐引用调用来源授权，最后才 <code>Skip/Take</code>。一个用户积累 10,000 条、每条 5 个引用时，打开第一页也会走至多 50,000 次来源校验，而不是只处理这一页；这是操作次数推导，不是本轮压测数据。</li>
+<li><strong>Fix:</strong> 将可表达的归属及来源授权合入 SQL，再对当前页批量读取引用。若先采用分批扫描，必须明确总数语义，不能把扫描上限当成真实总数，也不能把授权校验移到分页之后。</li>
+<li><strong>If we skip it:</strong> 审计页延迟和内存随历史增长，同一数据库还会承担教学请求。该问题没有使用项目已接受的检索规模 shortcut 作为依据。</li>
+</ul>
+<h3>6. 每个模型请求都新建并释放 HTTP 连接池</h3>
+<ul>
+<li><strong>What this is:</strong> <a href="../../src/KnowPulse.Application/RagAI/LiteLlmKnowledgeEmbeddingClient.cs#L45">Embedding 客户端</a> 与 <a href="../../src/KnowPulse.Application/RagAI/LiteLlmRagChatClient.cs#L165">Chat 客户端</a> 在每次调用中 <code>new HttpClient</code>。</li>
+<li><strong>Problem:</strong> 一个文档分成 200 块时，Embedding 循环会创建 200 个独立客户端，无法复用前一请求的连接池；同时问答和出题继续重复这一行为。存在确定的连接复用损失，但本轮没有测出连接耗尽阈值。</li>
+<li><strong>Fix:</strong> 使用现有 .NET DI 的 <code>IHttpClientFactory</code> 或由 DI 管理的客户端；认证头仍按请求设置。保留超时与受控错误信息，不引入新的网络框架。</li>
+<li><strong>If we skip it:</strong> 额外握手和短连接增加延迟、网关压力及端口占用，真实吞吐上限更难预测。</li>
+</ul>
+<h3>7. Provider 边界检查与已批准的 ADR 冲突</h3>
+<ul>
+<li><strong>What this is:</strong> <a href="../../ops/verify-rag-provider-boundaries.ps1#L18">verify-rag-provider-boundaries.ps1</a> 全面禁止 DataIngestion 引用；<a href="../adr/0003-markitdown-backed-document-ingestion.md">ADR 0003</a> 已批准隔离在适配器内的 MarkItDown。</li>
+<li><strong>Problem:</strong> 本轮运行脚本实际失败，命中合法的转换器和 Application 包引用。检查无法区分“批准的适配实现”和“类型泄漏到契约或领域”。</li>
+<li><strong>Fix:</strong> 只对确切批准的文件与包设窄例外，继续检查 Contracts、Domain 和 UI 不得引用这些 provider 类型，并保留违规样本验证。</li>
+<li><strong>If we skip it:</strong> 开发者会反复遇到假失败，或逐渐跳过整个边界检查，失去它原本应有的保护。</li>
+</ul>
+<h3>8. 默认集成测试无法验证事务回滚与真实写竞争</h3>
+<ul>
+<li><strong>What this is:</strong> <a href="../../test/KnowPulse.EntityFrameworkCore.Tests/EntityFrameworkCore/KnowPulseEntityFrameworkCoreTestModule.cs#L66">EF 测试模块</a> 使用内存 SQLite，并调用 <code>AddAlwaysDisableUnitOfWorkTransaction</code>。</li>
+<li><strong>Problem:</strong> 发布、学校授权屏障、封存和评分替换都依赖事务；默认测试无法在“写入第一张表后抛异常”时证明前面的写入回滚。本轮没有找到纳入常规测试入口的 PostgreSQL 事务回归套件；历史手工验收日志不能持续守住这一点。</li>
+<li><strong>Fix:</strong> 保留现有快速测试，增加一个很小的 PostgreSQL 专项：发布中途失败回滚、同一学生并发保存或封存、改分和结果指针原子替换。独立测试库运行，不把全量业务测试搬到真实库。</li>
+<li><strong>If we skip it:</strong> 测试通过仍可能漏掉生产数据库上的原子性和锁问题。该项不是要求增加大量测试，而是补当前测试机制无法表达的边界。</li>
+</ul>
+<h2>已检查而没有认定为缺陷的设计</h2>
+<ul>
+<li>个人知识库的所有者约束不会被历史企业知识“空范围可见”规则覆盖；学校共享使用指定版本、用途和当前关系复核。</li>
+<li>教育正式成绩来自不可变提交与已确认评分，不直接暴露老师当前评分草稿；隐藏、仅分数、完整讲评使用不同投影。</li>
+<li>已经失效的共享向量仍存在，不等于能够越权读取；主库二次校验是独立防线。</li>
+<li>学校级写屏障有并发成本，但承担关系撤销与业务写入的一致性；未取得负载证据前不建议直接移除。</li>
+<li>按进程限流、个人正文 <code>Contains</code>、受限共享集合展开等已有明确 shortcut；未因假设的大规模负载将其升格为确定缺陷。</li>
+<li>领域接口隔离外部供应商有实际用途，不因只有一个生产实现就建议删除；两套考试仍有独立调用方，不能直接删旧系统。</li>
+</ul>
+<p><strong>Verdict:</strong> 分层与教育业务边界可继续使用；先修 1–4，再处理查询、连接复用和持续验证。没有认定可以安全删除的生产依赖，不编造“可省多少行”的数字。</p>
+<p><strong>Not checked:</strong> 没有运行生产环境、真实微信、真实模型、压力或安全渗透测试；没有逐行读完全部源码、49 次历史迁移、所有 UI 和第三方实现；没有执行真实数据库迁移或旧库升级。具体覆盖见<a href="#sources-and-coverage">来源与覆盖范围</a>。</p>
+</section><section id="technical-architecture"><h1>技术架构：当前实现</h1>
+<h2>1. 系统定位和边界</h2>
+<p>KnowPulse 是一个 <strong>ABP 分层单体</strong>：业务模块共享部署单元和关系型数据库，代码在多个 .NET 项目中分层。多个 <code>.csproj</code> 不意味着多个微服务。运行时至少有 API Host、Blazor Web 主机、DbMigrator 三类进程；后台消费者寄宿于 API Host。</p>
+<p>产品包含两个相邻领域：企业知识／学习／考试，以及围绕教师个人资料、学校关系和学生学习的教育业务。教育复用身份、存储、题库、冻结试卷和模型适配，但使用独立的正式测评、评分、结果、学情和方案事实。</p>
+<p><figure><button class="diagram" aria-label="放大 系统架构"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1029 837" role="img" aria-labelledby="title desc"><title id="title">系统运行架构</title><desc id="desc">箭头表示运行调用或数据访问；外部服务不保存最终业务权限。</desc>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10Z" fill="#63768c"/></marker></defs>
+<rect width="1029" height="837" rx="18" fill="#f6f8fb"/>
+<text x="40" y="35" font-size="22" font-weight="700" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">系统运行架构</text>
+<path d="M304,136.0 L330,140 L350,140 L370,136.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M172.0,192 L170,210 L170,250 L172.0,270" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M634,136.0 L660,140 L660,330 L680,330 L700,326.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M304,326.0 L330,330 L680,330 L700,326.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M832.0,382 L830,400 L830,440 L832.0,465" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M700,326.0 L680,330 L680,520 L660,520 L634,521.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M700,326.0 L680,330 L680,340 L330,340 L330,720 L304,716.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M832.0,382 L830,400 L650,400 L650,640 L500,640 L502.0,660" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M634,716.0 L660,720 L680,720 L700,716.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<rect x="40" y="80" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="40" y="80" width="5" height="112" rx="2" fill="#126b82"/>
+<text x="172.0" y="136.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">教师 / 学生 / 学校管理员</text>
+<rect x="370" y="80" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="370" y="80" width="5" height="112" rx="2" fill="#3654a5"/>
+<text x="502.0" y="124.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">Blazor WebAssembly</text>
+<text x="502.0" y="148.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">网页工作区</text>
+<rect x="700" y="270" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="700" y="270" width="5" height="112" rx="2" fill="#80539b"/>
+<text x="832.0" y="314.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">HttpApi.Host</text>
+<text x="832.0" y="338.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">API / Account / workers</text>
+<rect x="700" y="465" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="700" y="465" width="5" height="112" rx="2" fill="#126b82"/>
+<text x="832.0" y="509.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">PostgreSQL</text>
+<text x="832.0" y="533.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">业务事实与任务</text>
+<rect x="370" y="465" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="370" y="465" width="5" height="112" rx="2" fill="#3654a5"/>
+<text x="502.0" y="509.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">MinIO / Blob</text>
+<text x="502.0" y="533.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">原件、图片、导出</text>
+<rect x="40" y="270" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="40" y="270" width="5" height="112" rx="2" fill="#80539b"/>
+<text x="172.0" y="314.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">原生微信小程序</text>
+<text x="172.0" y="338.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">一个 AppID · 两个工作区</text>
+<rect x="40" y="660" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="40" y="660" width="5" height="112" rx="2" fill="#126b82"/>
+<text x="172.0" y="704.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">Qdrant</text>
+<text x="172.0" y="728.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">候选向量索引</text>
+<rect x="370" y="660" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="370" y="660" width="5" height="112" rx="2" fill="#3654a5"/>
+<text x="502.0" y="704.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">LiteLLM</text>
+<text x="502.0" y="728.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">Chat 与 Embedding 网关</text>
+<rect x="700" y="660" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="700" y="660" width="5" height="112" rx="2" fill="#80539b"/>
+<text x="832.0" y="704.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">模型供应商</text>
+<text x="832.0" y="728.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">具体模型与费用</text>
+<rect x="316.0" y="130.0" width="38" height="20" rx="4" fill="#f6f8fb"/><text x="335.0" y="140.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#43526b">网页</text>
+<rect x="151.0" y="210.0" width="38" height="20" rx="4" fill="#f6f8fb"/><text x="170.0" y="220.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#43526b">微信</text>
+<rect x="595.5" y="225.0" width="129" height="20" rx="4" fill="#f6f8fb"/><text x="660.0" y="235.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#43526b">契约 / HTTP</text>
+<rect x="379.0" y="320.0" width="77" height="20" rx="4" fill="#f6f8fb"/><text x="417.5" y="330.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#43526b">HTTPS</text>
+<rect x="811.0" y="400.0" width="38" height="20" rx="4" fill="#f6f8fb"/><text x="830.0" y="410.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#43526b">事务</text>
+<rect x="661.0" y="415.0" width="38" height="20" rx="4" fill="#f6f8fb"/><text x="680.0" y="425.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#43526b">文件</text>
+<rect x="298.0" y="425.0" width="64" height="20" rx="4" fill="#f6f8fb"/><text x="330.0" y="435.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#43526b">REST</text>
+<rect x="637.0" y="390.0" width="116" height="20" rx="4" fill="#f6f8fb"/><text x="695.0" y="400.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#43526b">模型 alias</text>
+<rect x="646.0" y="710.0" width="38" height="20" rx="4" fill="#f6f8fb"/><text x="665.0" y="720.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#43526b">调用</text>
+</svg></button><figcaption>系统架构 · 点击放大 · <a href="diagrams/01-system.mmd">Mermaid 图源</a></figcaption></figure></p>
+<h2>2. 当前技术栈</h2>
+<table>
+<thead>
+<tr>
+<th>部分</th>
+<th>当前依据</th>
+<th>作用与边界</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>.NET</td>
+<td><code>global.json</code> 基线 10.0.301、<code>latestFeature</code>；项目 <code>net10.0</code></td>
+<td>允许同大版本较新 feature SDK；不要把基线当作本机安装版本</td>
+</tr>
+<tr>
+<td>ABP</td>
+<td>直接 <code>Volo.Abp.*</code> 引用 10.6.0</td>
+<td>模块、DI、应用服务、授权、UoW、审计、租户与 Identity</td>
+</tr>
+<tr>
+<td>Web</td>
+<td>Blazor WebAssembly、Blazorise／Bootstrap、LeptonX Lite</td>
+<td>客户端页面和交互；服务器承载资源与 WebAssembly 渲染入口，并非每次业务操作都在 Blazor Server 执行</td>
+</tr>
+<tr>
+<td>API 与登录</td>
+<td>ASP.NET Core、OpenIddict、ABP Account</td>
+<td>Web OIDC；微信自定义授权类型；API 内服务端授权</td>
+</tr>
+<tr>
+<td>数据库</td>
+<td>EF Core、PostgreSQL；开发 Compose 为 PostgreSQL 18</td>
+<td>保存业务事实、审计、任务、身份和配置；具体兼容以迁移验证为准</td>
+</tr>
+<tr>
+<td>原始文件</td>
+<td>ABP BlobStoring + MinIO</td>
+<td>正文附件、答题图片、导出物；数据库保存引用和状态</td>
+</tr>
+<tr>
+<td>向量</td>
+<td>自有 <code>IKnowledgeVectorStore</code> + Qdrant REST</td>
+<td>只召回候选；不是授权源或业务主库</td>
+</tr>
+<tr>
+<td>模型</td>
+<td>自有 Embedding／Chat 接口 + LiteLLM</td>
+<td>模型 alias、用途和版本由目录管理；供应商配置在网关侧</td>
+</tr>
+<tr>
+<td>文档转换</td>
+<td>MarkItDown + DataIngestion preview 适配器</td>
+<td>仅 Application 实现接触 preview 类型；失败归 reader 阶段</td>
+</tr>
+<tr>
+<td>微信</td>
+<td>原生 JS、WXML、WXSS，35 个注册页面</td>
+<td>一个 AppID、师生两个工作区；未完成真实认证与域名配置</td>
+</tr>
+<tr>
+<td>测试</td>
+<td>xUnit、Shouldly、NSubstitute、SQLite、Node 内置 test</td>
+<td>领域、契约、服务和小程序逻辑；不等于真实基础设施验收</td>
+</tr>
+</tbody>
+</table>
+<p>版本来源为本仓库项目和 Compose 文件；不声明这些版本没有公开漏洞。本轮未做依赖漏洞数据库审查。完整直接包清单见<a href="#code-map">代码结构</a>和<a href="inventory.json">清单</a>。</p>
+<h2>3. 分层和依赖规则</h2>
+<p><figure><button class="diagram" aria-label="放大 项目引用"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1419 1037" role="img" aria-labelledby="title desc"><title id="title">.NET 项目实际引用图</title><desc id="desc">箭头从引用方指向被引用项目；由当前 csproj 生成，不包含 NuGet 传递依赖。</desc>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10Z" fill="#63768c"/></marker></defs>
+<rect width="1419" height="1037" rx="18" fill="#f6f8fb"/>
+<text x="40" y="35" font-size="22" font-weight="700" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">.NET 项目实际引用图</text>
+<path d="M872.0,387 L870,410 L870,640 L1220,640 L1222.0,665" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M872.0,387 L870,410 L520,410 L520,640 L522.0,665" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M654,721.0 L680,720 L680,920 L720,920 L740,916.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M172.0,192 L170,210 L170,250 L172.0,275" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M172.0,387 L170,410 L170,450 L172.0,470" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M1222.0,192 L1220,210 L670,210 L670,640 L520,640 L522.0,665" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M1222.0,192 L1220,210 L1220,250 L1222.0,275" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M1090,721.0 L1070,720 L1030,720 L1030,920 L1004,916.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M1222.0,387 L1220,410 L1220,640 L1222.0,665" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M522.0,387 L520,410 L510,410 L510,640 L520,640 L522.0,665" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M304,526.0 L330,530 L330,720 L370,720 L390,721.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M872.0,192 L870,210 L870,250 L872.0,275" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M1004,136.0 L1030,140 L1030,330 L1070,330 L1090,331.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M740,136.0 L720,140 L680,140 L680,330 L654,331.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<rect x="740" y="275" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="740" y="275" width="5" height="112" rx="2" fill="#126b82"/>
+<text x="872.0" y="331.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">Application</text>
+<rect x="390" y="665" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="390" y="665" width="5" height="112" rx="2" fill="#3654a5"/>
+<text x="522.0" y="721.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">Application.Contracts</text>
+<rect x="40" y="80" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="40" y="80" width="5" height="112" rx="2" fill="#80539b"/>
+<text x="172.0" y="136.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">Blazor</text>
+<rect x="40" y="275" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="40" y="275" width="5" height="112" rx="2" fill="#126b82"/>
+<text x="172.0" y="331.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">Blazor.Client</text>
+<rect x="1090" y="80" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="1090" y="80" width="5" height="112" rx="2" fill="#3654a5"/>
+<text x="1222.0" y="136.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">DbMigrator</text>
+<rect x="1090" y="665" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="1090" y="665" width="5" height="112" rx="2" fill="#80539b"/>
+<text x="1222.0" y="721.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">Domain</text>
+<rect x="740" y="860" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="740" y="860" width="5" height="112" rx="2" fill="#126b82"/>
+<text x="872.0" y="916.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">Domain.Shared</text>
+<rect x="1090" y="275" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="1090" y="275" width="5" height="112" rx="2" fill="#3654a5"/>
+<text x="1222.0" y="331.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">EntityFrameworkCore</text>
+<rect x="390" y="275" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="390" y="275" width="5" height="112" rx="2" fill="#80539b"/>
+<text x="522.0" y="331.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">HttpApi</text>
+<rect x="40" y="470" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="40" y="470" width="5" height="112" rx="2" fill="#126b82"/>
+<text x="172.0" y="526.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">HttpApi.Client</text>
+<rect x="740" y="80" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="740" y="80" width="5" height="112" rx="2" fill="#3654a5"/>
+<text x="872.0" y="136.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">HttpApi.Host</text>
+</svg></button><figcaption>项目引用 · 点击放大 · <a href="diagrams/02-projects.mmd">Mermaid 图源</a></figcaption></figure></p>
+<ol>
+<li><strong>Domain.Shared</strong> 保存跨层共用的枚举、错误码、常量和本地化。部分纯业务值规则在这里供客户端和服务端共同使用。</li>
+<li><strong>Domain</strong> 保存实体、状态迁移、不可变值和访问判断。它不依赖 Application 或 EF Core；涉及数据库的条件由应用层加载后交给领域规则。</li>
+<li><strong>Application.Contracts</strong> 保存服务接口、DTO、参数验证、功能权限和部分传输配置，不传 EF 或供应商对象。</li>
+<li><strong>Application</strong> 编排授权、仓储、领域操作、事务和外部适配。复杂教育用例使用明确新事务、请求指纹及回执恢复。</li>
+<li><strong>EntityFrameworkCore</strong> 保存一个主 DbContext、模块映射、索引／检查／外键、迁移及少量自定义仓储。</li>
+<li><strong>HttpApi</strong> 提供显式控制器；Host 同时注册 ABP 常规控制器，很多 <code>IApplicationService</code> 通过 <code>/api/app/...</code> 暴露。仅数控制器文件会漏掉大量 API。</li>
+<li><strong>HttpApi.Client</strong> 注册 ABP 动态 HTTP 代理；Web 通过契约和代理调用，不直接引用业务实现或 EF。</li>
+<li><strong>HttpApi.Host</strong> 组合 Application、EF 和 HttpApi；配置身份、审计、Blob、CORS、worker 和中间件。</li>
+</ol>
+<p>这种布局已经足够隔离供应商。新增业务优先延续现有模块和规则；拆出服务应以独立扩缩容、故障域或组织边界为依据，不能由文件长度决定。</p>
+<h2>4. 权限不是单一角色判断</h2>
+<table>
+<thead>
+<tr>
+<th>检查层</th>
+<th>必须回答的问题</th>
+<th>主要实现</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>登录会话</td>
+<td>当前请求是谁，租户是否一致，令牌／绑定是否仍有效</td>
+<td>OpenIddict、<code>WeChatBindingSessionMiddleware</code></td>
+</tr>
+<tr>
+<td>功能权限</td>
+<td>是否有批改、共享、分析等操作权限</td>
+<td>Contracts 权限、<code>CheckMvpPermissionAsync</code></td>
+</tr>
+<tr>
+<td>所有权</td>
+<td>私人资料／草稿／观察是否属于当前账号</td>
+<td><code>EnsurePersonalKnowledgeOwnerAsync</code>、各 owner 查询</td>
+</tr>
+<tr>
+<td>学校关系</td>
+<td>当前是否属于该学校，任教／在班／学期是否有效</td>
+<td><code>EducationAssessmentAccessGuard</code>、学校服务</td>
+</tr>
+<tr>
+<td>版本与用途</td>
+<td>读取的是哪个版本，是否允许检索、出题、下载、布置</td>
+<td><code>SchoolKnowledgeShare</code>、<code>KnowledgeSourceAccessGuard</code></td>
+</tr>
+<tr>
+<td>当前开放状态</td>
+<td>此刻能否看成绩、答案、反馈或执行活动</td>
+<td>结果发布投影、方案执行与材料读取服务</td>
+</tr>
+</tbody>
+</table>
+<p>前端按钮隐藏只改善体验，不能替代上述检查。平台功能管理员不自动拥有全校学生数据或教师私有观察；学校 Manager 也不会取得个人库所有权。</p>
+<p>普通企业知识保留历史的空访问范围兼容规则。个人资料先检查明确库归属和 owner，因此不会因空范围变成公开。将来迁移旧资料归属时必须保留这一差异。</p>
+<h2>5. 四类状态必须分开</h2>
+<ul>
+<li><strong>正文版本与对外发布</strong>：草稿保存不等于发布，后续私人编辑不改变已共享的指定版本。</li>
+<li><strong>执行状态与内容状态</strong>：教学方案可以暂停，但原正式考试计时不因此重置；换正文版本也不自动恢复执行。</li>
+<li><strong>业务事实与派生结果</strong>：原答卷、确认评分是事实；学情快照、向量是可重建派生物。</li>
+<li><strong>消息与真实行为</strong>：收到提醒、读消息、打开正文、开始任务、上交、掌握知识点分别记录，不能用消息已读代替学习完成。</li>
+</ul>
+<p>设计上的成本是实体、修订和请求参数较多；收益是能够解释历史、避免改分覆盖和丢响应后的重复操作。应通过模块接口与文档减轻理解成本，而不是把历史事实合回一张可随意修改的表。</p>
+<h2>6. 存储与事务边界</h2>
+<p><strong>PostgreSQL</strong> 是唯一业务事实源。知识发布的策略、版本指针和待索引任务在同一事务；教育发布、固定名单、答卷封存、评分确认和当前成绩指针分别具有明确事务边界。</p>
+<p><strong>Blob</strong> 不加入关系型事务。上传可能先成功、后续数据库提交失败；系统优先保留可恢复草稿或不可访问的孤儿文件，不能反过来先删文件再期待数据库一定提交。导出任务有独立运行编号、过期、取消和清理追踪。</p>
+<p><strong>Qdrant</strong> 不加入 PostgreSQL 事务。检索回到主库核对分块、发布版本和访问范围；学校共享路径额外要求所属任务为 <code>Indexed</code>，当前发布版本的直接访问路径没有相同的任务状态检查，不能把两条路径写成统一的完成状态屏障。对向量写入成功、主库未提交的情况不能声称跨系统原子提交；清理和重建仍有审计报告第 3、4 项需要完善。</p>
+<p><strong>模型请求</strong> 有外部费用且不能数据库回滚。AI 出题和 AI 方案采用后台任务、执行编号、心跳和明确采用；不能把“自动重试 HTTP”当成安全的业务重试。</p>
+<h2>7. 租户、学校和账号</h2>
+<p>租户是 ABP 的隔离上下文；学校是租户内的业务实体，二者不是一一对应。一个账号可以在同租户的多个学校拥有不同的有效身份，个人库仍归该账号。邀请只增加经确认的学校身份，不自动增加任教、在班、功能权限或资产归属。</p>
+<p>当前多类 worker 通过共享库取消租户过滤发现任务，再切回任务租户执行。<strong>禁用行过滤不能发现另一个数据库中的任务</strong>；若将来启用每租户独立数据库，任务发现和无租户绑定查询需要相应设计。这是部署边界，并非当前共享库配置下的缺陷。</p>
+<p>2026-10-18 已确认账号支持采用“本人验证原账号后自助处理；无法验证时平台人工复核”。学校不接管原账号或个人资料。当前已有自助帮助、密码找回入口及本人微信解绑；异常申请和平台复核执行仍未实现。</p>
+<h2>8. 保留与改进</h2>
+<p>保留分层单体、项目自有外部接口、固定版本、短事务任务和服务端二次授权。首先把旧考试和知识索引的薄弱路径补到已有教育路径的可靠性水平，再处理分页成本与连接复用。</p>
+<p>暂不引入微服务、消息中间件、通用工作流引擎或统一“大基类”。若需要抽取公共代码，应先证明重复处拥有同一业务规则和失败语义；相似的 DTO 或状态枚举不够。</p>
+<p>主要依据：<a href="../../src/KnowPulse.HttpApi.Host/KnowPulseHttpApiHostModule.cs">Host</a>、<a href="../../src/KnowPulse.Application/KnowPulseApplicationModule.cs">Application 组合</a>、<a href="../../src/KnowPulse.Blazor/KnowPulseBlazorModule.cs">Web 主机</a>、<a href="../../CONTEXT.md">领域词汇表</a>、<a href="../adr/">ADR 目录</a>。</p>
+</section><section id="code-map"><h1>代码结构与开发导航</h1>
+<h2>1. 实际项目组成</h2>
+<p>11 个生产项目、5 个测试／测试基础项目。下表来自当前项目文件；箭头是编译引用，不代表调用次数或网络边界。</p>
+<p><figure><button class="diagram" aria-label="放大 实际项目引用"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1419 1037" role="img" aria-labelledby="title desc"><title id="title">.NET 项目实际引用图</title><desc id="desc">箭头从引用方指向被引用项目；由当前 csproj 生成，不包含 NuGet 传递依赖。</desc>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10Z" fill="#63768c"/></marker></defs>
+<rect width="1419" height="1037" rx="18" fill="#f6f8fb"/>
+<text x="40" y="35" font-size="22" font-weight="700" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">.NET 项目实际引用图</text>
+<path d="M872.0,387 L870,410 L870,640 L1220,640 L1222.0,665" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M872.0,387 L870,410 L520,410 L520,640 L522.0,665" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M654,721.0 L680,720 L680,920 L720,920 L740,916.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M172.0,192 L170,210 L170,250 L172.0,275" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M172.0,387 L170,410 L170,450 L172.0,470" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M1222.0,192 L1220,210 L670,210 L670,640 L520,640 L522.0,665" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M1222.0,192 L1220,210 L1220,250 L1222.0,275" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M1090,721.0 L1070,720 L1030,720 L1030,920 L1004,916.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M1222.0,387 L1220,410 L1220,640 L1222.0,665" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M522.0,387 L520,410 L510,410 L510,640 L520,640 L522.0,665" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M304,526.0 L330,530 L330,720 L370,720 L390,721.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M872.0,192 L870,210 L870,250 L872.0,275" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M1004,136.0 L1030,140 L1030,330 L1070,330 L1090,331.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M740,136.0 L720,140 L680,140 L680,330 L654,331.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<rect x="740" y="275" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="740" y="275" width="5" height="112" rx="2" fill="#126b82"/>
+<text x="872.0" y="331.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">Application</text>
+<rect x="390" y="665" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="390" y="665" width="5" height="112" rx="2" fill="#3654a5"/>
+<text x="522.0" y="721.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">Application.Contracts</text>
+<rect x="40" y="80" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="40" y="80" width="5" height="112" rx="2" fill="#80539b"/>
+<text x="172.0" y="136.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">Blazor</text>
+<rect x="40" y="275" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="40" y="275" width="5" height="112" rx="2" fill="#126b82"/>
+<text x="172.0" y="331.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">Blazor.Client</text>
+<rect x="1090" y="80" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="1090" y="80" width="5" height="112" rx="2" fill="#3654a5"/>
+<text x="1222.0" y="136.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">DbMigrator</text>
+<rect x="1090" y="665" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="1090" y="665" width="5" height="112" rx="2" fill="#80539b"/>
+<text x="1222.0" y="721.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">Domain</text>
+<rect x="740" y="860" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="740" y="860" width="5" height="112" rx="2" fill="#126b82"/>
+<text x="872.0" y="916.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">Domain.Shared</text>
+<rect x="1090" y="275" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="1090" y="275" width="5" height="112" rx="2" fill="#3654a5"/>
+<text x="1222.0" y="331.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">EntityFrameworkCore</text>
+<rect x="390" y="275" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="390" y="275" width="5" height="112" rx="2" fill="#80539b"/>
+<text x="522.0" y="331.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">HttpApi</text>
+<rect x="40" y="470" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="40" y="470" width="5" height="112" rx="2" fill="#126b82"/>
+<text x="172.0" y="526.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">HttpApi.Client</text>
+<rect x="740" y="80" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="740" y="80" width="5" height="112" rx="2" fill="#3654a5"/>
+<text x="872.0" y="136.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">HttpApi.Host</text>
+</svg></button><figcaption>实际项目引用 · 点击放大 · <a href="diagrams/02-projects.mmd">Mermaid 图源</a></figcaption></figure></p>
+<table>
+<thead>
+<tr>
+<th>项目</th>
+<th>直接引用的本仓库项目</th>
+<th>职责</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="../../src/KnowPulse.Application/KnowPulse.Application.csproj">Application</a></td>
+<td>Domain, Application.Contracts</td>
+<td>用例编排、授权、仓储与外部适配</td>
+</tr>
+<tr>
+<td><a href="../../src/KnowPulse.Application.Contracts/KnowPulse.Application.Contracts.csproj">Application.Contracts</a></td>
+<td>Domain.Shared</td>
+<td>DTO、应用接口和功能权限</td>
+</tr>
+<tr>
+<td><a href="../../src/KnowPulse.Blazor/KnowPulse.Blazor.csproj">Blazor</a></td>
+<td>Blazor.Client</td>
+<td>Web 主机与资源承载</td>
+</tr>
+<tr>
+<td><a href="../../src/KnowPulse.Blazor.Client/KnowPulse.Blazor.Client.csproj">Blazor.Client</a></td>
+<td>HttpApi.Client</td>
+<td>WebAssembly 页面和组件</td>
+</tr>
+<tr>
+<td><a href="../../src/KnowPulse.DbMigrator/KnowPulse.DbMigrator.csproj">DbMigrator</a></td>
+<td>Application.Contracts, EntityFrameworkCore</td>
+<td>迁移及种子程序</td>
+</tr>
+<tr>
+<td><a href="../../src/KnowPulse.Domain/KnowPulse.Domain.csproj">Domain</a></td>
+<td>Domain.Shared</td>
+<td>实体、状态与领域规则</td>
+</tr>
+<tr>
+<td><a href="../../src/KnowPulse.Domain.Shared/KnowPulse.Domain.Shared.csproj">Domain.Shared</a></td>
+<td>无</td>
+<td>共用枚举、错误码、本地化、值规则</td>
+</tr>
+<tr>
+<td><a href="../../src/KnowPulse.EntityFrameworkCore/KnowPulse.EntityFrameworkCore.csproj">EntityFrameworkCore</a></td>
+<td>Domain</td>
+<td>主 DbContext、映射、迁移与仓储</td>
+</tr>
+<tr>
+<td><a href="../../src/KnowPulse.HttpApi/KnowPulse.HttpApi.csproj">HttpApi</a></td>
+<td>Application.Contracts</td>
+<td>显式 HTTP 入口</td>
+</tr>
+<tr>
+<td><a href="../../src/KnowPulse.HttpApi.Client/KnowPulse.HttpApi.Client.csproj">HttpApi.Client</a></td>
+<td>Application.Contracts</td>
+<td>ABP 动态客户端代理</td>
+</tr>
+<tr>
+<td><a href="../../src/KnowPulse.HttpApi.Host/KnowPulse.HttpApi.Host.csproj">HttpApi.Host</a></td>
+<td>Application, EntityFrameworkCore, HttpApi</td>
+<td>认证、API、服务组合与后台任务</td>
+</tr>
+</tbody>
+</table>
+<h2>2. 模块地图</h2>
+<p><figure><button class="diagram" aria-label="放大 业务代码模块"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1029 842" role="img" aria-labelledby="title desc"><title id="title">业务模块与代码结构</title><desc id="desc">每个业务模块沿 Shared / Domain / Contracts / Application / EF / UI 分布；图中箭头表示业务依赖。</desc>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10Z" fill="#63768c"/></marker></defs>
+<rect width="1029" height="842" rx="18" fill="#f6f8fb"/>
+<text x="40" y="35" font-size="22" font-weight="700" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">业务模块与代码结构</text>
+<path d="M304,136.0 L330,140 L350,140 L370,136.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M634,136.0 L660,140 L680,140 L700,136.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M832.0,192 L830,210 L830,250 L832.0,275" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M634,331.0 L660,330 L680,330 L680,140 L700,136.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M370,331.0 L350,330 L330,330 L304,331.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M304,526.0 L330,530 L350,530 L370,526.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M304,331.0 L330,330 L330,520 L350,520 L350,530 L370,526.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M634,526.0 L660,530 L680,530 L700,526.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M832.0,665 L830,640 L650,640 L650,210 L170,210 L172.0,192" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M304,721.0 L330,720 L330,650 L680,650 L680,720 L700,721.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M304,721.0 L330,720 L350,720 L350,530 L370,526.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M502.0,665 L500,640 L340,640 L340,220 L500,220 L500,210 L502.0,192" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<rect x="40" y="80" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="40" y="80" width="5" height="112" rx="2" fill="#126b82"/>
+<text x="172.0" y="124.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">Organization / Identity</text>
+<text x="172.0" y="148.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">组织、账号、功能权限</text>
+<rect x="370" y="80" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="370" y="80" width="5" height="112" rx="2" fill="#3654a5"/>
+<text x="502.0" y="124.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">KnowledgeBase</text>
+<text x="502.0" y="148.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">个人库、版本、共享、导出</text>
+<rect x="700" y="80" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="700" y="80" width="5" height="112" rx="2" fill="#80539b"/>
+<text x="832.0" y="124.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">RagAI / KnowledgeIndexing</text>
+<text x="832.0" y="148.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">摄取、Embedding、检索</text>
+<rect x="700" y="275" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="700" y="275" width="5" height="112" rx="2" fill="#126b82"/>
+<text x="832.0" y="319.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">AiModelManagement</text>
+<text x="832.0" y="343.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">用途、模型、维度</text>
+<rect x="370" y="275" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="370" y="275" width="5" height="112" rx="2" fill="#3654a5"/>
+<text x="502.0" y="307.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">QuestionBank</text>
+<text x="502.0" y="331.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">AiQuestioning</text>
+<text x="502.0" y="355.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">候选、审核、评分定义</text>
+<rect x="40" y="275" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="40" y="275" width="5" height="112" rx="2" fill="#80539b"/>
+<text x="172.0" y="319.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">Exam</text>
+<text x="172.0" y="343.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">冻结试卷与企业旧考试</text>
+<rect x="40" y="470" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="40" y="470" width="5" height="112" rx="2" fill="#126b82"/>
+<text x="172.0" y="514.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">Education / School</text>
+<text x="172.0" y="538.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">身份、任教、教材、邀请</text>
+<rect x="370" y="470" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="370" y="470" width="5" height="112" rx="2" fill="#3654a5"/>
+<text x="502.0" y="514.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">Education / Assessment</text>
+<text x="502.0" y="538.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">封存、批改、统一结果</text>
+<rect x="700" y="470" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="700" y="470" width="5" height="112" rx="2" fill="#80539b"/>
+<text x="832.0" y="514.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">Education / Learning</text>
+<text x="832.0" y="538.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">报告、方案、材料、评语</text>
+<rect x="700" y="665" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="700" y="665" width="5" height="112" rx="2" fill="#126b82"/>
+<text x="832.0" y="709.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">WeChat</text>
+<text x="832.0" y="733.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">原账号绑定与会话</text>
+<rect x="370" y="665" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="370" y="665" width="5" height="112" rx="2" fill="#3654a5"/>
+<text x="502.0" y="709.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">Learning</text>
+<text x="502.0" y="733.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">企业学习路径</text>
+<rect x="40" y="665" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="40" y="665" width="5" height="112" rx="2" fill="#80539b"/>
+<text x="172.0" y="709.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">miniprogram / Pages</text>
+<text x="172.0" y="733.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">角色入口、请求与恢复</text>
+<rect x="304.5" y="415.0" width="51" height="20" rx="4" fill="#f6f8fb"/><text x="330.0" y="425.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#43526b">冻结卷</text>
+<rect x="646.0" y="520.0" width="38" height="20" rx="4" fill="#f6f8fb"/><text x="665.0" y="530.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#43526b">证据</text>
+<rect x="398.5" y="640.0" width="38" height="20" rx="4" fill="#f6f8fb"/><text x="417.5" y="650.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#43526b">身份</text>
+<rect x="331.0" y="615.0" width="38" height="20" rx="4" fill="#f6f8fb"/><text x="350.0" y="625.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#43526b">业务</text>
+<rect x="321.0" y="315.0" width="38" height="20" rx="4" fill="#f6f8fb"/><text x="340.0" y="325.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#43526b">知识</text>
+</svg></button><figcaption>业务代码模块 · 点击放大 · <a href="diagrams/03-modules.mmd">Mermaid 图源</a></figcaption></figure></p>
+<table>
+<thead>
+<tr>
+<th>业务</th>
+<th>服务端入口</th>
+<th>前端与相关位置</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>组织与角色</td>
+<td><code>Application/Organization</code>、Contracts/Permissions；ABP Identity 模块</td>
+<td>Web 组织页和权限菜单</td>
+</tr>
+<tr>
+<td>知识生命周期与个人库</td>
+<td><code>Application/KnowledgeBase</code>；Domain 同名目录</td>
+<td><code>Pages/Knowledge</code>、个人库和笔记页</td>
+</tr>
+<tr>
+<td>共享、附件与导出</td>
+<td>KnowledgeSchoolSharingAppService、KnowledgePersonalExportAppService、PersonalKnowledgeExportProcessor</td>
+<td>学校资料、个人库、原生笔记</td>
+</tr>
+<tr>
+<td>摄取与 RAG</td>
+<td><code>Application/KnowledgeIndexing</code>、<code>Application/RagAI</code></td>
+<td>知识状态、检索问答、运维日志页</td>
+</tr>
+<tr>
+<td>模型配置</td>
+<td><code>Application/AiModelManagement</code></td>
+<td>模型目录、用途、版本配置页</td>
+</tr>
+<tr>
+<td>题库与出题</td>
+<td><code>Application/QuestionBank</code>、<code>Application/AiQuestioning</code></td>
+<td><code>Pages/QuestionBank</code>、候选与规则编辑</td>
+</tr>
+<tr>
+<td>企业旧考试</td>
+<td><code>Application/Exam/ExamAppService.cs</code></td>
+<td><code>Pages/Exam</code>；保留独立运行模型</td>
+</tr>
+<tr>
+<td>企业学习路径</td>
+<td><code>Application/Learning</code></td>
+<td>学习路径与知识反馈页</td>
+</tr>
+<tr>
+<td>学校与课程</td>
+<td>EducationSchoolAppService、EducationCurriculumAppService、EducationMaterialScope</td>
+<td>学校、教材、任教、邀请与更正页</td>
+</tr>
+<tr>
+<td>教育测评</td>
+<td>EducationAssessmentAppService 的核心与 partial；Submission / GradingProcessor</td>
+<td>教师任务、批改、结果；原生作答与进度</td>
+</tr>
+<tr>
+<td>学情与方案</td>
+<td>LearningReport、StudentGrowth、TeachingPlan 服务与 processor</td>
+<td>报告、趋势、教学方案及原生对应页</td>
+</tr>
+<tr>
+<td>学习活动</td>
+<td>StudyTask、Correction、Practice、NotebookSource、Workload 服务</td>
+<td>材料、订正、复练、笔记与日程</td>
+</tr>
+<tr>
+<td>私有观察／评语／消息</td>
+<td>Feedback、StudentInbox、Reminder、PlanNotice 服务</td>
+<td>教师评语编辑、学生阅读与收件箱</td>
+</tr>
+<tr>
+<td>微信与账号帮助</td>
+<td><code>Application/WeChat</code>、<code>HttpApi.Host/WeChat</code>、Contracts/AccountSupport</td>
+<td><code>Pages/Account</code>、原生 login/workspace/session</td>
+</tr>
+</tbody>
+</table>
+<p>Education 的 partial 文件按评分、结果、图片、通知、执行等用例拆分，仍组成同一个服务类型。修改时先从 Contracts 找操作，再查实现及全部 partial；只读主文件容易漏掉授权或返回投影。</p>
+<h2>3. 典型修改应触达的位置</h2>
+<table>
+<thead>
+<tr>
+<th>修改</th>
+<th>必查路径</th>
+<th>验证重点</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>新业务规则／状态</td>
+<td>Domain.Shared → Domain → Contracts → Application</td>
+<td>非法迁移、版本与旧回执</td>
+</tr>
+<tr>
+<td>新 API／字段</td>
+<td>Contracts、服务实现、显式或常规路由、代理、Web、原生请求</td>
+<td>字段裁剪、真实权限、旧客户端行为</td>
+</tr>
+<tr>
+<td>新权限</td>
+<td>权限常量／定义、服务显式检查、菜单／页、本地化</td>
+<td>菜单可见不能代替后端检查</td>
+</tr>
+<tr>
+<td>数据变更</td>
+<td>Domain、EF 映射、迁移和快照、DTO</td>
+<td>唯一约束、成对外键、时间、回滚</td>
+</tr>
+<tr>
+<td>外部模型／存储</td>
+<td>自有接口、Application 适配、Host DI、配置样例、替身</td>
+<td>不泄漏 provider 类型、密钥或正文</td>
+</tr>
+<tr>
+<td>原生恢复</td>
+<td>utils/session、业务 command helper、页面、测试</td>
+<td>原操作查询、身份代次、版本与私有正文</td>
+</tr>
+</tbody>
+</table>
+<p>实际入口包含 73 条 Web <code>@page</code> 声明、35 个原生注册页面、85 个显式 HTTP verb 特性；<strong>85 不是 API 总数</strong>，ABP 常规控制器还暴露应用服务。新增入口应核对运行时 API 定义和既有契约测试。</p>
+<h2>4. 代码体量</h2>
+<p>统计 <code>.cs/.razor/.js/.cjs/.wxml/.wxss/.ps1</code>；排除 bin、obj、node_modules、wwwroot、libs。行数包含注释与空行，不是复杂度指标。miniprogram 含逻辑测试；<code>wwwroot</code> 中的一方资源未计入，因此不是仓库所有手写文本总量。</p>
+<table>
+<thead>
+<tr>
+<th>位置</th>
+<th style="text-align:right">非迁移文件</th>
+<th style="text-align:right">非迁移行数</th>
+<th style="text-align:right">迁移／Designer／快照行数</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>src/KnowPulse.Application</code></td>
+<td style="text-align:right">128</td>
+<td style="text-align:right">29,011</td>
+<td style="text-align:right">0</td>
+</tr>
+<tr>
+<td><code>src/KnowPulse.Application.Contracts</code></td>
+<td style="text-align:right">114</td>
+<td style="text-align:right">10,316</td>
+<td style="text-align:right">0</td>
+</tr>
+<tr>
+<td><code>src/KnowPulse.Blazor</code></td>
+<td style="text-align:right">4</td>
+<td style="text-align:right">164</td>
+<td style="text-align:right">0</td>
+</tr>
+<tr>
+<td><code>src/KnowPulse.Blazor.Client</code></td>
+<td style="text-align:right">97</td>
+<td style="text-align:right">22,555</td>
+<td style="text-align:right">0</td>
+</tr>
+<tr>
+<td><code>src/KnowPulse.DbMigrator</code></td>
+<td style="text-align:right">3</td>
+<td style="text-align:right">106</td>
+<td style="text-align:right">0</td>
+</tr>
+<tr>
+<td><code>src/KnowPulse.Domain</code></td>
+<td style="text-align:right">119</td>
+<td style="text-align:right">12,485</td>
+<td style="text-align:right">0</td>
+</tr>
+<tr>
+<td><code>src/KnowPulse.Domain.Shared</code></td>
+<td style="text-align:right">73</td>
+<td style="text-align:right">2,796</td>
+<td style="text-align:right">0</td>
+</tr>
+<tr>
+<td><code>src/KnowPulse.HttpApi</code></td>
+<td style="text-align:right">20</td>
+<td style="text-align:right">1,328</td>
+<td style="text-align:right">0</td>
+</tr>
+<tr>
+<td><code>src/KnowPulse.HttpApi.Client</code></td>
+<td style="text-align:right">1</td>
+<td style="text-align:right">38</td>
+<td style="text-align:right">0</td>
+</tr>
+<tr>
+<td><code>src/KnowPulse.HttpApi.Host</code></td>
+<td style="text-align:right">17</td>
+<td style="text-align:right">1,225</td>
+<td style="text-align:right">0</td>
+</tr>
+<tr>
+<td><code>src/KnowPulse.EntityFrameworkCore</code></td>
+<td style="text-align:right">32</td>
+<td style="text-align:right">3,351</td>
+<td style="text-align:right">584,234</td>
+</tr>
+<tr>
+<td><code>test/KnowPulse.Application.Tests</code></td>
+<td style="text-align:right">44</td>
+<td style="text-align:right">2,521</td>
+<td style="text-align:right">0</td>
+</tr>
+<tr>
+<td><code>test/KnowPulse.Domain.Tests</code></td>
+<td style="text-align:right">43</td>
+<td style="text-align:right">4,599</td>
+<td style="text-align:right">0</td>
+</tr>
+<tr>
+<td><code>test/KnowPulse.HttpApi.Client.ConsoleTestApp</code></td>
+<td style="text-align:right">4</td>
+<td style="text-align:right">117</td>
+<td style="text-align:right">0</td>
+</tr>
+<tr>
+<td><code>test/KnowPulse.TestBase</code></td>
+<td style="text-align:right">5</td>
+<td style="text-align:right">154</td>
+<td style="text-align:right">0</td>
+</tr>
+<tr>
+<td><code>test/KnowPulse.EntityFrameworkCore.Tests</code></td>
+<td style="text-align:right">92</td>
+<td style="text-align:right">22,026</td>
+<td style="text-align:right">0</td>
+</tr>
+<tr>
+<td><code>miniprogram</code></td>
+<td style="text-align:right">135</td>
+<td style="text-align:right">8,483</td>
+<td style="text-align:right">0</td>
+</tr>
+<tr>
+<td><code>ops</code></td>
+<td style="text-align:right">17</td>
+<td style="text-align:right">5,030</td>
+<td style="text-align:right">0</td>
+</tr>
+</tbody>
+</table>
+<p>49 个实际迁移对应的 Designer 和最终 Snapshot 合计占大量生成代码；不能据此认定 EF 层比整个业务复杂几十倍。主 DbContext 之外还有教育等模块的映射扩展文件。</p>
+<h2>5. 较大的手写文件</h2>
+<p>以下只是阅读导航，不是“因为长所以拆”的缺陷清单。应按业务职责和共同变更原因拆分，不应机械地按行数拆小函数。</p>
+<table>
+<thead>
+<tr>
+<th>文件</th>
+<th style="text-align:right">行数</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="../../src/KnowPulse.Application/AiQuestioning/AiQuestionGenerationAppService.cs">src/KnowPulse.Application/AiQuestioning/AiQuestionGenerationAppService.cs</a></td>
+<td style="text-align:right">1,626</td>
+</tr>
+<tr>
+<td><a href="../../src/KnowPulse.Blazor.Client/Pages/Knowledge/Items.razor">src/KnowPulse.Blazor.Client/Pages/Knowledge/Items.razor</a></td>
+<td style="text-align:right">1,495</td>
+</tr>
+<tr>
+<td><a href="../../src/KnowPulse.Blazor.Client/Pages/Knowledge/Upload.razor">src/KnowPulse.Blazor.Client/Pages/Knowledge/Upload.razor</a></td>
+<td style="text-align:right">1,421</td>
+</tr>
+<tr>
+<td><a href="../../src/KnowPulse.Application/Exam/ExamAppService.cs">src/KnowPulse.Application/Exam/ExamAppService.cs</a></td>
+<td style="text-align:right">1,273</td>
+</tr>
+<tr>
+<td><a href="../../src/KnowPulse.Blazor.Client/Pages/QuestionBank/AiCandidates.razor">src/KnowPulse.Blazor.Client/Pages/QuestionBank/AiCandidates.razor</a></td>
+<td style="text-align:right">1,244</td>
+</tr>
+<tr>
+<td><a href="../../src/KnowPulse.Application/QuestionBank/QuestionAppService.cs">src/KnowPulse.Application/QuestionBank/QuestionAppService.cs</a></td>
+<td style="text-align:right">1,200</td>
+</tr>
+<tr>
+<td><a href="../../src/KnowPulse.EntityFrameworkCore/EntityFrameworkCore/KnowPulseDbContext.cs">src/KnowPulse.EntityFrameworkCore/EntityFrameworkCore/KnowPulseDbContext.cs</a></td>
+<td style="text-align:right">1,131</td>
+</tr>
+<tr>
+<td><a href="../../src/KnowPulse.Application.Contracts/RagAI/RagContracts.cs">src/KnowPulse.Application.Contracts/RagAI/RagContracts.cs</a></td>
+<td style="text-align:right">1,053</td>
+</tr>
+<tr>
+<td><a href="../../src/KnowPulse.Application/KnowledgeBase/KnowledgeItemAppService.cs">src/KnowPulse.Application/KnowledgeBase/KnowledgeItemAppService.cs</a></td>
+<td style="text-align:right">1,043</td>
+</tr>
+<tr>
+<td><a href="../../src/KnowPulse.Application/Learning/LearningPathAppService.cs">src/KnowPulse.Application/Learning/LearningPathAppService.cs</a></td>
+<td style="text-align:right">958</td>
+</tr>
+<tr>
+<td><a href="../../src/KnowPulse.Blazor.Client/Pages/QuestionBank/QuestionEditor.razor">src/KnowPulse.Blazor.Client/Pages/QuestionBank/QuestionEditor.razor</a></td>
+<td style="text-align:right">915</td>
+</tr>
+<tr>
+<td><a href="../../src/KnowPulse.Application/RagAI/QdrantKnowledgeVectorStore.cs">src/KnowPulse.Application/RagAI/QdrantKnowledgeVectorStore.cs</a></td>
+<td style="text-align:right">899</td>
+</tr>
+</tbody>
+</table>
+<h2>6. 当前直接包依赖</h2>
+<p>本表从项目文件读取，不含传递依赖，也未执行 CVE／许可证审查。ABP 同版本模块合并展示，完整逐项目引用保留在 <code>inventory.json</code>。</p>
+<table>
+<thead>
+<tr>
+<th>直接包</th>
+<th>版本</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Volo.Abp.*</code>（各项目按需引用）</td>
+<td>10.6.0, 5.6.0</td>
+</tr>
+<tr>
+<td><code>Blazorise.Bootstrap5</code></td>
+<td>2.2.1</td>
+</tr>
+<tr>
+<td><code>Blazorise.Icons.FontAwesome</code></td>
+<td>2.2.1</td>
+</tr>
+<tr>
+<td><code>Microsoft.AspNetCore.Components.WebAssembly</code></td>
+<td>10.0.9</td>
+</tr>
+<tr>
+<td><code>Microsoft.AspNetCore.Components.WebAssembly.DevServer</code></td>
+<td>10.0.9</td>
+</tr>
+<tr>
+<td><code>Microsoft.AspNetCore.Components.WebAssembly.Server</code></td>
+<td>10.0.13</td>
+</tr>
+<tr>
+<td><code>Microsoft.EntityFrameworkCore.Tools</code></td>
+<td>10.0.9</td>
+</tr>
+<tr>
+<td><code>Microsoft.Extensions.DataIngestion.Abstractions</code></td>
+<td>10.7.0-preview.1.26309.5</td>
+</tr>
+<tr>
+<td><code>Microsoft.Extensions.DataIngestion.MarkItDown</code></td>
+<td>10.7.0-preview.1.26309.5</td>
+</tr>
+<tr>
+<td><code>Microsoft.Extensions.FileProviders.Embedded</code></td>
+<td>10.0.9</td>
+</tr>
+<tr>
+<td><code>Microsoft.Extensions.Hosting</code></td>
+<td>10.0.9</td>
+</tr>
+<tr>
+<td><code>Microsoft.Extensions.Http.Polly</code></td>
+<td>10.0.9</td>
+</tr>
+<tr>
+<td><code>Microsoft.NET.Test.Sdk</code></td>
+<td>17.14.1</td>
+</tr>
+<tr>
+<td><code>NSubstitute</code></td>
+<td>5.3.0</td>
+</tr>
+<tr>
+<td><code>NSubstitute.Analyzers.CSharp</code></td>
+<td>1.0.17</td>
+</tr>
+<tr>
+<td><code>SQLitePCLRaw.bundle_e_sqlite3</code></td>
+<td>2.1.12</td>
+</tr>
+<tr>
+<td><code>Serilog.AspNetCore</code></td>
+<td>9.0.0</td>
+</tr>
+<tr>
+<td><code>Serilog.Extensions.Logging</code></td>
+<td>9.0.2</td>
+</tr>
+<tr>
+<td><code>Serilog.Sinks.Async</code></td>
+<td>2.1.0</td>
+</tr>
+<tr>
+<td><code>Serilog.Sinks.Console</code></td>
+<td>6.0.0</td>
+</tr>
+<tr>
+<td><code>Serilog.Sinks.File</code></td>
+<td>7.0.0</td>
+</tr>
+<tr>
+<td><code>Shouldly</code></td>
+<td>4.3.0</td>
+</tr>
+<tr>
+<td><code>xunit</code></td>
+<td>2.9.3</td>
+</tr>
+<tr>
+<td><code>xunit.extensibility.execution</code></td>
+<td>2.9.3</td>
+</tr>
+<tr>
+<td><code>xunit.runner.visualstudio</code></td>
+<td>3.1.4</td>
+</tr>
+</tbody>
+</table>
+<h2>7. 不应盲目合并或删除的部分</h2>
+<ul>
+<li>企业 Exam 与教育 Assessment：存在真实调用方，运行规则不同；先修旧路径或明确退役政策。</li>
+<li><code>IKnowledgeVectorStore</code>、模型／转换接口：为供应商隔离和替身验证提供实际边界。</li>
+<li>不可变修订与当前指针：支持历史解释和未知请求恢复，不能只为减少表数覆盖旧行。</li>
+<li>本机草稿与云端操作回执：解决不同问题；前者不证明已经提交，后者不自动恢复未同步文字。</li>
+</ul>
+<p>下一次修改应先全树查调用方，再决定合并；本轮没有认定可安全删除的生产模块或依赖。</p>
+</section><section id="data-and-flows"><h1>数据关系与核心流程</h1>
+<h2>1. 数据模型的阅读方法</h2>
+<p>主 DbContext 声明 151 个 <code>DbSet</code>，包含 ABP 模块实体；这不是完整 SQL 表总数，导航实体与扩展配置也参与模型。当前有 49 个迁移文件，另有对应 Designer 与模型快照。下面画的是关键业务关系，省略审计列、租户列、并发戳及大量从表；它不是由数据库反向生成的完整物理 ERD。</p>
+<p>所有权、当前指针和历史修订是三个不同概念。例如教师拥有试卷，不意味着拥有引用材料；成绩当前指针改变，不意味着旧评分或旧结果被删除。</p>
+<h2>2. 知识、学校与课程</h2>
+<p><figure><button class="diagram" aria-label="放大 知识与学校关系"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1029 842" role="img" aria-labelledby="title desc"><title id="title">知识与学校关键数据关系</title><desc id="desc">这是简化业务关系图；省略所有租户列和复合外键，不等于完整物理 ERD。</desc>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10Z" fill="#63768c"/></marker></defs>
+<rect width="1029" height="842" rx="18" fill="#f6f8fb"/>
+<text x="40" y="35" font-size="22" font-weight="700" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">知识与学校关键数据关系</text>
+<path d="M304,136.0 L330,140 L350,140 L370,136.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M634,136.0 L660,140 L680,140 L700,136.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M832.0,192 L830,210 L830,250 L832.0,275" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M700,331.0 L680,330 L660,330 L634,331.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M700,331.0 L680,330 L680,260 L330,260 L330,330 L304,331.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M172.0,387 L170,410 L170,450 L172.0,470" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M304,526.0 L330,530 L350,530 L370,526.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M172.0,192 L170,210 L320,210 L320,450 L500,450 L502.0,470" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M634,526.0 L660,530 L680,530 L700,526.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M832.0,582 L830,600 L830,640 L832.0,665" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M832.0,387 L830,410 L650,410 L650,640 L500,640 L502.0,665" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M370,721.0 L350,720 L330,720 L304,721.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<rect x="40" y="80" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="40" y="80" width="5" height="112" rx="2" fill="#126b82"/>
+<text x="172.0" y="124.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">IdentityUser</text>
+<text x="172.0" y="148.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">账号</text>
+<rect x="370" y="80" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="370" y="80" width="5" height="112" rx="2" fill="#3654a5"/>
+<text x="502.0" y="124.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">KnowledgeLibrary</text>
+<text x="502.0" y="148.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">本人默认库</text>
+<rect x="700" y="80" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="700" y="80" width="5" height="112" rx="2" fill="#80539b"/>
+<text x="832.0" y="124.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">KnowledgeItem</text>
+<text x="832.0" y="148.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">条目 / 当前版本指针</text>
+<rect x="700" y="275" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="700" y="275" width="5" height="112" rx="2" fill="#126b82"/>
+<text x="832.0" y="319.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">KnowledgeVersion</text>
+<text x="832.0" y="343.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">正文版本</text>
+<rect x="370" y="275" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="370" y="275" width="5" height="112" rx="2" fill="#3654a5"/>
+<text x="502.0" y="319.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">KnowledgeAttachment</text>
+<text x="502.0" y="343.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">原始 Blob 引用</text>
+<rect x="40" y="275" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="40" y="275" width="5" height="112" rx="2" fill="#80539b"/>
+<text x="172.0" y="319.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">SchoolKnowledgeShare</text>
+<text x="172.0" y="343.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">指定版本 + 学校 + 用途</text>
+<rect x="40" y="470" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="40" y="470" width="5" height="112" rx="2" fill="#126b82"/>
+<text x="172.0" y="514.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">School</text>
+<text x="172.0" y="538.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">租户内学校</text>
+<rect x="370" y="470" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="370" y="470" width="5" height="112" rx="2" fill="#3654a5"/>
+<text x="502.0" y="514.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">SchoolMembership</text>
+<text x="502.0" y="538.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">账号身份 / 有效期</text>
+<rect x="700" y="470" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="700" y="470" width="5" height="112" rx="2" fill="#80539b"/>
+<text x="832.0" y="514.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">Teaching / Enrollment</text>
+<text x="832.0" y="538.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">任教 / 在班 / 学期</text>
+<rect x="700" y="665" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="700" y="665" width="5" height="112" rx="2" fill="#126b82"/>
+<text x="832.0" y="709.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">Curriculum revisions</text>
+<text x="832.0" y="733.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">教材 / 知识点 / 映射</text>
+<rect x="370" y="665" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="370" y="665" width="5" height="112" rx="2" fill="#3654a5"/>
+<text x="502.0" y="709.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">KnowledgeIndexJob</text>
+<text x="502.0" y="733.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">执行事实</text>
+<rect x="40" y="665" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="40" y="665" width="5" height="112" rx="2" fill="#80539b"/>
+<text x="172.0" y="709.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">Chunk / EmbeddingRecord</text>
+<text x="172.0" y="733.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">可追溯分块与模型</text>
+<rect x="316.0" y="130.0" width="38" height="20" rx="4" fill="#f6f8fb"/><text x="335.0" y="140.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#43526b">拥有</text>
+<rect x="646.0" y="130.0" width="38" height="20" rx="4" fill="#f6f8fb"/><text x="665.0" y="140.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#43526b">包含</text>
+<rect x="811.0" y="210.0" width="38" height="20" rx="4" fill="#f6f8fb"/><text x="830.0" y="220.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#43526b">版本</text>
+<rect x="646.0" y="320.0" width="38" height="20" rx="4" fill="#f6f8fb"/><text x="665.0" y="330.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#43526b">附件</text>
+<rect x="398.5" y="250.0" width="38" height="20" rx="4" fill="#f6f8fb"/><text x="417.5" y="260.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#43526b">授权</text>
+<rect x="151.0" y="410.0" width="38" height="20" rx="4" fill="#f6f8fb"/><text x="170.0" y="420.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#43526b">指定</text>
+<rect x="316.0" y="520.0" width="38" height="20" rx="4" fill="#f6f8fb"/><text x="335.0" y="530.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#43526b">成员</text>
+<rect x="346.0" y="440.0" width="38" height="20" rx="4" fill="#f6f8fb"/><text x="365.0" y="450.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#43526b">账号</text>
+<rect x="608.5" y="517.0" width="64" height="20" rx="4" fill="#f6f8fb"/><text x="640.5" y="527.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#43526b">有效关系</text>
+<rect x="798.0" y="600.0" width="64" height="20" rx="4" fill="#f6f8fb"/><text x="830.0" y="610.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#43526b">课程范围</text>
+<rect x="676.0" y="400.0" width="38" height="20" rx="4" fill="#f6f8fb"/><text x="695.0" y="410.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#43526b">索引</text>
+<rect x="316.0" y="710.0" width="38" height="20" rx="4" fill="#f6f8fb"/><text x="335.0" y="720.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#43526b">产出</text>
+</svg></button><figcaption>知识与学校关系 · 点击放大 · <a href="diagrams/07-knowledge-data.mmd">Mermaid 图源</a></figcaption></figure></p>
+<table>
+<thead>
+<tr>
+<th>聚合或事实</th>
+<th>保存内容</th>
+<th>不应被误解为</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>IdentityUser</code> / <code>KnowledgeLibrary</code></td>
+<td>原账号与默认个人库归属</td>
+<td>学校拥有教师账号</td>
+</tr>
+<tr>
+<td><code>KnowledgeItem</code> / <code>KnowledgeVersion</code></td>
+<td>条目整理信息、正文版本与当前发布指针</td>
+<td>分享后所有私人修订都公开</td>
+</tr>
+<tr>
+<td><code>KnowledgeAttachment</code></td>
+<td>版本附件元数据与 Blob 引用</td>
+<td>独立于版本的永久公开 URL</td>
+</tr>
+<tr>
+<td><code>KnowledgePermissionScope</code></td>
+<td>企业知识的显式访问策略</td>
+<td>教育学校成员或任教关系</td>
+</tr>
+<tr>
+<td><code>SchoolKnowledgeShare</code></td>
+<td>指定版本、学校、用途与冻结共享元数据</td>
+<td>所有者转移或任意衍生用途授权</td>
+</tr>
+<tr>
+<td><code>KnowledgeIndexJob</code> / <code>KnowledgeChunk</code> / <code>KnowledgeEmbeddingRecord</code></td>
+<td>索引执行、可追溯分块、模型及向量映射</td>
+<td>Qdrant 中存在就已完成或可读取</td>
+</tr>
+<tr>
+<td><code>SchoolMembership</code></td>
+<td>某账号在学校的 Teacher／Student／Manager 身份区间</td>
+<td>当前具体任教或在班</td>
+</tr>
+<tr>
+<td><code>TeachingAssignment</code> / <code>StudentEnrollment</code></td>
+<td>学期、班级、学科与有效关系</td>
+<td>允许跨校查看全部历史</td>
+</tr>
+<tr>
+<td>教材、章节、知识点修订、映射</td>
+<td>稳定结构和不可变课程引用</td>
+<td>自由文本“数学”标签即可替代</td>
+</tr>
+</tbody>
+</table>
+<p>成员和关系使用 UTC 半开时间区间，结束旧关系与建立新关系保留历史。资料的自由标签用于个人整理；教材范围需稳定编号、版本、章节和明确映射。</p>
+<h2>3. 资料上传、发布与索引</h2>
+<p><figure><button class="diagram" aria-label="放大 知识管道"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1029 647" role="img" aria-labelledby="title desc"><title id="title">知识发布与后台索引</title><desc id="desc">实线是现有执行顺序；发布事务不包含后续外部处理；索引长事务为审计发现。</desc>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10Z" fill="#63768c"/></marker></defs>
+<rect width="1029" height="647" rx="18" fill="#f6f8fb"/>
+<text x="40" y="35" font-size="22" font-weight="700" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">知识发布与后台索引</text>
+<path d="M304,136.0 L330,140 L350,140 L370,136.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M634,136.0 L660,140 L680,140 L700,136.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M832.0,192 L830,210 L830,250 L832.0,275" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M700,331.0 L680,330 L660,330 L634,331.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M370,331.0 L350,330 L330,330 L304,331.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M172.0,387 L170,410 L170,450 L172.0,470" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M304,526.0 L330,530 L350,530 L370,526.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M634,526.0 L660,530 L680,530 L700,526.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<rect x="40" y="80" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="40" y="80" width="5" height="112" rx="2" fill="#126b82"/>
+<text x="172.0" y="124.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">条目 + 草稿</text>
+<text x="172.0" y="148.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">确认本人归属与范围</text>
+<rect x="370" y="80" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="370" y="80" width="5" height="112" rx="2" fill="#3654a5"/>
+<text x="502.0" y="124.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">附件上传</text>
+<text x="502.0" y="148.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">Blob + 元数据</text>
+<rect x="700" y="80" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="700" y="80" width="5" height="112" rx="2" fill="#80539b"/>
+<text x="832.0" y="124.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">发布事务</text>
+<text x="832.0" y="148.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">策略 / 当前版本 / 待处理任务</text>
+<rect x="700" y="275" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="700" y="275" width="5" height="112" rx="2" fill="#126b82"/>
+<text x="832.0" y="319.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">worker 认领任务</text>
+<text x="832.0" y="343.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">当前实现为长 UoW</text>
+<rect x="370" y="275" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="370" y="275" width="5" height="112" rx="2" fill="#3654a5"/>
+<text x="502.0" y="319.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">reader / processor</text>
+<text x="502.0" y="343.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">正文、附件、MarkItDown</text>
+<rect x="40" y="275" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="40" y="275" width="5" height="112" rx="2" fill="#80539b"/>
+<text x="172.0" y="319.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">chunker / persistence</text>
+<text x="172.0" y="343.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">停用旧块、保存新块</text>
+<rect x="40" y="470" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="40" y="470" width="5" height="112" rx="2" fill="#126b82"/>
+<text x="172.0" y="514.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">Embedding</text>
+<text x="172.0" y="538.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">模型版本与维度检查</text>
+<rect x="370" y="470" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="370" y="470" width="5" height="112" rx="2" fill="#3654a5"/>
+<text x="502.0" y="514.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">Qdrant upsert</text>
+<text x="502.0" y="538.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">分块 ID 为 point ID</text>
+<rect x="700" y="470" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="700" y="470" width="5" height="112" rx="2" fill="#80539b"/>
+<text x="832.0" y="514.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">Indexed / Failed</text>
+<text x="832.0" y="538.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">进度、退避与恢复链</text>
+</svg></button><figcaption>知识管道 · 点击放大 · <a href="diagrams/04-knowledge-pipeline.mmd">Mermaid 图源</a></figcaption></figure></p>
+<ol>
+<li>用户创建条目和草稿，上传附件；服务端核对账号、版本归属、文件限制与草稿状态。附件实际写 Blob，主库保存引用。</li>
+<li>发布命令提交完整访问策略。服务端校验规则不混用、不重复，在一笔关系型事务中更新策略、当前版本、适用的旧索引状态并插入待处理任务。</li>
+<li>有效指定版本共享可以保留旧发布版的索引；私人新版本不扩大共享。是否保留索引和谁能读取是两次独立判断。</li>
+<li>Host 轮询任务，调用 <code>KnowledgeIndexJobProcessor</code>，处理顺序是 reader → processor → chunker → persistence → embedding → vector-store。</li>
+<li>reader 读取正文／Blob，非文本格式走 MarkItDown；转换后的正文和分页信息被处理和切块，分块保存业务编号与内容 hash。</li>
+<li>Embedding 通过模型目录选择模型与维度，调用网关，保存追踪记录并 upsert Qdrant。成功完成全部阶段后才能标记 <code>Indexed</code>。</li>
+<li>自动重试留在同一任务并退避；人工重试／恢复创建关联原任务的新任务。旧任务仍用于追溯。</li>
+</ol>
+<p>失败时不把 UI 的“发布成功”解释为可以检索。当前长事务与旧向量清理缺口详见审计 3、4；本图的功能顺序是现有实现，推荐的短事务执行方式尚未改入代码。</p>
+<p>源码：<a href="../../src/KnowPulse.Application/KnowledgeBase/KnowledgeItemAppService.cs">KnowledgeItemAppService</a>、<a href="../../src/KnowPulse.Application/KnowledgeIndexing/KnowledgeIndexJobProcessor.cs">KnowledgeIndexJobProcessor</a>、<a href="../../src/KnowPulse.Application/RagAI/KnowledgeIngestionPipeline.cs">Ingestion</a>、<a href="../../src/KnowPulse.Application/RagAI/KnowledgeEmbeddingPipeline.cs">Embedding</a>。</p>
+<h2>4. 权限感知 RAG</h2>
+<p><figure><button class="diagram" aria-label="放大 RAG 授权流程"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1029 842" role="img" aria-labelledby="title desc"><title id="title">权限感知 RAG</title><desc id="desc">Qdrant 只给候选；主库重新授权后的正文才允许进入模型。</desc>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10Z" fill="#63768c"/></marker></defs>
+<rect width="1029" height="842" rx="18" fill="#f6f8fb"/>
+<text x="40" y="35" font-size="22" font-weight="700" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">权限感知 RAG</text>
+<path d="M304,136.0 L330,140 L350,140 L370,136.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M634,136.0 L660,140 L680,140 L700,136.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M832.0,192 L830,210 L830,250 L832.0,275" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M700,331.0 L680,330 L660,330 L634,331.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M370,331.0 L350,330 L330,330 L304,331.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M172.0,387 L170,410 L170,450 L172.0,470" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M304,526.0 L330,530 L350,530 L370,526.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M634,526.0 L660,530 L680,530 L700,526.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M304,331.0 L330,330 L330,720 L680,720 L700,721.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M832.0,665 L830,640 L830,600 L832.0,582" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<rect x="40" y="80" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="40" y="80" width="5" height="112" rx="2" fill="#126b82"/>
+<text x="172.0" y="124.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">请求 + 当前账号</text>
+<text x="172.0" y="148.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">功能权限、租户、范围</text>
+<rect x="370" y="80" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="370" y="80" width="5" height="112" rx="2" fill="#3654a5"/>
+<text x="502.0" y="124.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">关系型预筛选</text>
+<text x="502.0" y="148.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">所有者、共享用途、课程</text>
+<rect x="700" y="80" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="700" y="80" width="5" height="112" rx="2" fill="#80539b"/>
+<text x="832.0" y="124.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">Query Embedding</text>
+<text x="832.0" y="148.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">经模型目录选型</text>
+<rect x="700" y="275" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="700" y="275" width="5" height="112" rx="2" fill="#126b82"/>
+<text x="832.0" y="319.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">Qdrant 候选</text>
+<text x="832.0" y="343.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">TopK 扩展但有上限</text>
+<rect x="370" y="275" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="370" y="275" width="5" height="112" rx="2" fill="#3654a5"/>
+<text x="502.0" y="319.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">PostgreSQL 二次复核</text>
+<text x="502.0" y="343.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">条目 / 版本 / 分块 / 关系</text>
+<rect x="40" y="275" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="40" y="275" width="5" height="112" rx="2" fill="#80539b"/>
+<text x="172.0" y="319.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">有授权上下文？</text>
+<text x="172.0" y="343.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">检查有效候选</text>
+<rect x="40" y="470" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="40" y="470" width="5" height="112" rx="2" fill="#126b82"/>
+<text x="172.0" y="514.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">Chat / 受控降级</text>
+<text x="172.0" y="538.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">仅发送已核验片段</text>
+<rect x="370" y="470" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="370" y="470" width="5" height="112" rx="2" fill="#3654a5"/>
+<text x="502.0" y="514.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">回答 + 引用</text>
+<text x="502.0" y="538.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">原版本与当前授权</text>
+<rect x="700" y="470" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="700" y="470" width="5" height="112" rx="2" fill="#80539b"/>
+<text x="832.0" y="514.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">受控审计</text>
+<text x="832.0" y="538.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">hash / 摘要 / 元数据</text>
+<rect x="700" y="665" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="700" y="665" width="5" height="112" rx="2" fill="#126b82"/>
+<text x="832.0" y="709.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">固定拒答</text>
+<text x="832.0" y="733.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">不调用 Chat</text>
+<rect x="156.0" y="410.0" width="28" height="20" rx="4" fill="#f6f8fb"/><text x="170.0" y="420.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#43526b">有</text>
+<rect x="316.0" y="417.5" width="28" height="20" rx="4" fill="#f6f8fb"/><text x="330.0" y="427.5" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#43526b">无</text>
+<rect x="811.0" y="600.0" width="38" height="20" rx="4" fill="#f6f8fb"/><text x="830.0" y="610.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#43526b">审计</text>
+</svg></button><figcaption>RAG 授权流程 · 点击放大 · <a href="diagrams/05-rag.mmd">Mermaid 图源</a></figcaption></figure></p>
+<p><code>RagAnswerService</code> 首先验证问答功能权限并选择模型。检索器从当前服务器身份构造范围，检查请求中自报的 UserId／TenantId 不得冒充其他主体，再计算可用共享版和课程分块。</p>
+<p>Qdrant 根据租户、所有者／组织、共享版本、课程候选、安全等级和发布标志缩小候选。返回的向量命中只提供候选编号和相似度；检索器批量回读条目、版本、分块、策略与索引事实，并重新检查当前学校共享和成员关系。</p>
+<p>其中共享访问要求分块所属任务为 <code>Indexed</code>；当前发布版本的直接访问按分块有效性、版本生命周期和权限判断，没有同样的任务完成状态门槛。这是当前实现的路径差异，本轮未以真实故障注入验证部分索引写入时的表现。</p>
+<p>只有通过检查的正文进入模型提示。无可用上下文时返回“知识库依据不足”；模型失败有受控降级。回答附引用，审计保存 hash、受控摘要、引用编号和模型信息，不以日志保存完整 prompt 作为调试方法。</p>
+<p>共享撤回后数据库复核阻止新的使用，但已经看过、下载过或正在处理的内容不能被承诺“从用户记忆中收回”。D03 已明确学生材料停止后续在线读取，历史答卷与已上交副本由独立授权保留。</p>
+<p>源码：<a href="../../src/KnowPulse.Application/RagAI/KnowledgeRetriever.cs">KnowledgeRetriever</a>、<a href="../../src/KnowPulse.Application/RagAI/RagAnswerService.cs">RagAnswerService</a>、<a href="../../src/KnowPulse.Application/RagAI/KnowledgeSourceAccessGuard.cs">KnowledgeSourceAccessGuard</a>。</p>
+<h2>5. 备课、出题、审核与试卷</h2>
+<p>教师先选择有效任教和教材范围，关联允许使用的本人资料或学校共享版本。<code>LessonPreparation</code> 保存目标、教材映射、资料版本和题卷引用的修订；备课反思必须经明确动作才复制为本人知识草稿。</p>
+<p>AI 出题保存独立生成任务，worker 认领并恢复记录的账号上下文，重新检查权限和来源。调用模型产生候选；教师编辑、采纳、评分规则确认和审核均不被生成完成代替。候选或来源变动会触发相应的重新核验。</p>
+<p><code>ExamPaper</code>／<code>ExamPaperQuestion</code> 冻结题干、选项、评分定义、知识点和来源快照。教育任务引用这个冻结试卷，学生作答与评分不跟随教师后来的题库编辑。</p>
+<p>企业旧 <code>ExamPlan</code> 与教育 <code>EducationAssessmentTask</code> <strong>是两套运行模型</strong>。它们共享部分试卷数据，但发布、名单、答卷、评分和开放规则不同；不能将旧企业考试的分数直接当成教育统一成绩发布结果。</p>
+<h2>6. 正式测评、批改与统一结果</h2>
+<p><figure><button class="diagram" aria-label="放大 测评生命周期"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1029 842" role="img" aria-labelledby="title desc"><title id="title">教育测评生命周期</title><desc id="desc">箭头表示事实推进；结果发布与答卷提交、评分确认分别发生。</desc>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10Z" fill="#63768c"/></marker></defs>
+<rect width="1029" height="842" rx="18" fill="#f6f8fb"/>
+<text x="40" y="35" font-size="22" font-weight="700" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">教育测评生命周期</text>
+<path d="M304,136.0 L330,140 L350,140 L370,136.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M634,136.0 L660,140 L680,140 L700,136.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M832.0,192 L830,210 L830,250 L832.0,275" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M700,331.0 L680,330 L660,330 L634,331.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M370,331.0 L350,330 L330,330 L304,331.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M370,331.0 L350,330 L350,530 L330,530 L304,526.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M304,331.0 L330,330 L330,520 L350,520 L350,530 L370,526.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M304,526.0 L330,530 L350,530 L370,526.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M634,526.0 L660,530 L680,530 L700,526.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M832.0,582 L830,600 L830,640 L832.0,665" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M700,721.0 L680,720 L660,720 L660,530 L634,526.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<rect x="40" y="80" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="40" y="80" width="5" height="112" rx="2" fill="#126b82"/>
+<text x="172.0" y="124.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">草稿 / 试卷快照</text>
+<text x="172.0" y="148.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">确认教材与评分定义</text>
+<rect x="370" y="80" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="370" y="80" width="5" height="112" rx="2" fill="#3654a5"/>
+<text x="502.0" y="124.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">发布任务</text>
+<text x="502.0" y="148.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">固定接收名单及窗口</text>
+<rect x="700" y="80" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="700" y="80" width="5" height="112" rx="2" fill="#80539b"/>
+<text x="832.0" y="124.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">明确开始 / 恢复</text>
+<text x="832.0" y="148.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">同一次 Attempt</text>
+<rect x="700" y="275" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="700" y="275" width="5" height="112" rx="2" fill="#126b82"/>
+<text x="832.0" y="319.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">逐题响应修订</text>
+<text x="832.0" y="343.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">图片引用、版本与操作回执</text>
+<rect x="370" y="275" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="370" y="275" width="5" height="112" rx="2" fill="#3654a5"/>
+<text x="502.0" y="319.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">手动交卷 / 服务端截止</text>
+<text x="502.0" y="343.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">不可变 Submission 清单</text>
+<rect x="40" y="275" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="40" y="275" width="5" height="112" rx="2" fill="#80539b"/>
+<text x="172.0" y="319.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">自动分 + 人工批改</text>
+<text x="172.0" y="343.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">Grade 草稿与确认分离</text>
+<rect x="40" y="470" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="40" y="470" width="5" height="112" rx="2" fill="#126b82"/>
+<text x="172.0" y="514.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">全任务 Closure</text>
+<text x="172.0" y="538.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">提交或缺考，缺考不是零分</text>
+<rect x="370" y="470" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="370" y="470" width="5" height="112" rx="2" fill="#3654a5"/>
+<text x="502.0" y="514.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">统一 ResultRelease</text>
+<text x="502.0" y="538.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">冻结全部确认评分版本</text>
+<rect x="700" y="470" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="700" y="470" width="5" height="112" rx="2" fill="#80539b"/>
+<text x="832.0" y="514.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">学生当前结果</text>
+<text x="832.0" y="538.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">隐藏 / 分数 / 完整讲评</text>
+<rect x="700" y="665" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="700" y="665" width="5" height="112" rx="2" fill="#126b82"/>
+<text x="832.0" y="709.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">确认改分</text>
+<text x="832.0" y="733.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">新评分 + 替代发布</text>
+<rect x="318.0" y="420.0" width="64" height="20" rx="4" fill="#f6f8fb"/><text x="350.0" y="430.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#43526b">自然截止</text>
+<rect x="298.0" y="367.5" width="64" height="20" rx="4" fill="#f6f8fb"/><text x="330.0" y="377.5" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#43526b">全部确认</text>
+<rect x="278.5" y="517.0" width="64" height="20" rx="4" fill="#f6f8fb"/><text x="310.5" y="527.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#43526b">名单封存</text>
+<rect x="811.0" y="600.0" width="38" height="20" rx="4" fill="#f6f8fb"/><text x="830.0" y="610.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#43526b">复核</text>
+<rect x="615.0" y="615.0" width="90" height="20" rx="4" fill="#f6f8fb"/><text x="660.0" y="625.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#43526b">同事务换指针</text>
+</svg></button><figcaption>测评生命周期 · 点击放大 · <a href="diagrams/06-assessment.mmd">Mermaid 图源</a></figcaption></figure></p>
+<p><figure><button class="diagram" aria-label="放大 教育证据关系"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1029 842" role="img" aria-labelledby="title desc"><title id="title">教育证据关键数据关系</title><desc id="desc">箭头表示持久引用或派生依据；当前指针与历史修订分开，省略外围关系。</desc>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10Z" fill="#63768c"/></marker></defs>
+<rect width="1029" height="842" rx="18" fill="#f6f8fb"/>
+<text x="40" y="35" font-size="22" font-weight="700" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">教育证据关键数据关系</text>
+<path d="M304,136.0 L330,140 L350,140 L370,136.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M634,136.0 L660,140 L680,140 L700,136.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M832.0,192 L830,210 L830,250 L832.0,275" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M700,331.0 L680,330 L660,330 L634,331.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M370,331.0 L350,330 L330,330 L304,331.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M304,331.0 L330,330 L330,530 L350,530 L370,526.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M304,526.0 L330,530 L350,530 L370,526.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M634,526.0 L660,530 L680,530 L700,526.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M832.0,582 L830,600 L830,640 L832.0,665" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M700,721.0 L680,720 L660,720 L634,721.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M370,721.0 L350,720 L330,720 L304,721.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M172.0,665 L170,640 L320,640 L320,210 L500,210 L502.0,192" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<rect x="40" y="80" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="40" y="80" width="5" height="112" rx="2" fill="#126b82"/>
+<text x="172.0" y="124.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">ExamPaper / Question</text>
+<text x="172.0" y="148.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">冻结卷与题目</text>
+<rect x="370" y="80" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="370" y="80" width="5" height="112" rx="2" fill="#3654a5"/>
+<text x="502.0" y="124.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">AssessmentTask / Revision</text>
+<text x="502.0" y="148.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">发布任务</text>
+<rect x="700" y="80" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="700" y="80" width="5" height="112" rx="2" fill="#80539b"/>
+<text x="832.0" y="124.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">Recipient / Attempt</text>
+<text x="832.0" y="148.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">固定接收人与尝试</text>
+<rect x="700" y="275" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="700" y="275" width="5" height="112" rx="2" fill="#126b82"/>
+<text x="832.0" y="319.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">CurrentResponse / Revision</text>
+<text x="832.0" y="343.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">当前答案与原修订</text>
+<rect x="370" y="275" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="370" y="275" width="5" height="112" rx="2" fill="#3654a5"/>
+<text x="502.0" y="319.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">Submission</text>
+<text x="502.0" y="343.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">封存清单</text>
+<rect x="40" y="275" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="40" y="275" width="5" height="112" rx="2" fill="#80539b"/>
+<text x="172.0" y="319.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">QuestionGrade / Revision</text>
+<text x="172.0" y="343.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">确认评分与全量证据</text>
+<rect x="40" y="470" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="40" y="470" width="5" height="112" rx="2" fill="#126b82"/>
+<text x="172.0" y="514.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">Closure / ResultRelease</text>
+<text x="172.0" y="538.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">全名单封存与统一开放</text>
+<rect x="370" y="470" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="370" y="470" width="5" height="112" rx="2" fill="#3654a5"/>
+<text x="502.0" y="514.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">ReleaseItem</text>
+<text x="502.0" y="538.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">每份提交的评分版本</text>
+<rect x="700" y="470" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="700" y="470" width="5" height="112" rx="2" fill="#80539b"/>
+<text x="832.0" y="514.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">LearningReportSnapshot</text>
+<text x="832.0" y="538.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">规则、窗口、证据指纹</text>
+<rect x="700" y="665" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="700" y="665" width="5" height="112" rx="2" fill="#126b82"/>
+<text x="832.0" y="709.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">TeachingPlan / Revision</text>
+<text x="832.0" y="733.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">老师确认与下发</text>
+<rect x="370" y="665" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="370" y="665" width="5" height="112" rx="2" fill="#3654a5"/>
+<text x="502.0" y="709.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">Activity / Decision</text>
+<text x="502.0" y="733.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">执行、困难与复盘</text>
+<rect x="40" y="665" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="40" y="665" width="5" height="112" rx="2" fill="#80539b"/>
+<text x="172.0" y="709.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">FormalAssessmentLink</text>
+<text x="172.0" y="733.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">诊断 / 新题复测</text>
+<rect x="316.0" y="130.0" width="38" height="20" rx="4" fill="#f6f8fb"/><text x="335.0" y="140.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#43526b">引用</text>
+<rect x="646.0" y="130.0" width="38" height="20" rx="4" fill="#f6f8fb"/><text x="665.0" y="140.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#43526b">分配</text>
+<rect x="811.0" y="210.0" width="38" height="20" rx="4" fill="#f6f8fb"/><text x="830.0" y="220.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#43526b">作答</text>
+<rect x="646.0" y="320.0" width="38" height="20" rx="4" fill="#f6f8fb"/><text x="665.0" y="330.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#43526b">封存</text>
+<rect x="316.0" y="320.0" width="38" height="20" rx="4" fill="#f6f8fb"/><text x="335.0" y="330.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#43526b">评分</text>
+<rect x="298.0" y="420.0" width="64" height="20" rx="4" fill="#f6f8fb"/><text x="330.0" y="430.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#43526b">冻结引用</text>
+<rect x="316.0" y="520.0" width="38" height="20" rx="4" fill="#f6f8fb"/><text x="335.0" y="530.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#43526b">包含</text>
+<rect x="608.5" y="517.0" width="64" height="20" rx="4" fill="#f6f8fb"/><text x="640.5" y="527.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#43526b">正式证据</text>
+<rect x="811.0" y="600.0" width="38" height="20" rx="4" fill="#f6f8fb"/><text x="830.0" y="610.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#43526b">拟定</text>
+<rect x="646.0" y="710.0" width="38" height="20" rx="4" fill="#f6f8fb"/><text x="665.0" y="720.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#43526b">执行</text>
+<rect x="316.0" y="710.0" width="38" height="20" rx="4" fill="#f6f8fb"/><text x="335.0" y="720.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#43526b">关联</text>
+<rect x="333.0" y="200.0" width="64" height="20" rx="4" fill="#f6f8fb"/><text x="365.0" y="210.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#43526b">独立任务</text>
+</svg></button><figcaption>教育证据关系 · 点击放大 · <a href="diagrams/08-assessment-data.mmd">Mermaid 图源</a></figcaption></figure></p>
+<table>
+<thead>
+<tr>
+<th>阶段</th>
+<th>关键事实</th>
+<th>一致性与权限要求</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>草稿／发布</td>
+<td>Task、Revision、Recipient</td>
+<td>教师当前任教；发布固定试卷和实际名单，不依赖日后班级名单漂移</td>
+</tr>
+<tr>
+<td>开始／恢复</td>
+<td>Attempt、Recipient 当前尝试</td>
+<td>学生当前有效关系；服务端时刻；原答卷恢复不重置计时</td>
+</tr>
+<tr>
+<td>保存</td>
+<td>ResponseRevision、CurrentResponse</td>
+<td>题目属于冻结卷；原操作回执；答卷版本冲突；图片引用属于本次作答</td>
+</tr>
+<tr>
+<td>交卷／截止</td>
+<td>Submission manifest</td>
+<td>列出所有题，包括未答；固定确切响应修订及 hash，不读取后续答案</td>
+</tr>
+<tr>
+<td>初始化／批改</td>
+<td>QuestionGrade、GradeRevision</td>
+<td>自动分与人工分分开；老师草稿与确认指针分开；不覆盖人工处理</td>
+</tr>
+<tr>
+<td>全任务封存</td>
+<td>Closure</td>
+<td>所有固定接收人分别是已封存提交或缺考；缺考不是 0 分答卷</td>
+</tr>
+<tr>
+<td>最终发布</td>
+<td>ResultRelease、ReleaseItem</td>
+<td>全部有效提交的每题完成确认评分；冻结每份答卷对应的确切评分修订</td>
+</tr>
+<tr>
+<td>学生查看</td>
+<td>当前结果发布投影</td>
+<td>隐藏／仅分数／完整讲评，分别裁剪字段；到开放时间且当前关系有效</td>
+</tr>
+<tr>
+<td>改分／复核</td>
+<td>新评分、替代发布、ReviewRequest</td>
+<td>原因留存，结果指针与新分数一起切换，保留原版本</td>
+</tr>
+</tbody>
+</table>
+<p>教育写入遵循学校 → 当前账号 → 任务／答卷／评分根的约束顺序，避免撤权与写入各自成功。后台评分按已记录的租户与封存事实计算，不凭后台身份授予阅读权。</p>
+<p>学生明确提交前看到的是已保存答案和上传事实的预览；预览指纹用于发现之后的变化。只在有明确排除／确认时处理未同步或未答部分，不能由客户端显示状态假报服务器保存。</p>
+<p>源码：<a href="../../src/KnowPulse.Application/Education/EducationAssessmentAppService.cs">测评服务</a>、<a href="../../src/KnowPulse.Application/Education/EducationAssessmentSubmissionProcessor.cs">封存处理器</a>、<a href="../../src/KnowPulse.Application/Education/EducationAssessmentGradingProcessor.cs">评分处理器</a>、<a href="../../src/KnowPulse.Application/Education/EducationAssessmentAppService.Results.cs">结果发布</a>、<a href="../adr/0017-confirmed-question-grades-and-task-wide-result-release.md">ADR 0017</a>。</p>
+<h2>7. 学情、成长与个性化教学</h2>
+<p><figure><button class="diagram" aria-label="放大 教学闭环"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1029 647" role="img" aria-labelledby="title desc"><title id="title">学情与个性化教学闭环</title><desc id="desc">循环增加可解释的新证据；活动自报完成不直接等同掌握。</desc>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10Z" fill="#63768c"/></marker></defs>
+<rect width="1029" height="647" rx="18" fill="#f6f8fb"/>
+<text x="40" y="35" font-size="22" font-weight="700" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">学情与个性化教学闭环</text>
+<path d="M304,136.0 L330,140 L350,140 L370,136.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M634,136.0 L660,140 L680,140 L700,136.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M832.0,192 L830,210 L830,250 L832.0,275" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M700,331.0 L680,330 L660,330 L634,331.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M370,331.0 L350,330 L330,330 L304,331.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M172.0,387 L170,410 L170,450 L172.0,470" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M304,526.0 L330,530 L350,530 L370,526.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M634,526.0 L660,530 L680,530 L700,526.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M700,526.0 L680,530 L680,210 L330,210 L330,140 L304,136.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<rect x="40" y="80" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="40" y="80" width="5" height="112" rx="2" fill="#126b82"/>
+<text x="172.0" y="124.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">正式答卷 + 确认评分</text>
+<text x="172.0" y="148.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">全题证据、缺考分开</text>
+<rect x="370" y="80" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="370" y="80" width="5" height="112" rx="2" fill="#3654a5"/>
+<text x="502.0" y="124.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">证据资格</text>
+<text x="502.0" y="148.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">同题、曝光、提示与核验</text>
+<rect x="700" y="80" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="700" y="80" width="5" height="112" rx="2" fill="#80539b"/>
+<text x="832.0" y="124.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">学科规则版本</text>
+<text x="832.0" y="148.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">窗口、阈值与证据量</text>
+<rect x="700" y="275" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="700" y="275" width="5" height="112" rx="2" fill="#126b82"/>
+<text x="832.0" y="319.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">报告快照</text>
+<text x="832.0" y="343.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">来源指纹 + 完成前重验</text>
+<rect x="370" y="275" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="370" y="275" width="5" height="112" rx="2" fill="#3654a5"/>
+<text x="502.0" y="319.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">教师 / AI 私有初稿</text>
+<text x="502.0" y="343.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">AI 只用匿名必要投影</text>
+<rect x="40" y="275" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="40" y="275" width="5" height="112" rx="2" fill="#80539b"/>
+<text x="172.0" y="319.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">教师明确确认下发</text>
+<text x="172.0" y="343.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">目标、步骤、材料和时刻</text>
+<rect x="40" y="470" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="40" y="470" width="5" height="112" rx="2" fill="#126b82"/>
+<text x="172.0" y="514.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">学生执行</text>
+<text x="172.0" y="538.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">材料 / 订正 / 活动 / 困难</text>
+<rect x="370" y="470" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="370" y="470" width="5" height="112" rx="2" fill="#3654a5"/>
+<text x="502.0" y="514.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">教师跟进与决定</text>
+<text x="502.0" y="538.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">继续 / 暂停 / 调整 / 结束</text>
+<rect x="700" y="470" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="700" y="470" width="5" height="112" rx="2" fill="#80539b"/>
+<text x="832.0" y="514.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">正式诊断 / 新题复测</text>
+<text x="832.0" y="538.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">关联独立冻结测评</text>
+<rect x="392.0" y="200.0" width="51" height="20" rx="4" fill="#f6f8fb"/><text x="417.5" y="210.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#43526b">新证据</text>
+</svg></button><figcaption>教学闭环 · 点击放大 · <a href="diagrams/10-learning-loop.mmd">Mermaid 图源</a></figcaption></figure></p>
+<p>评分证据覆盖所有题目，不能只收集错题。知识点得分分配保持总量一致；同题练习、答案提示、实际材料提供和教师核验都影响证据资格，不能直接把“做对了”解释为独立掌握。</p>
+<p>学校学科规则有明确版本；报告固定任务、窗口、课程、学生和来源指纹。worker 计算时保存租约与运行编号，完成前重新捕获来源，变化则停止旧计算或等待重算，不将过期结果冒作最新事实。学生成长只使用本人已经开放的正式结果。</p>
+<p>人工或 AI 生成方案都是老师私有初稿。AI 请求投影移除学生身份和原始答卷／私有观察，仅传必要的学科、知识点状态与时间安排；返回 JSON 经结构和业务限制检查。教师明确保存、确认和下发后，学生才看到公开版本。</p>
+<p>方案正文、执行决定、活动进度、材料读取、正式测评、困难反馈和教师私有处理分别建模。暂停阻止新的活动执行；已开始的正式考试仍按其原窗口封存。新题复测有正式任务关联，活动自报“完成”不能自动生成掌握证据。</p>
+<p>源码：<a href="../../src/KnowPulse.Application/Education/EducationLearningReportProcessor.cs">报告处理器</a>、<a href="../../src/KnowPulse.Application/Education/EducationTeachingPlanAppService.GenerationExecution.cs">AI 方案执行</a>、<a href="../../src/KnowPulse.Application/Education/EducationTeachingPlanAppService.Execution.cs">方案执行控制</a>。</p>
+<h2>8. 微信身份与客户端恢复</h2>
+<p><figure><button class="diagram" aria-label="放大 微信登录流程"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1029 647" role="img" aria-labelledby="title desc"><title id="title">微信绑定与逐请求校验</title><desc id="desc">三个阶段：原账号验证、微信证明登录、每次业务请求重验。</desc>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10Z" fill="#63768c"/></marker></defs>
+<rect width="1029" height="647" rx="18" fill="#f6f8fb"/>
+<text x="40" y="35" font-size="22" font-weight="700" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">微信绑定与逐请求校验</text>
+<path d="M304,136.0 L330,140 L350,140 L370,136.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M634,136.0 L660,140 L680,140 L700,136.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M832.0,192 L830,210 L830,250 L832.0,275" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M700,331.0 L680,330 L660,330 L634,331.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M370,331.0 L350,330 L330,330 L304,331.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M172.0,387 L170,410 L170,450 L172.0,470" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M304,526.0 L330,530 L350,530 L370,526.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M634,526.0 L660,530 L680,530 L700,526.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<rect x="40" y="80" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="40" y="80" width="5" height="112" rx="2" fill="#126b82"/>
+<text x="172.0" y="124.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">网页原账号登录</text>
+<text x="172.0" y="148.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">再次确认密码</text>
+<rect x="370" y="80" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="370" y="80" width="5" height="112" rx="2" fill="#3654a5"/>
+<text x="502.0" y="124.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">限时绑定码</text>
+<text x="502.0" y="148.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">随机秘密仅保存 hash</text>
+<rect x="700" y="80" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="700" y="80" width="5" height="112" rx="2" fill="#80539b"/>
+<text x="832.0" y="124.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">小程序交换</text>
+<text x="832.0" y="148.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">绑定码 + 一次微信 code</text>
+<rect x="700" y="275" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="700" y="275" width="5" height="112" rx="2" fill="#126b82"/>
+<text x="832.0" y="319.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">服务端验证微信</text>
+<text x="832.0" y="343.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">固定账号 / App / subject</text>
+<rect x="370" y="275" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="370" y="275" width="5" height="112" rx="2" fill="#3654a5"/>
+<text x="502.0" y="319.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">建立绑定历史</text>
+<text x="502.0" y="343.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">不创建学校身份</text>
+<rect x="40" y="275" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="40" y="275" width="5" height="112" rx="2" fill="#80539b"/>
+<text x="172.0" y="319.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">再次取得微信 code</text>
+<text x="172.0" y="343.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">自定义 grant 换短时 token</text>
+<rect x="40" y="470" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="40" y="470" width="5" height="112" rx="2" fill="#126b82"/>
+<text x="172.0" y="514.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">业务请求</text>
+<text x="172.0" y="538.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">Bearer + binding claim</text>
+<rect x="370" y="470" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="370" y="470" width="5" height="112" rx="2" fill="#3654a5"/>
+<text x="502.0" y="514.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">中间件重验</text>
+<text x="502.0" y="538.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">令牌 / 租户 / 绑定 / 安全戳</text>
+<rect x="700" y="470" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="700" y="470" width="5" height="112" rx="2" fill="#80539b"/>
+<text x="832.0" y="514.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">应用服务授权</text>
+<text x="832.0" y="538.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">学校 / 功能 / 版本 / 用途</text>
+</svg></button><figcaption>微信登录流程 · 点击放大 · <a href="diagrams/09-wechat.mmd">Mermaid 图源</a></figcaption></figure></p>
+<p>网页先验证原账号密码，签发随机、短时、服务端只保存 hash 的绑定码。小程序将绑定码和一次性微信证明交给服务端核验后建立绑定；登录再使用新微信证明取得短时 token。绑定本身不创建账号、学校身份或私人资料归属。</p>
+<p>每次带微信绑定 claim 的业务请求核对 token 有效性、账号、租户、绑定、应用配置及账号安全戳。本人解绑释放活跃唯一键，保留历史，后续请求会被拒绝；不承诺召回已经在执行中的请求。</p>
+<p><figure><button class="diagram" aria-label="放大 客户端恢复"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1029 647" role="img" aria-labelledby="title desc"><title id="title">小程序会话与操作恢复</title><desc id="desc">箭头是状态或请求关系；本机草稿、操作元数据和 token 有不同存储规则。</desc>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10Z" fill="#63768c"/></marker></defs>
+<rect width="1029" height="647" rx="18" fill="#f6f8fb"/>
+<text x="40" y="35" font-size="22" font-weight="700" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">小程序会话与操作恢复</text>
+<path d="M304,136.0 L330,140 L350,140 L370,136.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M634,136.0 L660,140 L680,140 L700,136.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M832.0,192 L830,210 L830,250 L832.0,275" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M700,331.0 L680,330 L660,330 L634,331.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M370,331.0 L350,330 L330,330 L304,331.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M700,136.0 L680,140 L680,450 L330,450 L330,530 L304,526.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M304,526.0 L330,530 L350,530 L370,526.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M634,526.0 L660,530 L680,530 L700,526.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M700,526.0 L680,530 L680,460 L650,460 L650,210 L330,210 L330,140 L304,136.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<rect x="40" y="80" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="40" y="80" width="5" height="112" rx="2" fill="#126b82"/>
+<text x="172.0" y="124.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">未登录 / 配置未完成</text>
+<text x="172.0" y="148.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">只能进入允许的公开帮助</text>
+<rect x="370" y="80" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="370" y="80" width="5" height="112" rx="2" fill="#3654a5"/>
+<text x="502.0" y="124.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">绑定元数据 / 新微信证明</text>
+<text x="502.0" y="148.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">原账号，不凭角色自报</text>
+<rect x="700" y="80" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="700" y="80" width="5" height="112" rx="2" fill="#80539b"/>
+<text x="832.0" y="124.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">内存 token + 工作区</text>
+<text x="832.0" y="148.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">服务器返回真实角色范围</text>
+<rect x="700" y="275" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="700" y="275" width="5" height="112" rx="2" fill="#126b82"/>
+<text x="832.0" y="319.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">业务读取 / 明确操作</text>
+<text x="832.0" y="343.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">固定学校、版本、操作编号</text>
+<rect x="370" y="275" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="370" y="275" width="5" height="112" rx="2" fill="#3654a5"/>
+<text x="502.0" y="319.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">网络结果未知</text>
+<text x="502.0" y="343.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">先查询原操作回执</text>
+<rect x="40" y="275" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="40" y="275" width="5" height="112" rx="2" fill="#80539b"/>
+<text x="172.0" y="319.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">已确认服务器结果</text>
+<text x="172.0" y="343.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">继续同一份业务记录</text>
+<rect x="40" y="470" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="40" y="470" width="5" height="112" rx="2" fill="#126b82"/>
+<text x="172.0" y="514.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">身份切换 / 退出 / 拒绝</text>
+<text x="172.0" y="538.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">增加 session generation</text>
+<rect x="370" y="470" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="370" y="470" width="5" height="112" rx="2" fill="#3654a5"/>
+<text x="502.0" y="514.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">清空旧投影与内存正文</text>
+<text x="502.0" y="538.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">尽力清理临时文件</text>
+<rect x="700" y="470" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="700" y="470" width="5" height="112" rx="2" fill="#80539b"/>
+<text x="832.0" y="514.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">迟到响应</text>
+<text x="832.0" y="538.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">代次不同则丢弃</text>
+<rect x="378.0" y="200.0" width="64" height="20" rx="4" fill="#f6f8fb"/><text x="410.0" y="210.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#43526b">重新验证</text>
+</svg></button><figcaption>客户端恢复 · 点击放大 · <a href="diagrams/12-client-state.mmd">Mermaid 图源</a></figcaption></figure></p>
+<p>原生 <code>session.js</code> 管理登录和身份代次，迟到响应不能恢复旧账号投影。token 保存在内存；本地绑定元数据不是授权凭证。不同业务的恢复状态有区别：</p>
+<ul>
+<li>私有评语、关系申请等通常只持久化操作编号和必要范围，正文留在内存。</li>
+<li>正式作答、订正、复练等可在用户知情后保存本机草稿，按身份和确切版本隔离。</li>
+<li>网络失败是“结果未确认”，先查询同一操作的回执；不自动创建新业务事实。</li>
+<li>临时文件按当前身份跟踪，退出和拒绝尽力清理；共享设备上系统级副本、相册和无法清理的文件仍需真机政策验收。</li>
+</ul>
+<p>源码：<a href="../../src/KnowPulse.Application/WeChat/WeChatAccountAppService.cs">绑定服务</a>、<a href="../../src/KnowPulse.Application/WeChat/WeChatBindingAuthenticationService.cs">证明核验</a>、<a href="../../src/KnowPulse.HttpApi.Host/WeChat/WeChatBindingSessionMiddleware.cs">请求中间件</a>、<a href="../../miniprogram/utils/session.js">session.js</a>。</p>
+<h2>9. 通知、正文、私有观察</h2>
+<p>学生统一收件箱接入测评、评语、方案来源，按当前学校和来源权限查询。消息仅携带通用种类、公开编号、确切版本、可用时间与首次消息已读；不放分数、答案或教师私有原因。</p>
+<p>打开消息不自动开考或读取正文。真正进入来源时再次检查当前版本和权限；旧版、撤回或失效的来源不能悄悄换成新版本。评语的消息已读与实际正文已读分别记录。真实微信投递尚未配置，站内记录成功不能显示为微信发送成功。</p>
+<p>教师观察与对学生评语分开保存。把一条观察用于评语需明确选取或复制；学校管理员和学生不会因能看到评语而读取教师观察原文。</p>
+</section><section id="operations-and-validation"><h1>部署、运行与验证</h1>
+<h2>1. 当前部署拓扑</h2>
+<p><figure><button class="diagram" aria-label="放大 本地部署"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1029 842" role="img" aria-labelledby="title desc"><title id="title">本地开发部署拓扑</title><desc id="desc">端口来自仓库开发配置；图不承诺生产网络、TLS、容量或高可用。</desc>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10Z" fill="#63768c"/></marker></defs>
+<rect width="1029" height="842" rx="18" fill="#f6f8fb"/>
+<text x="40" y="35" font-size="22" font-weight="700" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">本地开发部署拓扑</text>
+<path d="M304,136.0 L330,140 L350,140 L370,136.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M304,136.0 L330,140 L330,330 L680,330 L700,331.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M634,136.0 L660,140 L680,140 L680,330 L700,331.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M172.0,387 L170,410 L170,450 L172.0,470" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M700,331.0 L680,330 L680,450 L330,450 L330,530 L304,526.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M700,331.0 L680,330 L680,340 L660,340 L660,530 L634,526.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M832.0,387 L830,410 L830,450 L832.0,470" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M832.0,387 L830,410 L670,410 L670,640 L500,640 L502.0,665" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M634,721.0 L660,720 L680,720 L700,721.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<rect x="40" y="80" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="40" y="80" width="5" height="112" rx="2" fill="#126b82"/>
+<text x="172.0" y="124.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">浏览器 / 小程序</text>
+<text x="172.0" y="148.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">用户设备</text>
+<rect x="370" y="80" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="370" y="80" width="5" height="112" rx="2" fill="#3654a5"/>
+<text x="502.0" y="124.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">Blazor 主机</text>
+<text x="502.0" y="148.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">HTTPS 44307</text>
+<rect x="700" y="275" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="700" y="275" width="5" height="112" rx="2" fill="#80539b"/>
+<text x="832.0" y="319.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">API Host</text>
+<text x="832.0" y="343.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">HTTPS 44305 + 六类 worker</text>
+<rect x="40" y="275" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="40" y="275" width="5" height="112" rx="2" fill="#126b82"/>
+<text x="172.0" y="319.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">DbMigrator</text>
+<text x="172.0" y="343.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">独立执行迁移及种子</text>
+<rect x="40" y="470" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="40" y="470" width="5" height="112" rx="2" fill="#3654a5"/>
+<text x="172.0" y="514.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">PostgreSQL 容器</text>
+<text x="172.0" y="538.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">5432 · 事实与任务</text>
+<rect x="370" y="470" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="370" y="470" width="5" height="112" rx="2" fill="#80539b"/>
+<text x="502.0" y="514.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">MinIO 容器</text>
+<text x="502.0" y="538.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">9000 / 9001 · 文件</text>
+<rect x="700" y="470" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="700" y="470" width="5" height="112" rx="2" fill="#126b82"/>
+<text x="832.0" y="514.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">Qdrant 容器</text>
+<text x="832.0" y="538.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">6333 / 6334 · 向量</text>
+<rect x="370" y="665" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="370" y="665" width="5" height="112" rx="2" fill="#3654a5"/>
+<text x="502.0" y="709.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">LiteLLM 容器</text>
+<text x="502.0" y="733.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">4000 · 模型网关</text>
+<rect x="700" y="665" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="700" y="665" width="5" height="112" rx="2" fill="#80539b"/>
+<text x="832.0" y="709.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">外部模型服务</text>
+<text x="832.0" y="733.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">供应商由网关配置</text>
+<rect x="309.5" y="130.0" width="51" height="20" rx="4" fill="#f6f8fb"/><text x="335.0" y="140.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#43526b">Web</text>
+<rect x="392.0" y="320.0" width="51" height="20" rx="4" fill="#f6f8fb"/><text x="417.5" y="330.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#43526b">API</text>
+<rect x="641.5" y="177.5" width="77" height="20" rx="4" fill="#f6f8fb"/><text x="680.0" y="187.5" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#43526b">客户端调用</text>
+<rect x="151.0" y="410.0" width="38" height="20" rx="4" fill="#f6f8fb"/><text x="170.0" y="420.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#43526b">迁移</text>
+<rect x="392.0" y="440.0" width="51" height="20" rx="4" fill="#f6f8fb"/><text x="417.5" y="450.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#43526b">数据库</text>
+<rect x="628.0" y="377.5" width="64" height="20" rx="4" fill="#f6f8fb"/><text x="660.0" y="387.5" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#43526b">Blob</text>
+<rect x="798.0" y="410.0" width="64" height="20" rx="4" fill="#f6f8fb"/><text x="830.0" y="420.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#43526b">REST</text>
+<rect x="651.0" y="457.5" width="38" height="20" rx="4" fill="#f6f8fb"/><text x="670.0" y="467.5" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#43526b">模型</text>
+<rect x="646.0" y="710.0" width="38" height="20" rx="4" fill="#f6f8fb"/><text x="665.0" y="720.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#43526b">请求</text>
+</svg></button><figcaption>本地部署 · 点击放大 · <a href="diagrams/11-deployment.mmd">Mermaid 图源</a></figcaption></figure></p>
+<table>
+<thead>
+<tr>
+<th>组件</th>
+<th>默认本地入口</th>
+<th>状态与用途</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>API / Account / OpenIddict</td>
+<td><code>https://localhost:44305</code></td>
+<td>ASP.NET Core Host，同时运行六类业务 worker</td>
+</tr>
+<tr>
+<td>Web</td>
+<td><code>https://localhost:44307</code></td>
+<td>独立 ASP.NET Core 主机承载 Blazor WebAssembly</td>
+</tr>
+<tr>
+<td>PostgreSQL</td>
+<td>5432</td>
+<td>Compose 服务 <code>postgres</code>，业务库事实</td>
+</tr>
+<tr>
+<td>MinIO API / Console</td>
+<td>9000 / 9001</td>
+<td>私有 Blob 原件与管理入口</td>
+</tr>
+<tr>
+<td>Qdrant HTTP / gRPC</td>
+<td>6333 / 6334</td>
+<td>应用主要使用 REST；可重建索引</td>
+</tr>
+<tr>
+<td>LiteLLM</td>
+<td>4000</td>
+<td>Chat／Embedding 的兼容网关</td>
+</tr>
+<tr>
+<td>DbMigrator</td>
+<td>一次性命令进程</td>
+<td>迁移及种子；不是 API 启动的一部分</td>
+</tr>
+</tbody>
+</table>
+<p>以上来自仓库开发配置，不是生产地址。<code>ops/start-local.ps1</code> 启动依赖、健康检查和迁移器，不启动 API 和 Web。Compose 默认端口绑定及开发凭据不能直接作为生产配置；生产入口、TLS、代理、密钥管理与网络访问边界需要单独配置。</p>
+<p>本仓库 <code>deploy/</code> 当前主要提供 LiteLLM 配置样例，没有发现完整生产部署编排或 <code>.github/workflows</code>。这说明仓库内的发布自动化尚不完整，不代表外部平台一定没有 CI。</p>
+<h2>2. 六类后台消费者</h2>
+<table>
+<thead>
+<tr>
+<th>Host worker</th>
+<th>业务处理器／事实</th>
+<th>认领、失败与恢复</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>KnowledgeIndexJobBackgroundWorker</td>
+<td>KnowledgeIndexJobProcessor / KnowledgeIndexJob</td>
+<td>状态、阶段、心跳、指数退避、人工 RetryOfJobId；长事务缺口见审计 4</td>
+</tr>
+<tr>
+<td>PersonalKnowledgeExportBackgroundWorker</td>
+<td>PersonalKnowledgeExportProcessor</td>
+<td>RunId、租约、归属复核、临时文件与 Blob、退役运行清理、取消和过期</td>
+</tr>
+<tr>
+<td>AiQuestionGenerationBackgroundWorker</td>
+<td>AiQuestionGenerationProcessor</td>
+<td>短事务认领、独立心跳、恢复账号、运行编号、退避和完成前授权复核</td>
+</tr>
+<tr>
+<td>EducationAssessmentDeadlineBackgroundWorker</td>
+<td>SubmissionProcessor / GradingProcessor</td>
+<td>服务端到期封存；唯一提交和根写竞争；初始化评分不覆盖人工修订</td>
+</tr>
+<tr>
+<td>EducationLearningReportBackgroundWorker</td>
+<td>EducationLearningReportProcessor</td>
+<td>来源指纹、运行编号、租约、容量限制、完成前来源重验与重算</td>
+</tr>
+<tr>
+<td>EducationTeachingPlanGenerationBackgroundWorker</td>
+<td>EducationTeachingPlanGenerationProcessor</td>
+<td>认领、独立心跳、账号权限恢复、结构化输出；结果仍是待教师采用的初稿</td>
+</tr>
+</tbody>
+</table>
+<p>这些不是六个独立服务，也没有外部消息队列提供恰好一次执行。数据库任务、唯一约束、运行编号和回执共同保证可恢复。重复触发不应被表述为“绝不会再次调用模型”；外部请求已经发生、进程尚未记账就中断时，仍须按相应任务语义解释成本与恢复。</p>
+<p>多个 Host 都会注册 worker。已有运行编号的消费者可以拒绝过期执行者写回；不应据此推断所有消费者均已完成多 Host 压测。共享库发现方式不能直接支持租户独立数据库。</p>
+<h2>3. 配置的归属</h2>
+<table>
+<thead>
+<tr>
+<th>配置／资产</th>
+<th>位置或入口</th>
+<th>运维注意点</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>SDK</td>
+<td>根 <code>global.json</code></td>
+<td>区分基线与实际 SDK；构建日志记录实际环境</td>
+</tr>
+<tr>
+<td>NuGet 与项目引用</td>
+<td>各 <code>.csproj</code>、<code>common.props</code></td>
+<td>本轮未升级依赖；直接引用清单不是完整 SBOM</td>
+</tr>
+<tr>
+<td>数据库／外部服务</td>
+<td>Host、DbMigrator 配置及环境变量</td>
+<td>不复制真实连接串进入文档或 issue</td>
+</tr>
+<tr>
+<td>Blob</td>
+<td>Host <code>ConfigureBlobStoring</code></td>
+<td>原件与元数据需要一致恢复策略</td>
+</tr>
+<tr>
+<td>模型 alias／用途</td>
+<td>模型目录 + LiteLLM 样例</td>
+<td>模型维度变化不能混写旧 collection</td>
+</tr>
+<tr>
+<td>微信</td>
+<td>WeChatLoginOptions、小程序配置</td>
+<td>一个 AppID 两个工作区；AppSecret 只在服务端</td>
+</tr>
+<tr>
+<td>日志</td>
+<td>Host Serilog、ABP 审计、业务审计表</td>
+<td>排除正文、答案、绑定码、私有评语和密钥</td>
+</tr>
+<tr>
+<td>邮件</td>
+<td>ABP IEmailSender</td>
+<td>DEBUG 明确替换成 NullEmailSender；看到找回页面不证明邮件发送成功</td>
+</tr>
+<tr>
+<td>证书</td>
+<td>OpenIddict / HTTPS 部署配置</td>
+<td>开发证书与生产签名、加密证书分开管理</td>
+</tr>
+</tbody>
+</table>
+<h2>4. 恢复顺序</h2>
+<ol>
+<li>恢复 PostgreSQL 事实和对应 Blob 备份，核对附件引用、版本、提交和结果指针。</li>
+<li>根据原任务与操作编号处理未完成状态，避免把未知响应当成未执行而重复发布或生成。</li>
+<li>Qdrant 可重建，但模型维度、collection、当前版本、有效学校共享和权限必须重新核对。</li>
+<li>已有正式考试保存、交卷、人工批改应能独立于模型服务继续执行。停止模型不等于停止数据库或 Blob。</li>
+<li>多 Host 上对未知旧执行者的产物清理需要运行隔离；不能为了删临时文件而误删仍在写入的产物。</li>
+</ol>
+<p>仓库目前不应承诺任意 RPO／RTO。D09 尚待确定备份恢复点、恢复时间、同时开考人数和图片负载；图中的恢复顺序是架构说明，本轮没有执行备份恢复演练。</p>
+<h2>5. 本轮实际验证</h2>
+<table>
+<thead>
+<tr>
+<th>检查</th>
+<th>本轮结果</th>
+<th>能证明什么／不能证明什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>完整解决方案构建</td>
+<td>通过，0 警告、0 错误，39.10 秒</td>
+<td>当前代码可以构建；不代表登录后业务可用</td>
+</tr>
+<tr>
+<td>领域探针</td>
+<td>2 个问题均复现</td>
+<td>实际调用旧 ExamAnswer 和 ExamAttempt；没有真实 PostgreSQL 竞争</td>
+</tr>
+<tr>
+<td>选择性 EF 服务测试</td>
+<td>3/3 通过，9 秒</td>
+<td>已有管道幂等、分块重建、旧答卷超时拒绝；SQLite 关闭事务</td>
+</tr>
+<tr>
+<td>小程序选择性 Node 测试</td>
+<td>2/2 通过</td>
+<td>退出后迟到 token 不恢复身份；未配置和任意目的地址不能发凭据</td>
+</tr>
+<tr>
+<td>Provider 边界脚本</td>
+<td>失败</td>
+<td>与 ADR 0003 冲突的已知检查错误，本轮确实重现</td>
+</tr>
+<tr>
+<td>图文校验</td>
+<td>7 份正文、109 个本地链接、12 张 SVG 与 Mermaid 节点引用通过；桌面和 390px 窄屏无横向溢出，筛选与放大通过</td>
+<td>SVG 已实际渲染；Mermaid 仅做结构检查，未通过 Mermaid 引擎渲染；不等于业务 UI 测试</td>
+</tr>
+</tbody>
+</table>
+<p>构建与验证日志保存在忽略目录 <code>TestResults/repository-audit-*</code>，不将其作为生产代码提交。本轮没有运行全量 .NET／Node 回归，没有改数据库或向外部用户发送消息。</p>
+<h2>6. 最小后续验证建议</h2>
+<p>修复答案覆盖后，用两条乱序保存验证新答案保留；修复超时恢复后，验证计划仍开放且允许两次时能得到新的有效尝试。修复向量回收后，用多个历史代次高分旧块挤占候选的场景验证有效召回。</p>
+<p>索引事务修复应使用两个数据库连接：一个让模型替身阻塞，另一个查询已提交心跳并尝试恢复／撤回；随后确认失效执行者不能完成任务。此用例比再增加很多只检查状态字符串的单元测试更有价值。</p>
+<h2>7. 尚未具备的上线证据</h2>
+<ul>
+<li>真实微信认证、合法域名、登录绑定和订阅消息投递。</li>
+<li>真机图片、文档、相册／相机、共享设备、退出清理、弱网和换设备恢复。</li>
+<li>获准的多学科教材和真实题型，以及至少两学科完整教学周期。</li>
+<li>真实旧库升级、生产并发、反向代理、横向扩容与备份恢复。</li>
+<li>学校的留存、删除、离校历史访问、考试例外、分析阈值与容量指标。</li>
+</ul>
+<p>这些是上线门槛或产品参数，不与本报告已确认的 8 项代码／验证问题混为一谈。</p>
+</section><section id="sources-and-coverage"><h1>来源、覆盖范围与证据等级</h1>
+<h2>1. 审查方法</h2>
+<p>先读取根开发指引、词汇表、README、解决方案、项目引用、部署配置和 ADR 目录，再追踪高风险路径。全树检索用于检查调用方、生产入口与测试；代码清单由实际文件解析生成。对大仓库采用风险优先抽查，没有声称每一行都被人工审阅。</p>
+<p>审查以当前文件为准。Git worktree 元数据目录失效是本地环境事实，未擅自修复或重建 Git，也不能借此判断文件已经提交或未提交。</p>
+<h2>2. 覆盖矩阵</h2>
+<table>
+<thead>
+<tr>
+<th>范围</th>
+<th>本轮做了什么</th>
+<th>深度与限制</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>结构／依赖</td>
+<td>解析 16 个项目、全部直接 ProjectReference／PackageReference；目录和体量统计</td>
+<td>自动扫描；不是 NuGet 传递依赖漏洞审查</td>
+</tr>
+<tr>
+<td>启动／部署</td>
+<td>Host、Web、Client 入口；模块注册；Compose；主要运维入口</td>
+<td>本地配置与源码核对；没有启动业务服务</td>
+</tr>
+<tr>
+<td>身份与权限</td>
+<td>微信签码、交换、令牌、逐请求校验；个人所有权；学校访问 Guard</td>
+<td>关键路径审阅；不是渗透测试</td>
+</tr>
+<tr>
+<td>知识与 RAG</td>
+<td>发布关键事务；摄取、分块、Embedding、向量写入、候选和二次授权、日志</td>
+<td>完整调用链追踪，重点语句核对；未真实调用供应商</td>
+</tr>
+<tr>
+<td>企业旧考试</td>
+<td>开始／恢复、保存、提交、评分、领域时间与版本规则、EF 索引</td>
+<td>深入审查并运行两个领域探针</td>
+</tr>
+<tr>
+<td>教育考试</td>
+<td>固定名单、答卷、封存、评分初始化、关闭、发布、当前结果</td>
+<td>主要服务路径和 ADR；未逐方法重审全部 partial</td>
+</tr>
+<tr>
+<td>分析与方案</td>
+<td>报告认领／完成、来源指纹、AI 投影、方案发布／执行</td>
+<td>关键一致性与隐私路径；没有教学质量评估</td>
+</tr>
+<tr>
+<td>导出与任务</td>
+<td>导出 RunId／租约／清理，以及出题、方案、报告任务模式</td>
+<td>认领、失败与完成逻辑；未跑多 Host 故障注入</td>
+</tr>
+<tr>
+<td>Web／小程序</td>
+<td>路由、项目依赖、页面注册、会话与恢复、账号帮助</td>
+<td>Web 页面以结构和相关入口抽查为主；非逐页视觉审计</td>
+</tr>
+<tr>
+<td>数据库</td>
+<td>DbSet、重要唯一约束和映射、迁移数量及快照</td>
+<td>没有逐条审阅 49 个迁移，也未读取真实业务数据</td>
+</tr>
+<tr>
+<td>测试</td>
+<td>测试模块机制、相关现有用例、选择性运行</td>
+<td>明确 SQLite 无事务；未跑全量回归</td>
+</tr>
+<tr>
+<td>文档</td>
+<td>当前 ADR、PRD 决策与早期规划的差异</td>
+<td>旧实施表部分待办已过时，以后续记录和代码为准</td>
+</tr>
+</tbody>
+</table>
+<h2>3. 主要源码入口</h2>
+<table>
+<thead>
+<tr>
+<th>主题</th>
+<th>入口</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>应用装配</td>
+<td><a href="../../src/KnowPulse.HttpApi.Host/KnowPulseHttpApiHostModule.cs">KnowPulseHttpApiHostModule</a>、<a href="../../src/KnowPulse.Application/KnowPulseApplicationModule.cs">KnowPulseApplicationModule</a></td>
+</tr>
+<tr>
+<td>数据映射</td>
+<td><a href="../../src/KnowPulse.EntityFrameworkCore/EntityFrameworkCore/KnowPulseDbContext.cs">KnowPulseDbContext</a>、<a href="../../src/KnowPulse.EntityFrameworkCore/Education/">Education 映射目录</a></td>
+</tr>
+<tr>
+<td>知识业务</td>
+<td><a href="../../src/KnowPulse.Application/KnowledgeBase/KnowledgeItemAppService.cs">KnowledgeItemAppService</a>、<a href="../../src/KnowPulse.Application/KnowledgeBase/KnowledgeSchoolSharingAppService.cs">KnowledgeSchoolSharingAppService</a></td>
+</tr>
+<tr>
+<td>索引</td>
+<td><a href="../../src/KnowPulse.Application/KnowledgeIndexing/KnowledgeIndexJobProcessor.cs">Processor</a>、<a href="../../src/KnowPulse.Application/RagAI/KnowledgeIngestionPipeline.cs">Ingestion</a>、<a href="../../src/KnowPulse.Application/RagAI/KnowledgeEmbeddingPipeline.cs">Embedding</a></td>
+</tr>
+<tr>
+<td>检索</td>
+<td><a href="../../src/KnowPulse.Application/RagAI/KnowledgeRetriever.cs">KnowledgeRetriever</a>、<a href="../../src/KnowPulse.Application/RagAI/QdrantKnowledgeVectorStore.cs">Qdrant</a>、<a href="../../src/KnowPulse.Application/RagAI/RagAnswerService.cs">RagAnswerService</a></td>
+</tr>
+<tr>
+<td>企业考试</td>
+<td><a href="../../src/KnowPulse.Application/Exam/ExamAppService.cs">ExamAppService</a>、<a href="../../src/KnowPulse.Domain/Exam/ExamAnswer.cs">ExamAnswer</a>、<a href="../../src/KnowPulse.Domain/Exam/ExamAttempt.cs">ExamAttempt</a></td>
+</tr>
+<tr>
+<td>教育考试</td>
+<td><a href="../../src/KnowPulse.Application/Education/EducationAssessmentAppService.cs">EducationAssessmentAppService</a>、<a href="../../src/KnowPulse.Application/Education/EducationAssessmentAppService.Results.cs">Results partial</a></td>
+</tr>
+<tr>
+<td>后台消费者</td>
+<td><a href="../../src/KnowPulse.HttpApi.Host/KnowledgeIndexing/">Host worker 目录</a></td>
+</tr>
+<tr>
+<td>微信</td>
+<td><a href="../../src/KnowPulse.Application/WeChat/">Application/WeChat</a>、<a href="../../src/KnowPulse.HttpApi.Host/WeChat/">Host/WeChat</a>、<a href="../../miniprogram/utils/session.js">原生会话</a></td>
+</tr>
+<tr>
+<td>测试基础</td>
+<td><a href="../../test/KnowPulse.EntityFrameworkCore.Tests/EntityFrameworkCore/KnowPulseEntityFrameworkCoreTestModule.cs">EF 测试模块</a>、<a href="../../test/KnowPulse.TestBase/">TestBase</a></td>
+</tr>
+</tbody>
+</table>
+<h2>4. ADR 分组导航</h2>
+<table>
+<thead>
+<tr>
+<th>ADR</th>
+<th>当前设计主题</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0001–0006</td>
+<td>知识 UI、转换适配、管理投影、原子发布、可恢复索引</td>
+</tr>
+<tr>
+<td>0007–0010</td>
+<td>个人归属、学校共享与来源链、导出</td>
+</tr>
+<tr>
+<td>0011–0013</td>
+<td>教材与知识点映射、课程出题、评分定义和审核</td>
+</tr>
+<tr>
+<td>0014–0017</td>
+<td>教育任务、结构化响应、冻结评分、统一成绩发布</td>
+</tr>
+<tr>
+<td>0018–0024</td>
+<td>私有观察与评语、证据、报告、学生成长、教学方案与提示资格</td>
+</tr>
+<tr>
+<td>0025–0036</td>
+<td>活动、正式复测、图片冲突、提交确认、撤回、材料、订正、工作量、笔记与复练</td>
+</tr>
+<tr>
+<td>0037–0046</td>
+<td>微信绑定、常用语、收藏、移动端笔记／成长、趋势、AI方案、执行与移动跟进</td>
+</tr>
+<tr>
+<td>0047–0053</td>
+<td>催办、自动消息、统一收件箱、学校邀请、任教更正、账号自助入口</td>
+</tr>
+</tbody>
+</table>
+<p>其中深入核对 0003、0005、0006、0008、0009、0017 与对应实现；其余结合词汇表、关键服务和此前实施记录阅读，未重新逐条验收所有决策。</p>
+<h2>5. 已确认与尚待实现</h2>
+<ul>
+<li>初中多学科；教师个人库默认私有，主动共享到学校。</li>
+<li>D02：一个 AppID、师生两个独立工作区；真实微信配置尚未提供，先代码与本地验证。</li>
+<li>D03：共享撤回后停止后续在线正文／附件读取，保留历史答卷和已上交记录。</li>
+<li>D06／D10 的账号核验责任：用户已于 2026-10-18 选择本人验证原账号后自助，无法验证时平台人工复核；学校不直接接管。<strong>这项责任已确认，人工申请和受控执行代码尚未实现。</strong></li>
+<li>D06 的其他内容如留存、删除、离校历史访问，及 D07 考试例外、D08 教研参数、D09 容量和设备等仍需后续落实。</li>
+</ul>
+<h2>6. 本轮证据文件</h2>
+<p>以下日志留在忽略的 <code>TestResults/</code>，避免把构建产物并入文档包；结果摘要已经写入正文。</p>
+<table>
+<thead>
+<tr>
+<th>文件</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>repository-audit-build.log</code></td>
+<td>完整解决方案构建：0 警告、0 错误，39.10 秒</td>
+</tr>
+<tr>
+<td><code>repository-audit-probes.log</code></td>
+<td>两个实际领域代码问题探针</td>
+</tr>
+<tr>
+<td><code>repository-audit-focused-tests.log</code></td>
+<td>三个选择性 EF 测试：3/3 通过，9 秒</td>
+</tr>
+<tr>
+<td><code>repository-audit-native.log</code></td>
+<td>两个原生会话边界测试</td>
+</tr>
+<tr>
+<td><code>repository-audit-provider-boundary.log</code></td>
+<td>Provider 检查与 ADR 的冲突失败</td>
+</tr>
+<tr>
+<td><code>repository-audit-doc-validation.json</code></td>
+<td>109 个本地链接、12 个 SVG XML 与 Mermaid 节点引用检查</td>
+</tr>
+<tr>
+<td><code>repository-audit-visual-validation.json</code></td>
+<td>桌面／窄屏、章节筛选、图表放大及 12 张 SVG 实际渲染检查</td>
+</tr>
+<tr>
+<td><code>repository-audit-inventory.json</code></td>
+<td>初始结构扫描；最终可交付清单在本目录 <code>inventory.json</code></td>
+</tr>
+</tbody>
+</table>
+<p>ABP 事务默认行为另外核对了 <strong>10.6.0 官方源码</strong>：<a href="https://raw.githubusercontent.com/abpframework/abp/10.6.0/framework/src/Volo.Abp.Uow/Volo/Abp/Uow/UnitOfWorkInterceptor.cs">UnitOfWorkInterceptor</a>、<a href="https://raw.githubusercontent.com/abpframework/abp/10.6.0/framework/src/Volo.Abp.Uow/Volo/Abp/Uow/AbpUnitOfWorkDefaultOptions.cs">AbpUnitOfWorkDefaultOptions</a>。没有以最新主分支替代当前包版本。</p>
+<h2>7. 未检查</h2>
+<p>真实账号、个人文件、生产数据库和密钥未读取；没有发送邮件／微信消息、调用付费模型或执行迁移。没有检查所有第三方实现、所有历史迁移、所有 Web／小程序页面的视觉和无障碍表现，也未证明任何生产容量指标。</p>
+<p>没有把历史“已跑 1000 多项”的数字作为本轮通过结果；本轮结论严格区分静态推导、实际代码探针、选择性测试和未验收项目。</p>
+<p>SVG 与 Mermaid 文件由同一组图结构生成，离线阅读版内嵌 SVG，不依赖联网渲染。Mermaid 图源检查了节点引用，未用 Mermaid 引擎逐图渲染；图中的数据关系是概念模型，不是数据库物理外键的完整导出。</p>
+</section></main><dialog id="zoom" aria-label="架构图放大预览"><button id="close" type="button">关闭</button><div id="zoom-content"></div></dialog><script>const box=document.getElementById('zoom'),content=document.getElementById('zoom-content');document.querySelectorAll('.diagram').forEach(b=>b.onclick=()=>{content.innerHTML=b.innerHTML;box.showModal()});document.getElementById('close').onclick=()=>box.close();box.addEventListener('click',e=>{if(e.target===box)box.close()});document.getElementById('filter').addEventListener('input',e=>{const q=e.target.value.toLowerCase().trim();document.querySelectorAll('main section').forEach(s=>s.hidden=q&&!s.textContent.toLowerCase().includes(q))});</script></body></html>

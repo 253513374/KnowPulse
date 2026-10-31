@@ -1,8 +1,10 @@
 using System;
 using System.Linq;
 using System.Security.Claims;
+using System.Text.Json;
 using System.Threading.Tasks;
 using KnowPulse.AiQuestioning;
+using KnowPulse.Education;
 using KnowPulse.KnowledgeBase;
 using KnowPulse.KnowledgeIndexing;
 using KnowPulse.QuestionBank;
@@ -161,16 +163,57 @@ public class TeachingKnowledgeAppServiceTests : KnowPulseEntityFrameworkCoreTest
         }
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Should_Require_Advanced_Review_For_Structured_Questions(bool withCurriculum)
+    {
+        var teacher = Guid.NewGuid();
+        using (As(teacher))
+        {
+            var draft = await _workflow.CreateManualDraftAsync(new()
+            {
+                Title = "结构化判断题", Stem = "分数必须建立在平均分的基础上。", Type = QuestionType.TrueFalse,
+                Answers = [new() { Value = "true" }]
+            });
+            var repository = GetRequiredService<IRepository<Question, Guid>>();
+            await WithUnitOfWorkAsync(async () =>
+            {
+                var question = await repository.GetAsync(draft.Id);
+                if (withCurriculum)
+                    question.SetCurriculumDraft(JsonSerializer.Serialize(new EducationCurriculumSnapshot
+                        { TeacherUserId = teacher }), "[]", "[]", 1m);
+                else
+                    question.SetScoringDefinitionDraft(new QuestionScoringDefinition());
+                await repository.UpdateAsync(question, autoSave: true);
+            });
+
+            var error = await Should.ThrowAsync<UserFriendlyException>(() => _workflow.ConfirmAsync(draft.Id));
+            error.Message.ShouldContain("高级题库");
+            await WithUnitOfWorkAsync(async () =>
+            {
+                var question = await repository.GetAsync(draft.Id);
+                question.Status.ShouldBe(QuestionStatus.Draft);
+                question.ApprovedDefinitionRevisionId.ShouldBeNull();
+                (await GetRequiredService<IRepository<QuestionReview, Guid>>()
+                    .CountAsync(x => x.QuestionId == draft.Id)).ShouldBe(0);
+            });
+        }
+    }
+
     [Fact]
     public async Task Should_Require_Explicit_Ready_Sources_Before_Generating()
     {
         using (As(Guid.NewGuid()))
         {
-            await Should.ThrowAsync<UserFriendlyException>(() => _generation.CreateAsync(new() { KnowledgeScope = "分数" }));
+            await Should.ThrowAsync<UserFriendlyException>(() => _generation.CreateAsync(new()
+            {
+                KnowledgeScope = "分数", Scope = KnowledgeSearchScope.AllAccessible
+            }));
             var item = await _items.CreateAsync(new() { Title = "未处理资料" });
             await Should.ThrowAsync<UserFriendlyException>(() => _generation.CreateAsync(new()
             {
-                KnowledgeScope = "分数", KnowledgeItemIds = [item.Id]
+                KnowledgeScope = "分数", KnowledgeItemIds = [item.Id], Scope = KnowledgeSearchScope.AllAccessible
             }));
         }
     }

@@ -52,6 +52,17 @@ public class AiQuestionCandidateCitation : FullAuditedEntity<Guid>, IMultiTenant
     /// </summary>
     public Guid ChunkId { get; private set; }
 
+    public string CurriculumBindingIdsJson { get; private set; } = "[]";
+    public string TextbookKnowledgePointMappingIdsJson { get; private set; } = "[]";
+    public Guid? SchoolKnowledgeShareId { get; private set; }
+
+    public void SetCurriculumReferences(string bindingIdsJson, string mappingIdsJson, Guid? schoolKnowledgeShareId)
+    {
+        CurriculumBindingIdsJson = Check.NotNull(bindingIdsJson, nameof(bindingIdsJson));
+        TextbookKnowledgePointMappingIdsJson = Check.NotNull(mappingIdsJson, nameof(mappingIdsJson));
+        SchoolKnowledgeShareId = schoolKnowledgeShareId;
+    }
+
     /// <summary>
     /// citation 在候选题中的展示顺序，从 1 开始。
     /// </summary>

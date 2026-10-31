@@ -1,0 +1,20 @@
+flowchart TD
+  %% 箭头表示运行调用或数据访问；外部服务不保存最终业务权限。
+  n0["教师 / 学生 / 学校管理员"]
+  n1["Blazor WebAssembly · 网页工作区"]
+  n2["HttpApi.Host · API / Account / workers"]
+  n3["PostgreSQL · 业务事实与任务"]
+  n4["MinIO / Blob · 原件、图片、导出"]
+  n5["原生微信小程序 · 一个 AppID · 两个工作区"]
+  n6["Qdrant · 候选向量索引"]
+  n7["LiteLLM · Chat 与 Embedding 网关"]
+  n8["模型供应商 · 具体模型与费用"]
+  n0 -->|"网页"| n1
+  n0 -->|"微信"| n5
+  n1 -->|"契约 / HTTP"| n2
+  n5 -->|"HTTPS"| n2
+  n2 -->|"事务"| n3
+  n2 -->|"文件"| n4
+  n2 -->|"REST"| n6
+  n2 -->|"模型 alias"| n7
+  n7 -->|"调用"| n8

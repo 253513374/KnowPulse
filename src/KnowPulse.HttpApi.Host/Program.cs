@@ -19,6 +19,8 @@ public class Program
             .MinimumLevel.Information()
 #endif
             .MinimumLevel.Override("Microsoft", LogEventLevel.Information)
+            // Private library searches use query strings; retain structured audits without raw request URLs.
+            .MinimumLevel.Override("Microsoft.AspNetCore.Hosting.Diagnostics", LogEventLevel.Warning)
             .MinimumLevel.Override("Microsoft.EntityFrameworkCore", LogEventLevel.Warning)
             .Enrich.FromLogContext()
             .WriteTo.Async(c => c.File("Logs/logs.txt"))

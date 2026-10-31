@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using Volo.Abp;
 using Volo.Abp.Domain.Entities.Auditing;
 using Volo.Abp.MultiTenancy;
@@ -10,7 +12,7 @@ namespace KnowPulse.KnowledgeBase;
 /// 文档本身只保存稳定的元信息，正文内容由 <see cref="KnowledgeVersion"/> 承载，
 /// 这样可以在保留历史版本的同时明确当前对外发布的版本。
 /// </summary>
-public class KnowledgeItem : FullAuditedAggregateRoot<Guid>, IMultiTenant
+public partial class KnowledgeItem : FullAuditedAggregateRoot<Guid>, IMultiTenant
 {
     /// <summary>
     /// 标题最大长度，和数据库字段长度、前端表单校验保持一致。
@@ -21,6 +23,17 @@ public class KnowledgeItem : FullAuditedAggregateRoot<Guid>, IMultiTenant
     /// 摘要最大长度，用于列表展示和知识检索摘要，不承载完整正文。
     /// </summary>
     public const int MaxSummaryLength = 1024;
+
+    public const int MaxSubjectNameLength = 128;
+    public const int MaxPersonalTags = 20;
+    public const int MaxPersonalTagsLength = MaxPersonalTags * (KnowledgeTag.MaxNameLength + 1) + 1;
+
+    public PersonalMaterialType MaterialType { get; private set; }
+    public int? MaterialYear { get; private set; }
+    /// <summary>本人整理用的学科文字，选择学科不产生任教或学校权限。</summary>
+    public string? SubjectName { get; private set; }
+    /// <summary>以换行边界保存规范化标签，精确匹配不把子串当作同一标签。</summary>
+    public string? PersonalTags { get; private set; }
 
     /// <summary>
     /// ABP 多租户标识；为空表示宿主侧数据。
@@ -38,6 +51,16 @@ public class KnowledgeItem : FullAuditedAggregateRoot<Guid>, IMultiTenant
 
         OwnerTeacherId = teacherId;
     }
+
+    /// <summary>
+    /// 个人知识库编号。与所有者必须同时存在；存量组织知识的两者均为空。
+    /// </summary>
+    public Guid? LibraryId { get; private set; }
+
+    /// <summary>
+    /// 个人资料所有者，不以审计创建者推断，也不能通过更新资料转移。
+    /// </summary>
+    public Guid? OwnerUserId { get; private set; }
 
     /// <summary>
     /// 知识分类编号。允许为空，表示该知识暂未归类。
@@ -79,10 +102,24 @@ public class KnowledgeItem : FullAuditedAggregateRoot<Guid>, IMultiTenant
     /// <param name="title">知识标题，不能为空且不能超过最大长度。</param>
     /// <param name="categoryId">可选分类编号。</param>
     /// <param name="summary">可选摘要。</param>
-    public KnowledgeItem(Guid id, Guid? tenantId, string title, Guid? categoryId = null, string? summary = null)
+    public KnowledgeItem(
+        Guid id,
+        Guid? tenantId,
+        string title,
+        Guid? categoryId = null,
+        string? summary = null,
+        Guid? libraryId = null,
+        Guid? ownerUserId = null)
         : base(id)
     {
+        if (libraryId.HasValue != ownerUserId.HasValue || libraryId == Guid.Empty || ownerUserId == Guid.Empty)
+        {
+            throw new ArgumentException("Personal knowledge requires both a valid library and its owner.", nameof(libraryId));
+        }
+
         TenantId = tenantId;
+        LibraryId = libraryId;
+        OwnerUserId = ownerUserId;
         CategoryId = categoryId;
         Title = Check.NotNullOrWhiteSpace(title, nameof(title), MaxTitleLength);
         Summary = Check.Length(summary, nameof(summary), MaxSummaryLength);
@@ -112,6 +149,32 @@ public class KnowledgeItem : FullAuditedAggregateRoot<Guid>, IMultiTenant
     {
         CategoryId = categoryId;
     }
+
+    public void OrganizePersonalMaterial(PersonalMaterialType materialType, int? materialYear, string? subjectName, IEnumerable<string>? tags)
+    {
+        if (!LibraryId.HasValue || !OwnerUserId.HasValue) throw new BusinessException(PersonalKnowledgeOrganizationErrorCodes.InvalidOrganization);
+        if (!Enum.IsDefined(materialType) || (materialYear.HasValue && materialYear is < 1 or > 9999))
+            throw new BusinessException(PersonalKnowledgeOrganizationErrorCodes.InvalidOrganization);
+        var subject = string.IsNullOrWhiteSpace(subjectName) ? null : subjectName.Trim();
+        if (subject != null && (subject.Length > MaxSubjectNameLength || subject.Any(char.IsControl)))
+            throw new BusinessException(PersonalKnowledgeOrganizationErrorCodes.InvalidOrganization);
+        var normalizedTags = new List<string>();
+        foreach (var rawTag in tags ?? Array.Empty<string>())
+        {
+            if (string.IsNullOrWhiteSpace(rawTag)) continue;
+            var tag = rawTag.Trim();
+            if (tag.Length > KnowledgeTag.MaxNameLength || tag.Any(char.IsControl))
+                throw new BusinessException(PersonalKnowledgeOrganizationErrorCodes.InvalidOrganization);
+            if (!normalizedTags.Contains(tag, StringComparer.Ordinal)) normalizedTags.Add(tag);
+            if (normalizedTags.Count > MaxPersonalTags) throw new BusinessException(PersonalKnowledgeOrganizationErrorCodes.InvalidOrganization);
+        }
+        MaterialType = materialType;
+        MaterialYear = materialYear;
+        SubjectName = subject;
+        PersonalTags = normalizedTags.Count == 0 ? null : "\n" + string.Join("\n", normalizedTags) + "\n";
+    }
+
+    public string[] GetPersonalTags() => PersonalTags?.Split('\n', StringSplitOptions.RemoveEmptyEntries) ?? Array.Empty<string>();
 
     /// <summary>
     /// 设置当前发布版本。发布、下架、归档流程都会通过该字段维护列表态的当前版本。

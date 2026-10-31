@@ -99,6 +99,8 @@ public class RagAnswerService : KnowPulseAppService, IRagAnswerService
                 Query = request.Question,
                 TenantId = request.TenantId,
                 UserId = request.UserId,
+                Scope = request.Scope,
+                SchoolId = request.SchoolId,
                 TopK = topK
             }, cancellationToken);
         }
@@ -321,6 +323,7 @@ public class RagAnswerService : KnowPulseAppService, IRagAnswerService
     {
         return new RagCitation
         {
+            SchoolKnowledgeShareId = chunk.SchoolKnowledgeShareId,
             KnowledgeItemId = chunk.KnowledgeItemId,
             KnowledgeVersionId = chunk.KnowledgeVersionId,
             ChunkId = chunk.ChunkId,

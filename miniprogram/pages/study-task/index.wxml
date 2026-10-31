@@ -1,0 +1,39 @@
+<view class="page">
+  <view class="hero"><text class="eyebrow">学生工作区</text><text class="title">材料任务与我的记录</text><text class="muted">阅读、下载和自报完成都是学习活动记录，不表示成绩或知识点掌握。</text></view>
+  <view wx:if="{{error}}" class="error" aria-role="alert">{{error}}</view><view wx:if="{{notice}}" class="notice">{{notice}}</view>
+  <text wx:if="{{busy}}" class="muted">正在核对任务、资料权限或原操作…</text>
+  <block wx:if="{{detail}}">
+    <view wx:if="{{canUseNotebook}}" class="card"><text class="heading">本人私有笔记</text><button wx:for="{{detail.materials}}" wx:key="id" bindtap="notebook" data-id="{{item.id}}" disabled="{{busy}}">为 {{item.title}} 写笔记并关联引用</button><text class="muted">笔记不会自动上交给老师。</text></view>
+    <view class="card"><text class="heading">{{detail.title}}</text><text>{{detail.subject}} · {{detail.className}} · {{detail.teacher}}</text><text>{{detail.textbook}}</text>
+      <text class="muted">版本 {{detail.version}} · {{detail.status}} · {{detail.stateLabel}}</text><text>开始 {{detail.starts}}；截止 {{detail.ends}}</text><text>预计 {{detail.minutes}} 分钟</text>
+      <text wx:if="{{detail.reason}}" class="prewrap">变更原因：{{detail.reason}}</text><text wx:if="{{detail.instructions}}" class="prewrap">{{detail.instructions}}</text>
+      <text wx:if="{{detail.availability === 5}}" class="notice">材料当前不可读取。保留已上交记录；已接触过的任务仍可报告材料困难。</text>
+      <button wx:for="{{detail.materials}}" wx:key="id" data-id="{{item.id}}" bindtap="material" disabled="{{busy}}">阅读 {{item.title}}</button>
+    </view>
+    <view wx:if="{{material}}" class="card"><text class="heading">{{material.title}}</text><text wx:if="{{!material.available}}">此材料当前不可读取。</text><text class="prewrap">{{material.text}}</text>
+      <view wx:if="{{material.pages > 1}}" class="pager"><button data-direction="-1" bindtap="materialPage" disabled="{{busy || material.page === 1}}">上一段</button><text>{{material.page}} / {{material.pages}}</text><button data-direction="1" bindtap="materialPage" disabled="{{busy || material.page >= material.pages}}">下一段</button></view>
+      <block wx:for="{{material.attachments}}" wx:key="id"><button data-id="{{item.id}}" bindtap="attachment" disabled="{{busy || !item.type}}">预览 {{item.name}}</button><text wx:if="{{!item.type}}" class="muted">此类型或大小请在网页阅读。当前支持 20 MB 内的常用文档及图片。</text></block>
+      <text class="footnote">预览会在设备产生临时副本。资料撤回会阻止后续在线读取，无法收回已看到或另存的副本。</text>
+    </view>
+    <view wx:if="{{pending}}" class="notice"><text>有结果待确认的原操作。不会自动重发，也不会另建操作替代。</text><button bindtap="recover" disabled="{{busy}}">查询原回执</button><button wx:if="{{canRetry}}" bindtap="retry" disabled="{{busy}}">明确重试原请求</button><button bindtap="abandon" disabled="{{busy}}">关闭本机追踪并核对历史</button></view>
+    <view wx:if="{{form}}" class="card"><text class="heading">记录学习情况</text>
+      <text class="muted">文字只在本次页面内存中，离开页面或退出会丢失；只有明确上交才共享给本任务教师。完成后重新开始须说明原因。</text>
+      <view wx:if="{{conflict}}" class="notice">云端记录已变化，原输入保留。请核对历史后丢弃本机输入、读取当前版本；不会自动覆盖。</view>
+      <textarea class="feedback-text short-text" value="{{form.text}}" data-field="text" bindinput="change" maxlength="2000" placeholder="学习总结、困难或重新开始的原因" aria-label="拟上交给老师的文字" disabled="{{busy || pending}}" />
+      <checkbox-group data-field="share" bindchange="change"><label class="check-row"><checkbox value="yes" checked="{{form.share}}" disabled="{{busy || pending}}" />我同意将填写的文字上交给本任务教师</label></checkbox-group>
+      <picker range="{{difficulties}}" value="{{form.difficulty}}" data-field="difficulty" bindchange="change" disabled="{{busy || pending}}"><view class="field">困难类型：{{difficulties[form.difficulty]}}</view></picker>
+      <input class="field" value="{{form.minutes}}" data-field="minutes" bindinput="change" type="number" placeholder="完成用时（可选，1–1440 分钟）" aria-label="自报完成用时" disabled="{{busy || pending}}" />
+      <checkbox-group data-field="activityOnly" bindchange="change"><label class="check-row"><checkbox value="yes" checked="{{form.activityOnly}}" disabled="{{busy || pending}}" />完成仅表示本次学习活动，不表示已经掌握</label></checkbox-group>
+      <button wx:if="{{detail.canStart}}" data-action="0" bindtap="progress" disabled="{{busy || pending || conflict}}">{{detail.state === 3 ? '说明原因并重新开始' : '记录开始学习'}}</button>
+      <button wx:if="{{detail.canComplete}}" data-action="1" bindtap="progress" disabled="{{busy || pending || conflict}}" type="primary">核对并上交自报完成</button>
+      <button wx:if="{{detail.canReport}}" data-action="2" bindtap="progress" disabled="{{busy || pending || conflict}}">核对并上交困难反馈</button>
+      <button bindtap="discard" disabled="{{busy || pending}}">丢弃本机输入并读取当前版本</button>
+    </view>
+    <view class="card"><text class="heading">我已上交的记录</text><text wx:if="{{detail.handled !== '—'}}">老师处理当前困难的时间：{{detail.handled}}</text>
+      <view wx:for="{{history}}" wx:key="id" class="class-row"><text>{{item.revision}} · {{item.label}} · {{item.at}}</text><text wx:if="{{item.difficulty}}">{{item.difficulty}}</text><text class="prewrap">{{item.text}}</text><text wx:if="{{item.minutes}}">自报 {{item.minutes}} 分钟</text></view>
+      <text wx:if="{{historyTotal === 0}}" class="muted">尚无上交记录。</text><view class="pager"><button data-direction="-1" bindtap="paginate" disabled="{{busy || offset === 0}}">上一页</button><text>{{historyTotal}} 条</text><button data-direction="1" bindtap="paginate" disabled="{{busy || offset + 20 >= historyTotal}}">下一页</button></view>
+    </view>
+  </block>
+  <view wx:if="{{imagePath}}" class="image-panel"><image class="image-area" mode="aspectFit" src="{{imagePath}}" show-menu-by-longpress="{{false}}" /><button bindtap="closeImage">关闭图片</button></view>
+  <button bindtap="load" disabled="{{busy}}">刷新当前任务与历史</button><button wx:if="{{error}}" bindtap="login">返回登录</button>
+</view>

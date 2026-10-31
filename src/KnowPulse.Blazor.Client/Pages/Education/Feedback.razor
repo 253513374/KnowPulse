@@ -1,0 +1,291 @@
+@page "/education/feedback"
+@attribute [Authorize(EducationPermissions.FeedbackManage)]
+@inherits KnowPulseComponentBase
+@using KnowPulse.Education
+@using System.Text.Json
+@inject IEducationFeedbackAppService FeedbackService
+@inject IJSRuntime JS
+@inject Volo.Abp.Users.ICurrentUser Account
+@inject Volo.Abp.MultiTenancy.ICurrentTenant Tenant
+
+<PageTitle>@L["EducationFeedback:Title"]</PageTitle>
+<NavigationLock ConfirmExternalNavigation="@Unsaved" OnBeforeInternalNavigation="LeaveAsync" />
+<h1 class="kp-heading-4">@L["EducationFeedback:Title"]</h1>
+@if (Error != null) { <div class="kp-alert kp-alert--error" role="alert">@Error</div> }
+@if (Receipt != null) { <div class="kp-alert kp-alert--success" role="status">@L["EducationGrading:Receipt", Receipt]</div> }
+@if (Pending != null)
+{
+    <div class="kp-alert kp-alert--info" role="status"><p>@L["EducationGrading:Unknown"]</p>
+        <button class="kp-button kp-button--primary-outline kp-me-2" @onclick="RecoverAsync" disabled="@Busy">@L["EducationGrading:Recover"]</button>
+        <button class="kp-button kp-button--secondary" @onclick="() => RunAsync(() => ExecuteAsync(true))" disabled="@Busy">@L["EducationGrading:Retry"]</button></div>
+}
+<label for="feedback-teaching" class="kp-label">@L["EducationFeedback:Teaching"]</label>
+<select @key="SelectionVersion" id="feedback-teaching" class="kp-select kp-mb-3" value="@TeachingId" @onchange="SelectTeachingAsync" disabled="@(Busy || Pending != null)">
+    <option value="">@L["EducationFeedback:Choose"]</option>
+    @foreach (var teaching in Teachings) { <option value="@teaching.Id">@teaching.SchoolName · @teaching.ClassName · @teaching.SubjectName</option> }
+</select>
+@if (TeachingId.HasValue)
+{
+    <div class="kp-grid kp-grid-gap-3">
+        <aside class="kp-col-12 kp-col-lg-4">
+            <h2 class="kp-heading-6">@L["EducationFeedback:Saved"]</h2>
+            <div class="kp-list kp-mb-2">
+                @foreach (var feedback in Saved)
+                { <button class="kp-list__item list-group-item-action" @onclick="() => OpenAsync(feedback.Id)" disabled="@(Busy || Pending != null)">
+                    @feedback.StudentName (@feedback.AccountName)<br />@L[$"EducationFeedback:Visibility:{feedback.Visibility}"] · v@(feedback.CurrentRevision.RevisionNumber)</button> }
+            </div>
+            <div class="kp-flex kp-gap-2"><button class="kp-button kp-button--sm kp-button--secondary" @onclick="() => SavedPageAsync(-1)" disabled="@(Busy || Pending != null || SavedOffset == 0)">@L["EducationPaper:Previous"]</button>
+                <button class="kp-button kp-button--sm kp-button--secondary" @onclick="() => SavedPageAsync(1)" disabled="@(Busy || Pending != null || SavedOffset + PageSize >= SavedTotal)">@L["EducationPaper:Next"]</button></div>
+        </aside>
+        <section class="kp-col-12 kp-col-lg-8">
+            <fieldset disabled="@(Busy || Pending != null)">
+                <label for="feedback-student" class="kp-label">@L["EducationFeedback:Student"]</label>
+                <select @key="SelectionVersion" id="feedback-student" class="kp-select kp-mb-2" value="@Target?.StudentEnrollmentId" @onchange="SelectStudentAsync">
+                    <option value="">@L["EducationFeedback:Choose"]</option>
+                    @if (Target != null && Students.All(x => x.StudentEnrollmentId != Target.StudentEnrollmentId))
+                    { <option value="@Target.StudentEnrollmentId">@Target.StudentName (@Target.AccountName)</option> }
+                    @foreach (var student in Students) { <option value="@student.StudentEnrollmentId">@student.StudentName (@student.AccountName)</option> }
+                </select>
+                <div class="kp-flex kp-gap-2 kp-mb-3"><button class="kp-button kp-button--sm kp-button--secondary" @onclick="() => StudentPageAsync(-1)" disabled="@(StudentOffset == 0)">@L["EducationPaper:Previous"]</button>
+                    <button class="kp-button kp-button--sm kp-button--secondary" @onclick="() => StudentPageAsync(1)" disabled="@(StudentOffset + PageSize >= StudentTotal)">@L["EducationPaper:Next"]</button>
+                    <button class="kp-button kp-button--sm kp-button--primary-outline" @onclick="NewAsync" disabled="@(Target == null)">@L["EducationFeedback:New"]</button></div>
+                @if (Target != null)
+                {
+                    <p class="kp-alert alert-secondary">@Target.StudentName (@Target.AccountName) · @Teachings.FirstOrDefault(x => x.Id == TeachingId)?.ClassName · @Teachings.FirstOrDefault(x => x.Id == TeachingId)?.SubjectName</p>
+                    <details class="kp-mb-3"><summary>@L["EducationFeedback:PrivateObservations"]</summary><p class="kp-text-muted">@L["EducationFeedback:PrivateHint"]</p>
+                        <label for="private-observation" class="kp-label">@L["EducationFeedback:Observation"]</label><textarea id="private-observation" class="kp-input kp-mb-2" maxlength="4000" @bind="PrivateText" @bind:event="oninput"></textarea>
+                        <button class="kp-button kp-button--secondary kp-mb-2" @onclick="SaveObservationAsync" disabled="@string.IsNullOrWhiteSpace(PrivateText)">@L["EducationFeedback:SaveObservation"]</button>
+                        @foreach (var observation in Observations)
+                        { <div class="kp-border kp-rounded kp-p-2 kp-mb-2"><p class="kp-text-small">@observation.ObservedAtUtc.ToLocalTime().ToString("g")</p><p style="white-space:pre-wrap">@observation.Text</p>
+                            <button class="kp-button kp-button--sm kp-button--secondary" @onclick="() => SelectObservationAsync(observation)">@L["EducationFeedback:SelectObservation"]</button></div> }
+                        <button class="kp-button kp-button--sm kp-button--secondary kp-me-2" @onclick="() => ObservationPageAsync(-1)" disabled="@(ObservationOffset == 0)">@L["EducationPaper:Previous"]</button>
+                        <button class="kp-button kp-button--sm kp-button--secondary" @onclick="() => ObservationPageAsync(1)" disabled="@(ObservationOffset + PageSize >= ObservationTotal)">@L["EducationPaper:Next"]</button>
+                    </details>
+                    <details class="kp-mb-3"><summary>@L["EducationFeedback:Phrases"]</summary><p class="kp-text-muted">@L["EducationFeedback:PhraseHint"]</p>
+                        <button class="kp-button kp-button--secondary kp-mb-2" @onclick="() => PhrasePageAsync(0)">@L["EducationFeedback:LoadPhrases"]</button>
+                        <label class="ms-2"><input type="checkbox" @bind="IncludeArchivedPhrases" /> @L["EducationFeedback:IncludeArchived"]</label>
+                        @foreach (var phrase in Phrases)
+                        { <div class="kp-border kp-rounded kp-p-2 kp-mb-2"><p>v@(phrase.CurrentRevision.RevisionNumber) · @L[phrase.CurrentRevision.IsArchived ? "EducationFeedback:PhraseArchived" : "EducationFeedback:PhraseActive"]</p><p style="white-space:pre-wrap">@phrase.CurrentRevision.Text</p>
+                            <button class="kp-button kp-button--sm kp-button--primary-outline kp-me-2" @onclick="() => UsePhraseAsync(phrase.Id)" disabled="@phrase.CurrentRevision.IsArchived">@L["EducationFeedback:UsePhrase"]</button>
+                            <button class="kp-button kp-button--sm kp-button--secondary kp-me-2" @onclick="() => EditPhraseAsync(phrase.Id)">@L["EducationFeedback:EditPhrase"]</button>
+                            <button class="kp-button kp-button--sm kp-button--secondary" @onclick="() => ArchivePhraseAsync(phrase)" disabled="@PhraseDirty">@L[phrase.CurrentRevision.IsArchived ? "EducationFeedback:RestorePhrase" : "EducationFeedback:ArchivePhrase"]</button></div> }
+                        <button class="kp-button kp-button--sm kp-button--secondary kp-me-2" @onclick="() => PhrasePageAsync(-1)" disabled="@(PhraseOffset == 0)">@L["EducationPaper:Previous"]</button>
+                        <button class="kp-button kp-button--sm kp-button--secondary" @onclick="() => PhrasePageAsync(1)" disabled="@(PhraseOffset + PageSize >= PhraseTotal)">@L["EducationPaper:Next"]</button>
+                        <label for="private-phrase" class="kp-label kp-block kp-mt-2">@L["EducationFeedback:PhraseEditor"] @(EditingPhrase == null ? "" : $"v{EditingPhrase.CurrentRevision.RevisionNumber}")</label>
+                        <textarea id="private-phrase" class="kp-input kp-mb-2" maxlength="4000" @bind="PhraseText" @bind:event="oninput"></textarea>
+                        @if (PhraseCloudText != null) { <p class="kp-alert kp-alert--info" style="white-space:pre-wrap">@L["EducationFeedback:PhraseCompare"]<br />@PhraseCloudText</p> }
+                        <button class="kp-button kp-button--secondary kp-me-2" @onclick="SavePhraseAsync" disabled="@string.IsNullOrWhiteSpace(PhraseText)">@L["EducationFeedback:SavePhrase"]</button>
+                        <button class="kp-button kp-button--secondary kp-me-2" @onclick="ComparePhraseAsync" disabled="@(EditingPhrase == null)">@L["EducationFeedback:ComparePhrase"]</button>
+                        <button class="kp-button kp-button--secondary" @onclick="NewPhraseAsync">@L["EducationFeedback:NewPhrase"]</button>
+                    </details>
+                    <h2 class="kp-heading-5">@L["EducationFeedback:PublicDraft"]</h2><p>@L["EducationFeedback:PublicHint"]</p>
+                    <label for="feedback-kind" class="kp-label">@L["EducationFeedback:Kind"]</label><select id="feedback-kind" class="kp-select kp-mb-2" @bind="Kind">
+                        @foreach (var kind in Enum.GetValues<EducationFeedbackKind>()) { <option value="@kind">@L[$"EducationFeedback:Kind:{kind}"]</option> }
+                    </select>
+                    <label for="feedback-context" class="kp-label">@L["EducationFeedback:Context"]</label><input id="feedback-context" class="kp-input kp-mb-2" maxlength="256" @bind="Context" @bind:event="oninput" />
+                    <label for="feedback-time" class="kp-label">@L["EducationFeedback:OccurredAt"]</label><input id="feedback-time" class="kp-input kp-mb-2" type="datetime-local" @bind="OccurredAt" />
+                    @if (Kind == EducationFeedbackKind.Period) { <label for="feedback-period-end" class="kp-label">@L["EducationFeedback:PeriodEnd"]</label><input id="feedback-period-end" class="kp-input kp-mb-2" type="datetime-local" @bind="PeriodEnd" /> }
+                    <label for="feedback-text" class="kp-label">@L["EducationFeedback:Text"]</label><textarea id="feedback-text" class="kp-input kp-mb-3" rows="5" maxlength="4000" @bind="PublicText" @bind:event="oninput"></textarea>
+                    <p>@L["EducationFeedback:AssessmentHint"]</p>
+                    @foreach (var assessment in Assessments)
+                    { <label class="kp-block kp-mb-2"><input type="checkbox" checked="@SelectedTasks.Contains(assessment.TaskId)" @onchange="e => SelectTask(assessment.TaskId, e)" /> @assessment.Title · @L[assessment.IsReviewOpen ? "EducationFeedback:ReviewOpen" : "EducationFeedback:WaitReview"]</label> }
+                    <button class="kp-button kp-button--primary kp-me-2" @onclick="SaveAsync">@L["EducationGrading:SaveDraft"]</button>
+                    <button class="kp-button kp-button--primary-outline" @onclick="PreviewAsync" disabled="@(Workspace == null || Dirty || Workspace.CurrentRevision.Kind != EducationFeedbackRevisionKind.Draft)">@L["EducationFeedback:Preview"]</button>
+                    @if (Workspace != null)
+                    { <p class="kp-mt-3">@L[$"EducationFeedback:Visibility:{Workspace.Visibility}"] · @L["EducationFeedback:ReadAt", Workspace.PublishedVersionOpenedAtUtc?.ToLocalTime().ToString("g") ?? L["EducationFeedback:Unread"].Value]</p> }
+                    <label for="feedback-reason" class="kp-label kp-mt-3">@L["EducationFeedback:Reason"]</label><textarea id="feedback-reason" class="kp-input kp-mb-2" maxlength="2048" @bind="Reason" @bind:event="oninput"></textarea>
+                    @if (Preview != null)
+                    {
+                        <div class="kp-alert kp-alert--info"><strong>@Preview.Feedback.StudentName (@Preview.Feedback.AccountName) · @Preview.Feedback.ClassName · @Preview.Feedback.SubjectName</strong>
+                            <p>@Preview.Feedback.Draft!.Content!.Context</p><p style="white-space:pre-wrap">@Preview.Feedback.Draft.Content.Text</p>
+                            @foreach (var gate in Preview.Assessments) { <p>@gate.Title · @L[gate.IsReviewOpen ? "EducationFeedback:ReviewOpen" : "EducationFeedback:WaitReview"]</p> }
+                            <label><input type="checkbox" @bind="Confirmed" /> @L["EducationFeedback:ConfirmRecipient"]</label>
+                            <button class="kp-button kp-button--primary kp-block kp-mt-2" @onclick="PublishAsync" disabled="@(Dirty || !Confirmed)">@L["EducationFeedback:Publish"]</button></div>
+                    }
+                    @if (Workspace?.Published != null)
+                    { <button class="kp-button kp-button--danger-outline kp-mt-2" @onclick="WithdrawAsync" disabled="@Dirty">@L["EducationFeedback:Withdraw"]</button> }
+                }
+            </fieldset>
+        </section>
+    </div>
+}
+
+@code {
+    [SupplyParameterFromQuery(Name = "feedbackId")] public Guid? RequestedFeedbackId { get; set; }
+    private Guid? LoadedRequestedId;
+    private bool Rendered;
+    private const int PageSize = 20;
+    private List<EducationFeedbackTeachingDto> Teachings = [];
+    private List<EducationFeedbackTargetDto> Students = [];
+    private List<EducationFeedbackDto> Saved = [];
+    private List<EducationTeacherObservationDto> Observations = [];
+    private List<EducationFeedbackAssessmentGateDto> Assessments = [];
+    private List<EducationFeedbackPhraseDto> Phrases = [];
+    private EducationFeedbackPhraseDto? EditingPhrase;
+    private string PhraseText = "", PhraseBaseline = "";
+    private string? PhraseCloudText;
+    private bool IncludeArchivedPhrases;
+    private int PhraseOffset;
+    private long PhraseTotal;
+    private Guid TargetSchoolId;
+    private bool PhraseDirty => PhraseText != PhraseBaseline;
+    private EducationFeedbackPhraseScopeDto PhraseScope() => new() { SchoolId = TargetSchoolId, TeachingAssignmentId = TeachingId!.Value };
+    private EducationFeedbackTargetDto? Target;
+    private EducationFeedbackDto? Workspace;
+    private EducationFeedbackPublishPreviewDto? Preview;
+    private Guid? TeachingId, SelectedObservation;
+    private Guid FeedbackId = Guid.NewGuid();
+    private HashSet<Guid> SelectedTasks = [];
+    private string PublicText = "", Context = "", PrivateText = "", InitialForm = "";
+    private string? Reason, Error, Receipt;
+    private EducationFeedbackKind Kind;
+    private DateTime OccurredAt = DateTime.Now, PeriodEnd = DateTime.Now.AddDays(1);
+    private bool Busy, Confirmed;
+    private int StudentOffset, SavedOffset, ObservationOffset, SelectionVersion;
+    private long StudentTotal, SavedTotal, ObservationTotal;
+    private Command? Pending;
+    private string StorageKey => $"knowpulse.feedback.{Tenant.Id}.{Account.Id}";
+    private string Form() => JsonSerializer.Serialize(new { PublicText, Context, Kind, OccurredAt, PeriodEnd, SelectedObservation, Tasks = SelectedTasks.Order().ToArray() });
+    private bool Dirty => Target != null && InitialForm != Form();
+    private bool Unsaved => Pending != null || Dirty || !string.IsNullOrEmpty(PrivateText) || !string.IsNullOrEmpty(Reason) || PhraseDirty;
+    private EducationFeedbackRecipientInput Recipient() => new() { TeachingAssignmentId = TeachingId!.Value, StudentEnrollmentId = Target!.StudentEnrollmentId, SchoolMembershipId = Target.SchoolMembershipId };
+    protected override async Task OnInitializedAsync() => await RunAsync(async () => Teachings = await FeedbackService.GetTeachingListAsync());
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        await RunAsync(async () =>
+        {
+            var raw = await JS.InvokeAsync<string?>("sessionStorage.getItem", StorageKey);
+            if (raw != null) Pending = JsonSerializer.Deserialize<Command>(raw);
+            if (Pending == null && RequestedFeedbackId.HasValue) { await LoadFeedbackAsync(RequestedFeedbackId.Value); LoadedRequestedId = RequestedFeedbackId; }
+        });
+        Rendered = true; StateHasChanged();
+    }
+    protected override async Task OnParametersSetAsync()
+    {
+        if (!Rendered || Pending != null || !RequestedFeedbackId.HasValue || RequestedFeedbackId == LoadedRequestedId) return;
+        await RunAsync(async () => { if (!await DiscardAsync()) return; await LoadFeedbackAsync(RequestedFeedbackId.Value); LoadedRequestedId = RequestedFeedbackId; });
+    }
+    private async Task<bool> DiscardAsync() => !Unsaved || await JS.InvokeAsync<bool>("confirm", L["EducationGrading:Discard"].Value);
+    private void Reset()
+    { FeedbackId = Guid.NewGuid(); Workspace = null; Preview = null; Confirmed = false; PublicText = ""; Context = ""; Reason = null; Kind = EducationFeedbackKind.Daily;
+      OccurredAt = DateTime.Now; PeriodEnd = DateTime.Now.AddDays(1); SelectedObservation = null; SelectedTasks = []; InitialForm = Form();
+      EditingPhrase = null; PhraseText = PhraseBaseline = ""; PhraseCloudText = null; Phrases = []; PhraseOffset = 0; PhraseTotal = 0; }
+    private Task SelectTeachingAsync(ChangeEventArgs e) => RunAsync(async () =>
+    { SelectionVersion++; if (!await DiscardAsync()) return; TeachingId = Guid.TryParse(e.Value?.ToString(), out var id) ? id : null; Target = null; PrivateText = ""; Students = []; Saved = []; Reset(); StudentOffset = SavedOffset = 0;
+      if (TeachingId.HasValue) { await LoadStudentsAsync(); await LoadSavedAsync(); } });
+    private async Task LoadStudentsAsync() { var page = await FeedbackService.GetStudentsAsync(TeachingId!.Value, new() { SkipCount = StudentOffset, MaxResultCount = PageSize }); Students = page.Items.ToList(); StudentTotal = page.TotalCount; }
+    private async Task LoadSavedAsync() { var page = await FeedbackService.GetListAsync(TeachingId!.Value, new() { SkipCount = SavedOffset, MaxResultCount = PageSize }); Saved = page.Items.ToList(); SavedTotal = page.TotalCount; }
+    private async Task LoadObservationsAsync() { var page = await FeedbackService.GetObservationsAsync(Recipient(), new() { SkipCount = ObservationOffset, MaxResultCount = PageSize }); Observations = page.Items.ToList(); ObservationTotal = page.TotalCount; }
+    private async Task LoadTargetAsync() { TargetSchoolId = (await FeedbackService.GetTargetAsync(Recipient())).SchoolId; ObservationOffset = 0; await LoadObservationsAsync(); Assessments = await FeedbackService.GetAssessmentListAsync(Recipient()); }
+    private async Task LoadPhrasesAsync() { var page = await FeedbackService.GetPhrasesAsync(PhraseScope(), new() { SkipCount = PhraseOffset, MaxResultCount = PageSize }, IncludeArchivedPhrases); Phrases = page.Items.ToList(); PhraseTotal = page.TotalCount; }
+    private Task PhrasePageAsync(int direction) => RunAsync(async () => { PhraseOffset = direction == 0 ? 0 : Math.Max(0, PhraseOffset + direction * PageSize); await LoadPhrasesAsync(); });
+    private Task EditPhraseAsync(Guid id) => RunAsync(async () =>
+    { if (PhraseDirty && !await JS.InvokeAsync<bool>("confirm", L["EducationGrading:Discard"].Value)) return;
+      var item = await FeedbackService.GetPhraseAsync(id, PhraseScope()); if (item == null) return;
+      EditingPhrase = item; PhraseText = PhraseBaseline = item.CurrentRevision.Text; PhraseCloudText = null; });
+    private Task ComparePhraseAsync() => RunAsync(async () =>
+    { if (EditingPhrase != null) PhraseCloudText = (await FeedbackService.GetPhraseAsync(EditingPhrase.Id, PhraseScope()))?.CurrentRevision.Text; });
+    private Task NewPhraseAsync() => RunAsync(async () =>
+    { if (PhraseDirty && !await JS.InvokeAsync<bool>("confirm", L["EducationGrading:Discard"].Value)) return;
+      EditingPhrase = null; PhraseText = PhraseBaseline = ""; PhraseCloudText = null; });
+    private Task UsePhraseAsync(Guid id) => RunAsync(async () =>
+    { if (!await JS.InvokeAsync<bool>("confirm", L["EducationFeedback:UsePhrasePrompt"].Value)) return;
+      var item = await FeedbackService.GetPhraseAsync(id, PhraseScope()); if (item == null || item.CurrentRevision.IsArchived) { Error = L["EducationFeedback:PhraseUnavailable"]; return; }
+      PublicText = item.CurrentRevision.Text; SelectedObservation = null; Preview = null; Confirmed = false; });
+    private Task SavePhraseAsync() => RunAsync(async () => await StartAsync(new Command { Kind = "phrase", PhraseId = EditingPhrase?.Id ?? Guid.NewGuid(),
+        Phrase = new() { SchoolId = TargetSchoolId, TeachingAssignmentId = TeachingId!.Value, OperationId = Guid.NewGuid(),
+            ConcurrencyStamp = EditingPhrase?.ConcurrencyStamp, ExpectedRevisionId = EditingPhrase?.CurrentRevision.Id, Text = PhraseText, IsArchived = EditingPhrase?.CurrentRevision.IsArchived ?? false } }));
+    private Task ArchivePhraseAsync(EducationFeedbackPhraseDto item) => RunAsync(async () =>
+    { if (PhraseDirty || !await JS.InvokeAsync<bool>("confirm", L["EducationFeedback:ArchivePhrasePrompt"].Value)) return;
+      await StartAsync(new Command { Kind = "phrase", PhraseId = item.Id, Phrase = new() { SchoolId = TargetSchoolId, TeachingAssignmentId = TeachingId!.Value, OperationId = Guid.NewGuid(),
+          ConcurrencyStamp = item.ConcurrencyStamp, ExpectedRevisionId = item.CurrentRevision.Id, Text = item.CurrentRevision.Text, IsArchived = !item.CurrentRevision.IsArchived } }); });
+    private Task SelectStudentAsync(ChangeEventArgs e) => RunAsync(async () =>
+    { SelectionVersion++; if (!await DiscardAsync()) return; Target = Guid.TryParse(e.Value?.ToString(), out var id) ? Students.FirstOrDefault(x => x.StudentEnrollmentId == id) ?? (Target?.StudentEnrollmentId == id ? Target : null) : null;
+      PrivateText = ""; Reset(); Observations = []; Assessments = []; if (Target != null) await LoadTargetAsync(); });
+    private Task NewAsync() => RunAsync(async () => { if (await DiscardAsync()) { PrivateText = ""; Reset(); } });
+    private Task StudentPageAsync(int direction) => RunAsync(async () => { StudentOffset += direction * PageSize; await LoadStudentsAsync(); });
+    private Task SavedPageAsync(int direction) => RunAsync(async () => { SavedOffset += direction * PageSize; await LoadSavedAsync(); });
+    private Task ObservationPageAsync(int direction) => RunAsync(async () => { ObservationOffset += direction * PageSize; await LoadObservationsAsync(); });
+    private Task OpenAsync(Guid id) => RunAsync(async () => { if (await DiscardAsync()) await LoadFeedbackAsync(id); });
+    private async Task LoadFeedbackAsync(Guid id)
+    {
+        var item = await FeedbackService.GetAsync(id);
+        if (Target?.StudentEnrollmentId != item.StudentEnrollmentId) PrivateText = "";
+        FeedbackId = id; Workspace = item; TeachingId = item.TeachingAssignmentId;
+        Target = new() { StudentEnrollmentId = item.StudentEnrollmentId, SchoolMembershipId = item.SchoolMembershipId, StudentUserId = item.StudentUserId, StudentName = item.StudentName, AccountName = item.AccountName };
+        var content = item.Draft!.Content!; Kind = content.Kind; Context = content.Context; PublicText = content.Text; SelectedObservation = content.SelectedObservationId;
+        OccurredAt = content.OccurredAtUtc.ToLocalTime(); PeriodEnd = content.PeriodEndsAtUtc?.ToLocalTime() ?? OccurredAt.AddDays(1); SelectedTasks = content.AssessmentTaskIds.ToHashSet();
+        InitialForm = Form(); Preview = null; Confirmed = false; await LoadTargetAsync(); await LoadSavedAsync();
+    }
+    private void SelectTask(Guid id, ChangeEventArgs e) { if (e.Value is true) SelectedTasks.Add(id); else SelectedTasks.Remove(id); Preview = null; Confirmed = false; }
+    private Task SelectObservationAsync(EducationTeacherObservationDto observation) => RunAsync(async () =>
+    { if (Dirty && !await JS.InvokeAsync<bool>("confirm", L["EducationGrading:Discard"].Value)) return; SelectedObservation = observation.Id; PublicText = observation.Text; Preview = null; Confirmed = false; });
+    private Task SaveObservationAsync() => RunAsync(async () => await StartAsync(new Command { Kind = "observation", Observation = new() { OperationId = Guid.NewGuid(),
+        TeachingAssignmentId = TeachingId!.Value, StudentEnrollmentId = Target!.StudentEnrollmentId, SchoolMembershipId = Target.SchoolMembershipId, Text = PrivateText, ObservedAtUtc = DateTime.UtcNow } }));
+    private Task SaveAsync() => RunAsync(async () => await StartAsync(new Command { Kind = "draft", FeedbackId = FeedbackId, Draft = new() { OperationId = Guid.NewGuid(),
+        TeachingAssignmentId = TeachingId!.Value, StudentEnrollmentId = Target!.StudentEnrollmentId, SchoolMembershipId = Target.SchoolMembershipId,
+        ConcurrencyStamp = Workspace?.ConcurrencyStamp, ExpectedRevisionId = Workspace?.CurrentRevision.Id,
+        Content = new() { Kind = Kind, Context = Context, Text = PublicText, OccurredAtUtc = OccurredAt.ToUniversalTime(), PeriodEndsAtUtc = Kind == EducationFeedbackKind.Period ? PeriodEnd.ToUniversalTime() : null,
+            AssessmentTaskIds = SelectedTasks.Order().ToList(), SelectedObservationId = SelectedObservation } } }));
+    private Task PreviewAsync() => RunAsync(async () => { if (Dirty) return; Preview = await FeedbackService.PreviewPublishAsync(FeedbackId); Confirmed = false; });
+    private Task PublishAsync() => RunAsync(async () => { if (Dirty || !Confirmed || Preview == null || !await JS.InvokeAsync<bool>("confirm", L["EducationFeedback:PublishPrompt"].Value)) return;
+        await StartAsync(new Command { Kind = "publish", FeedbackId = FeedbackId, Publish = new() { OperationId = Guid.NewGuid(), ConcurrencyStamp = Preview.Feedback.ConcurrencyStamp,
+            ExpectedDraftRevisionId = Preview.Feedback.Draft!.Id, PreviewFingerprint = Preview.PreviewFingerprint, ConfirmRecipientAndContent = true, Reason = Reason } }); });
+    private Task WithdrawAsync() => RunAsync(async () => { if (Dirty || Workspace?.Published == null || !await JS.InvokeAsync<bool>("confirm", L["EducationFeedback:WithdrawPrompt"].Value)) return;
+        await StartAsync(new Command { Kind = "withdraw", FeedbackId = FeedbackId, Withdraw = new() { OperationId = Guid.NewGuid(), ConcurrencyStamp = Workspace.ConcurrencyStamp,
+            ExpectedPublishedRevisionId = Workspace.Published.Id, Reason = Reason ?? "" } }); });
+    private async Task StartAsync(Command command) { if (Pending != null) return; Pending = command; await ExecuteAsync(false); }
+    private async Task PersistAsync() { if (Pending == null) await JS.InvokeVoidAsync("sessionStorage.removeItem", StorageKey); else await JS.InvokeVoidAsync("sessionStorage.setItem", StorageKey, JsonSerializer.Serialize(Pending)); }
+    private async Task ExecuteAsync(bool retry)
+    {
+        if (Pending is not { } op) return; await PersistAsync();
+        try
+        {
+            if (op.Kind == "observation") await CompleteAsync((await FeedbackService.CreateObservationAsync(op.Observation!)).Id);
+            else if (op.Kind == "phrase") await CompleteAsync((await FeedbackService.SavePhraseAsync(op.PhraseId, op.Phrase!)).Id);
+            else if (op.Kind == "draft") await CompleteAsync((await FeedbackService.SaveDraftAsync(op.FeedbackId, op.Draft!)).Id);
+            else if (op.Kind == "publish") await CompleteAsync((await FeedbackService.PublishAsync(op.FeedbackId, op.Publish!)).Id);
+            else if (op.Kind == "withdraw") await CompleteAsync((await FeedbackService.WithdrawAsync(op.FeedbackId, op.Withdraw!)).Id);
+        }
+        catch (Exception ex) { if (!retry && Definitive(ex)) { Pending = null; await PersistAsync(); } throw; }
+    }
+    private async Task CompleteAsync(Guid id)
+    {
+        if (Pending is not { } op || id != op.OperationId) throw new InvalidOperationException(L["EducationGrading:NoReceipt"]);
+        Receipt = id.ToString(); Pending = null; await PersistAsync();
+        if (op.Kind == "observation") { if (Target?.StudentEnrollmentId == op.Observation!.StudentEnrollmentId) { PrivateText = ""; await LoadObservationsAsync(); } }
+        else if (op.Kind == "phrase") { EditingPhrase = null; PhraseText = PhraseBaseline = ""; PhraseCloudText = null; PhraseOffset = 0; if (Target != null) await LoadPhrasesAsync(); }
+        else { if (op.Kind != "draft") Reason = null; await LoadFeedbackAsync(op.FeedbackId); }
+    }
+    private Task RecoverAsync() => RunAsync(async () =>
+    {
+        if (Pending is not { } op) return;
+        if (op.Kind == "observation") { var target = await FeedbackService.GetTargetAsync(op.Observation!); var observed = await FeedbackService.GetObservationOperationAsync(target.SchoolId, op.OperationId, op.Observation!);
+            if (observed == null) { Error = L["EducationGrading:Unknown"]; return; } await CompleteAsync(observed.Id); return; }
+        if (op.Kind == "phrase") { var phrase = await FeedbackService.GetPhraseOperationAsync(op.PhraseId, op.OperationId, op.Phrase!);
+            if (phrase == null) { Error = L["EducationGrading:Unknown"]; return; } await CompleteAsync(phrase.Id); return; }
+        var receipt = await FeedbackService.GetOperationAsync(op.FeedbackId, op.OperationId);
+        if (receipt == null) { Error = L["EducationGrading:Unknown"]; return; }
+        if (receipt.FeedbackId != op.FeedbackId) throw new InvalidOperationException(L["EducationGrading:NoReceipt"]);
+        await CompleteAsync(receipt.Id);
+    });
+    private static bool Definitive(Exception ex)
+    {
+        for (Exception? e = ex; e != null; e = e.InnerException)
+        { if (e is Volo.Abp.BusinessException or Volo.Abp.Authorization.AbpAuthorizationException or Volo.Abp.Data.AbpDbConcurrencyException or Volo.Abp.Validation.AbpValidationException) return true;
+          var code = e.GetType().GetProperty("HttpStatusCode")?.GetValue(e) ?? e.GetType().GetProperty("StatusCode")?.GetValue(e);
+          if (code is System.Net.HttpStatusCode status && (int)status is 400 or 401 or 403 or 409 or 422) return true; }
+        return false;
+    }
+    private async Task RunAsync(Func<Task> action) { if (Busy) return; Busy = true; Error = null; try { await action(); } catch (Exception ex) { Error = GetUserFriendlyErrorMessage(ex); } finally { Busy = false; } }
+    private async Task LeaveAsync(Microsoft.AspNetCore.Components.Routing.LocationChangingContext context) { if (!await DiscardAsync()) context.PreventNavigation(); }
+    private sealed class Command
+    {
+        public string Kind { get; set; } = ""; public Guid FeedbackId { get; set; }
+        public CreateEducationTeacherObservationDto? Observation { get; set; } public SaveEducationFeedbackDraftDto? Draft { get; set; }
+        public PublishEducationFeedbackDto? Publish { get; set; } public WithdrawEducationFeedbackDto? Withdraw { get; set; }
+        public Guid PhraseId { get; set; } public SaveEducationFeedbackPhraseDto? Phrase { get; set; }
+        public Guid OperationId => Observation?.OperationId ?? Draft?.OperationId ?? Publish?.OperationId ?? Withdraw?.OperationId ?? Phrase?.OperationId ?? Guid.Empty;
+    }
+}

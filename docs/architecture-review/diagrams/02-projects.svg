@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1419 1037" role="img" aria-labelledby="title desc"><title id="title">.NET 项目实际引用图</title><desc id="desc">箭头从引用方指向被引用项目；由当前 csproj 生成，不包含 NuGet 传递依赖。</desc>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10Z" fill="#63768c"/></marker></defs>
+<rect width="1419" height="1037" rx="18" fill="#f6f8fb"/>
+<text x="40" y="35" font-size="22" font-weight="700" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">.NET 项目实际引用图</text>
+<path d="M872.0,387 L870,410 L870,640 L1220,640 L1222.0,665" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M872.0,387 L870,410 L520,410 L520,640 L522.0,665" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M654,721.0 L680,720 L680,920 L720,920 L740,916.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M172.0,192 L170,210 L170,250 L172.0,275" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M172.0,387 L170,410 L170,450 L172.0,470" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M1222.0,192 L1220,210 L670,210 L670,640 L520,640 L522.0,665" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M1222.0,192 L1220,210 L1220,250 L1222.0,275" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M1090,721.0 L1070,720 L1030,720 L1030,920 L1004,916.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M1222.0,387 L1220,410 L1220,640 L1222.0,665" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M522.0,387 L520,410 L510,410 L510,640 L520,640 L522.0,665" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M304,526.0 L330,530 L330,720 L370,720 L390,721.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M872.0,192 L870,210 L870,250 L872.0,275" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M1004,136.0 L1030,140 L1030,330 L1070,330 L1090,331.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<path d="M740,136.0 L720,140 L680,140 L680,330 L654,331.0" fill="none" stroke="#63768c" stroke-width="1.8" stroke-linejoin="round" marker-end="url(#arrow)"/>
+<rect x="740" y="275" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="740" y="275" width="5" height="112" rx="2" fill="#126b82"/>
+<text x="872.0" y="331.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">Application</text>
+<rect x="390" y="665" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="390" y="665" width="5" height="112" rx="2" fill="#3654a5"/>
+<text x="522.0" y="721.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">Application.Contracts</text>
+<rect x="40" y="80" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="40" y="80" width="5" height="112" rx="2" fill="#80539b"/>
+<text x="172.0" y="136.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">Blazor</text>
+<rect x="40" y="275" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="40" y="275" width="5" height="112" rx="2" fill="#126b82"/>
+<text x="172.0" y="331.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">Blazor.Client</text>
+<rect x="1090" y="80" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="1090" y="80" width="5" height="112" rx="2" fill="#3654a5"/>
+<text x="1222.0" y="136.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">DbMigrator</text>
+<rect x="1090" y="665" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="1090" y="665" width="5" height="112" rx="2" fill="#80539b"/>
+<text x="1222.0" y="721.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">Domain</text>
+<rect x="740" y="860" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="740" y="860" width="5" height="112" rx="2" fill="#126b82"/>
+<text x="872.0" y="916.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">Domain.Shared</text>
+<rect x="1090" y="275" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="1090" y="275" width="5" height="112" rx="2" fill="#3654a5"/>
+<text x="1222.0" y="331.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">EntityFrameworkCore</text>
+<rect x="390" y="275" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="390" y="275" width="5" height="112" rx="2" fill="#80539b"/>
+<text x="522.0" y="331.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">HttpApi</text>
+<rect x="40" y="470" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="40" y="470" width="5" height="112" rx="2" fill="#126b82"/>
+<text x="172.0" y="526.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">HttpApi.Client</text>
+<rect x="740" y="80" width="264" height="112" rx="10" fill="white" stroke="#cfd8e5"/>
+<rect x="740" y="80" width="5" height="112" rx="2" fill="#3654a5"/>
+<text x="872.0" y="136.0" dominant-baseline="middle" text-anchor="middle" font-size="16" font-family="Microsoft YaHei,Segoe UI,sans-serif" fill="#14253c">HttpApi.Host</text>
+</svg>

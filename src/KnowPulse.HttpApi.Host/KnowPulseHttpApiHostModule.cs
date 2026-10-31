@@ -9,6 +9,10 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using KnowPulse.EntityFrameworkCore;
+using KnowPulse.Education;
+using KnowPulse.WeChat;
+using Volo.Abp.OpenIddict.ExtensionGrantTypes;
+using Volo.Abp.OpenIddict;
 using KnowPulse.KnowledgeIndexing;
 using KnowPulse.KnowledgeBase;
 using KnowPulse.MultiTenancy;
@@ -16,8 +20,8 @@ using Volo.Abp.AspNetCore.Mvc.UI.Theme.LeptonXLite;
 using Volo.Abp.AspNetCore.Mvc.UI.Theme.LeptonXLite.Bundling;
 using Microsoft.OpenApi;
 using OpenIddict.Validation.AspNetCore;
-using KnowPulse.Authentication;
-using Volo.Abp.OpenIddict.ExtensionGrantTypes;
+using LegacyWeChatTokenExtensionGrant = KnowPulse.Authentication.WeChatTokenExtensionGrant;
+using BoundWeChatTokenExtensionGrant = KnowPulse.WeChat.WeChatTokenExtensionGrant;
 using Volo.Abp;
 using Volo.Abp.Account;
 using Volo.Abp.Account.Web;
@@ -59,7 +63,9 @@ public class KnowPulseHttpApiHostModule : AbpModule
     /// </summary>
     public override void PreConfigureServices(ServiceConfigurationContext context)
     {
-        PreConfigure<OpenIddictServerBuilder>(builder => builder.Configure(options => options.GrantTypes.Add(WeChatTokenExtensionGrant.GrantType)));
+        PreConfigure<OpenIddictServerBuilder>(builder => builder.Configure(options => options.GrantTypes.Add(LegacyWeChatTokenExtensionGrant.GrantType)));
+
+        PreConfigure<OpenIddictServerBuilder>(builder => builder.Configure(options => options.GrantTypes.Add(WeChatLoginValues.GrantType)));
         PreConfigure<OpenIddictBuilder>(builder =>
         {
             builder.AddValidation(options =>
@@ -80,6 +86,8 @@ public class KnowPulseHttpApiHostModule : AbpModule
         var hostingEnvironment = context.Services.GetHostingEnvironment();
 
         ConfigureAuthentication(context);
+        context.Services.AddSingleton<WeChatRequestLimiter>();
+        Configure<AbpOpenIddictExtensionGrantsOptions>(options => options.Grants.Add(WeChatLoginValues.GrantType, new BoundWeChatTokenExtensionGrant()));
         ConfigureBundles();
         ConfigureUrls(configuration);
         ConfigureAuditing();
@@ -101,6 +109,11 @@ public class KnowPulseHttpApiHostModule : AbpModule
         context.Services.Configure<KnowledgeIndexJobWorkerOptions>(
             configuration.GetSection(KnowledgeIndexJobWorkerOptions.SectionName));
         context.Services.AddHostedService<KnowledgeIndexJobBackgroundWorker>();
+        context.Services.AddHostedService<PersonalKnowledgeExportBackgroundWorker>();
+        context.Services.AddHostedService<AiQuestionGenerationBackgroundWorker>();
+        context.Services.AddHostedService<EducationAssessmentDeadlineBackgroundWorker>();
+        context.Services.AddHostedService<EducationLearningReportBackgroundWorker>();
+        context.Services.AddHostedService<EducationTeachingPlanGenerationBackgroundWorker>();
     }
 
     /// <summary>
@@ -124,7 +137,7 @@ public class KnowPulseHttpApiHostModule : AbpModule
                     return System.Threading.Tasks.Task.CompletedTask;
                 };
             });
-        Configure<AbpOpenIddictExtensionGrantsOptions>(options => options.Grants.Add(WeChatTokenExtensionGrant.GrantType, new WeChatTokenExtensionGrant()));
+        Configure<AbpOpenIddictExtensionGrantsOptions>(options => options.Grants.Add(LegacyWeChatTokenExtensionGrant.GrantType, new LegacyWeChatTokenExtensionGrant()));
         context.Services.ForwardIdentityAuthenticationForBearer(OpenIddictValidationAspNetCoreDefaults.AuthenticationScheme);
         context.Services.Configure<AbpClaimsPrincipalFactoryOptions>(options =>
         {
@@ -172,12 +185,168 @@ public class KnowPulseHttpApiHostModule : AbpModule
         Configure<AbpAuditingOptions>(options =>
         {
             options.ApplicationName = "KnowPulse";
+            options.Contributors.Add(new PrivateNotebookAuditContributor());
             options.IsEnabledForGetRequests = true;
+            options.IgnoredTypes.Add(typeof(WeChatAccountBinding));
+            options.IgnoredTypes.Add(typeof(WeChatBindingCodeDto));
+            options.IgnoredTypes.Add(typeof(IssueWeChatBindingCodeDto));
+            options.IgnoredTypes.Add(typeof(ExchangeWeChatBindingCodeDto));
             options.IgnoredTypes.Add(typeof(CreateKnowledgeVersionDto));
+            options.IgnoredTypes.Add(typeof(CreateKnowledgeItemDto));
+            options.IgnoredTypes.Add(typeof(UpdateKnowledgeItemDto));
+            options.IgnoredTypes.Add(typeof(PersonalKnowledgeOrganizationInput));
+            options.IgnoredTypes.Add(typeof(UpdatePersonalKnowledgeOrganizationInput));
+            options.IgnoredTypes.Add(typeof(GetPersonalKnowledgeItemListInput));
+            options.IgnoredTypes.Add(typeof(GetKnowledgeManagementListInput));
             options.IgnoredTypes.Add(typeof(IRemoteStreamContent));
             options.IgnoredTypes.Add(typeof(RemoteStreamContent));
             options.IgnoredTypes.Add(typeof(KnowledgeVersion));
             options.IgnoredTypes.Add(typeof(KnowledgeChunk));
+            options.IgnoredTypes.Add(typeof(EducationAssessmentDraftContentDto));
+            options.IgnoredTypes.Add(typeof(SaveEducationAssessmentResponseDto));
+            options.IgnoredTypes.Add(typeof(EducationAssessmentSubmissionPreviewDto));
+            options.IgnoredTypes.Add(typeof(EducationMaterialContentDto));
+            options.IgnoredTypes.Add(typeof(EducationMaterialSourcePreviewDto));
+            options.IgnoredTypes.Add(typeof(EducationMaterialSourceDto));
+            options.IgnoredTypes.Add(typeof(SaveEducationAssessmentGradeDraftDto));
+            options.IgnoredTypes.Add(typeof(ConfirmEducationAssessmentGradeDto));
+            options.IgnoredTypes.Add(typeof(PublishEducationAssessmentResultsDto));
+            options.IgnoredTypes.Add(typeof(RequestEducationAssessmentScoreReviewDto));
+            options.IgnoredTypes.Add(typeof(ResolveEducationAssessmentScoreReviewDto));
+            options.IgnoredTypes.Add(typeof(EducationAssessmentResponseRevision));
+            options.IgnoredTypes.Add(typeof(EducationAssessmentGradeRevision));
+            options.IgnoredTypes.Add(typeof(EducationAssessmentScoreReviewRequest));
+            options.IgnoredTypes.Add(typeof(CreateEducationTeacherObservationDto));
+            options.IgnoredTypes.Add(typeof(SaveEducationFeedbackPhraseDto));
+            options.IgnoredTypes.Add(typeof(EducationFeedbackPhraseRevision));
+            options.IgnoredTypes.Add(typeof(SaveEducationFeedbackDraftDto));
+            options.IgnoredTypes.Add(typeof(PublishEducationFeedbackDto));
+            options.IgnoredTypes.Add(typeof(WithdrawEducationFeedbackDto));
+            options.IgnoredTypes.Add(typeof(EducationTeacherObservation));
+            options.IgnoredTypes.Add(typeof(EducationStudentFeedbackRevision));
+            options.IgnoredTypes.Add(typeof(SaveEducationEvidenceQualificationDto));
+            options.IgnoredTypes.Add(typeof(SaveEducationOriginRelationDto));
+            options.IgnoredTypes.Add(typeof(SaveEducationHintReviewDto));
+            options.IgnoredTypes.Add(typeof(EducationEvidenceQualificationRevision));
+            options.IgnoredTypes.Add(typeof(EducationQuestionOriginRelationRevision));
+            options.IgnoredTypes.Add(typeof(EducationExposureHintReviewRevision));
+            options.IgnoredTypes.Add(typeof(EducationHintContextDto));
+            options.IgnoredTypes.Add(typeof(EducationLearningReportJob));
+            options.IgnoredTypes.Add(typeof(EducationLearningReportSnapshot));
+            options.IgnoredTypes.Add(typeof(EducationLearningReportStudentSnapshot));
+            options.IgnoredTypes.Add(typeof(EducationLearningReportSource));
+            options.IgnoredTypes.Add(typeof(EducationLearningReportTrendDto));
+            options.IgnoredTypes.Add(typeof(GenerateEducationTeachingPlanDraftDto));
+            options.IgnoredTypes.Add(typeof(RetryEducationTeachingPlanGenerationDto));
+            options.IgnoredTypes.Add(typeof(EducationTeachingPlanGenerationDto));
+            options.IgnoredTypes.Add(typeof(EducationTeachingPlanGenerationListDto));
+            options.IgnoredTypes.Add(typeof(GetEducationTeachingPlanGenerationsInput));
+            options.IgnoredTypes.Add(typeof(EducationPlanGenerationRequest));
+            options.IgnoredTypes.Add(typeof(EducationTeachingPlanGenerationJob));
+            options.IgnoredTypes.Add(typeof(DecideEducationPlanExecutionDto));
+            options.IgnoredTypes.Add(typeof(EducationPlanExecutionReviewDto));
+            options.IgnoredTypes.Add(typeof(EducationPlanDecisionDto));
+            options.IgnoredTypes.Add(typeof(EducationPlanExecutionEvidence));
+            options.IgnoredTypes.Add(typeof(EducationTeachingPlanDecisionRevision));
+            options.IgnoredTypes.Add(typeof(GetEducationLearningTrendInput));
+            options.IgnoredTypes.Add(typeof(EducationLearningReportStudentResult));
+            options.IgnoredTypes.Add(typeof(SaveEducationMasteryRuleDto));
+            options.IgnoredTypes.Add(typeof(EducationMasteryRuleRevision));
+            options.IgnoredTypes.Add(typeof(EducationStudentGrowthSnapshot));
+            options.IgnoredTypes.Add(typeof(EducationStudentGrowthSource));
+            options.IgnoredTypes.Add(typeof(EducationStudentGrowthValue));
+            options.IgnoredTypes.Add(typeof(EducationStudentGrowthForSchoolDto));
+            options.IgnoredTypes.Add(typeof(EducationStudentGrowthContextsForSchoolDto));
+            options.IgnoredTypes.Add(typeof(EducationStudentGrowthEvidenceForSchoolDto));
+            options.IgnoredTypes.Add(typeof(SaveEducationTeachingPlanDraftDto));
+            options.IgnoredTypes.Add(typeof(TransitionEducationTeachingPlanDto));
+            options.IgnoredTypes.Add(typeof(EducationTeachingPlanRevision));
+            options.IgnoredTypes.Add(typeof(EducationTeachingPlanHintReviewRevision));
+            options.IgnoredTypes.Add(typeof(EducationTeachingPlanHintContextDto));
+            options.IgnoredTypes.Add(typeof(SaveEducationMyActivityDto));
+            options.IgnoredTypes.Add(typeof(SaveEducationActivityFollowUpDto));
+            options.IgnoredTypes.Add(typeof(EducationTeachingActivityRevision));
+            options.IgnoredTypes.Add(typeof(EducationStudentActivityEventDto));
+            options.IgnoredTypes.Add(typeof(EducationTeacherActivityEventDto));
+            options.IgnoredTypes.Add(typeof(EducationTeacherActivityProgressDto));
+            options.IgnoredTypes.Add(typeof(EducationMyActivitiesDto));
+            options.IgnoredTypes.Add(typeof(BindEducationFormalAssessmentDto));
+            options.IgnoredTypes.Add(typeof(ReviewEducationFormalAssessmentDto));
+            options.IgnoredTypes.Add(typeof(EducationFormalAssessmentPreviewDto));
+            options.IgnoredTypes.Add(typeof(EducationFormalAssessmentDetailsDto));
+            options.IgnoredTypes.Add(typeof(EducationFormalQuestionPreviewDto));
+            options.IgnoredTypes.Add(typeof(EducationFormalReviewDto));
+            options.IgnoredTypes.Add(typeof(EducationTeachingFormalAssessment));
+            options.IgnoredTypes.Add(typeof(EducationTeachingFormalReview));
+            options.IgnoredTypes.Add(typeof(EducationTeachingPlanHintReviewRevisionDto));
+            options.IgnoredTypes.Add(typeof(EducationTeachingPlanBasis));
+            options.IgnoredTypes.Add(typeof(EducationTeachingPlanContent));
+            options.IgnoredTypes.Add(typeof(EducationStudentTeachingPlanContent));
+            options.IgnoredTypes.Add(typeof(SaveEducationStudyTaskDto));
+            options.IgnoredTypes.Add(typeof(PublishEducationStudyTaskDto));
+            options.IgnoredTypes.Add(typeof(WithdrawEducationStudyTaskDto));
+            options.IgnoredTypes.Add(typeof(SaveEducationStudyFollowUpDto));
+            options.IgnoredTypes.Add(typeof(EducationStudyTaskContent));
+            options.IgnoredTypes.Add(typeof(EducationStudyTaskRevision));
+            options.IgnoredTypes.Add(typeof(EducationStudyEvent));
+            options.IgnoredTypes.Add(typeof(EducationStudyRevisionDto));
+            options.IgnoredTypes.Add(typeof(EducationStudyTaskDto));
+            options.IgnoredTypes.Add(typeof(EducationStudyRosterDto));
+            options.IgnoredTypes.Add(typeof(EducationMyStudyTaskDto));
+            options.IgnoredTypes.Add(typeof(EducationTeacherStudyRecipientDto));
+            options.IgnoredTypes.Add(typeof(EducationStudentStudyEventDto));
+            options.IgnoredTypes.Add(typeof(EducationTeacherStudyEventDto));
+            options.IgnoredTypes.Add(typeof(EducationStudyProgressDto));
+            options.IgnoredTypes.Add(typeof(EducationStudyHintContextDto));
+            options.IgnoredTypes.Add(typeof(EducationStudyHintReviewRevisionDto));
+            options.IgnoredTypes.Add(typeof(EducationStudyHintReview));
+            options.IgnoredTypes.Add(typeof(EducationStudyHintReviewRevision));
+            options.IgnoredTypes.Add(typeof(SaveEducationCorrectionDraftDto));
+            options.IgnoredTypes.Add(typeof(PublishEducationCorrectionDto));
+            options.IgnoredTypes.Add(typeof(WithdrawEducationCorrectionDto));
+            options.IgnoredTypes.Add(typeof(PreviewEducationCorrectionDto));
+            options.IgnoredTypes.Add(typeof(SubmitEducationCorrectionDto));
+            options.IgnoredTypes.Add(typeof(PublishEducationCorrectionReviewDto));
+            options.IgnoredTypes.Add(typeof(EducationCorrectionContent));
+            options.IgnoredTypes.Add(typeof(EducationCorrectionInstructions));
+            options.IgnoredTypes.Add(typeof(EducationCorrectionTargetDto));
+            options.IgnoredTypes.Add(typeof(EducationCorrectionPublishPreviewDto));
+            options.IgnoredTypes.Add(typeof(EducationCorrectionTaskRevision));
+            options.IgnoredTypes.Add(typeof(EducationCorrectionSubmission));
+            options.IgnoredTypes.Add(typeof(EducationCorrectionReview));
+            options.IgnoredTypes.Add(typeof(EducationCorrectionRevisionDto));
+            options.IgnoredTypes.Add(typeof(EducationCorrectionTaskDto));
+            options.IgnoredTypes.Add(typeof(EducationCorrectionSubmissionPreviewDto));
+            options.IgnoredTypes.Add(typeof(EducationCorrectionSubmissionDto));
+            options.IgnoredTypes.Add(typeof(EducationCorrectionReviewDto));
+            options.IgnoredTypes.Add(typeof(EducationMyCorrectionDto));
+            options.IgnoredTypes.Add(typeof(EducationCorrectionProgressDto));
+            options.IgnoredTypes.Add(typeof(EducationCorrectionHistoryDto));
+            options.IgnoredTypes.Add(typeof(EducationLearningWorkloadDto));
+            options.IgnoredTypes.Add(typeof(EducationLearningWorkloadItemDto));
+            options.IgnoredTypes.Add(typeof(PreviewEducationNotebookSourceDto));
+            options.IgnoredTypes.Add(typeof(AddEducationNotebookSourceDto));
+            options.IgnoredTypes.Add(typeof(RemoveEducationNotebookSourceDto));
+            options.IgnoredTypes.Add(typeof(EducationNotebookSourcePreviewDto));
+            options.IgnoredTypes.Add(typeof(EducationNotebookSourceDto));
+            options.IgnoredTypes.Add(typeof(EducationNotebookSourcesDto));
+            options.IgnoredTypes.Add(typeof(EducationNotebookSourcePointer));
+            options.IgnoredTypes.Add(typeof(StartEducationPracticeDto));
+            options.IgnoredTypes.Add(typeof(PersonalNotebookContentDto));
+            options.IgnoredTypes.Add(typeof(PersonalNotebookMetadataDto));
+            options.IgnoredTypes.Add(typeof(PersonalNotebookVersionDto));
+            options.IgnoredTypes.Add(typeof(CreatePersonalNotebookDto));
+            options.IgnoredTypes.Add(typeof(SavePersonalNotebookDto));
+            options.IgnoredTypes.Add(typeof(PersonalNotebookDto));
+            options.IgnoredTypes.Add(typeof(PersonalNotebookVersionContentDto));
+            options.IgnoredTypes.Add(typeof(GetEducationPracticeListDto));
+            options.IgnoredTypes.Add(typeof(PreviewEducationPracticeDto));
+            options.IgnoredTypes.Add(typeof(SubmitEducationPracticeDto));
+            options.IgnoredTypes.Add(typeof(EducationPracticeDto));
+            options.IgnoredTypes.Add(typeof(EducationPracticeFeedbackDto));
+            options.IgnoredTypes.Add(typeof(EducationPracticeEvaluation));
+            options.IgnoredTypes.Add(typeof(EducationQuestionPractice));
+            options.IgnoredTypes.Add(typeof(EducationPracticeImage));
         });
     }
 
@@ -193,6 +362,42 @@ public class KnowPulseHttpApiHostModule : AbpModule
                 container.UseMinio(minio =>
                 {
                     minio.BucketName = configuration["BlobStoring:Minio:BucketName"] ?? "knowpulse-knowledge";
+                    minio.EndPoint = configuration["BlobStoring:Minio:EndPoint"] ?? "localhost:9000";
+                    minio.AccessKey = configuration["BlobStoring:Minio:AccessKey"] ?? "knowpulse";
+                    minio.SecretKey = configuration["BlobStoring:Minio:SecretKey"] ?? "knowpulse-local-password";
+                    minio.WithSSL = configuration.GetValue("BlobStoring:Minio:WithSSL", false);
+                    minio.CreateBucketIfNotExists = configuration.GetValue("BlobStoring:Minio:CreateBucketIfNotExists", true);
+                });
+            });
+            options.Containers.Configure<EducationAssessmentImageBlobContainer>(container =>
+            {
+                container.UseMinio(minio =>
+                {
+                    minio.BucketName = configuration["BlobStoring:Minio:EducationAnswerBucketName"] ?? "knowpulse-education-answers";
+                    minio.EndPoint = configuration["BlobStoring:Minio:EndPoint"] ?? "localhost:9000";
+                    minio.AccessKey = configuration["BlobStoring:Minio:AccessKey"] ?? "knowpulse";
+                    minio.SecretKey = configuration["BlobStoring:Minio:SecretKey"] ?? "knowpulse-local-password";
+                    minio.WithSSL = configuration.GetValue("BlobStoring:Minio:WithSSL", false);
+                    minio.CreateBucketIfNotExists = configuration.GetValue("BlobStoring:Minio:CreateBucketIfNotExists", true);
+                });
+            });
+            options.Containers.Configure<EducationCorrectionImageBlobContainer>(container =>
+            {
+                container.UseMinio(minio =>
+                {
+                    minio.BucketName = configuration["BlobStoring:Minio:EducationAnswerBucketName"] ?? "knowpulse-education-answers";
+                    minio.EndPoint = configuration["BlobStoring:Minio:EndPoint"] ?? "localhost:9000";
+                    minio.AccessKey = configuration["BlobStoring:Minio:AccessKey"] ?? "knowpulse";
+                    minio.SecretKey = configuration["BlobStoring:Minio:SecretKey"] ?? "knowpulse-local-password";
+                    minio.WithSSL = configuration.GetValue("BlobStoring:Minio:WithSSL", false);
+                    minio.CreateBucketIfNotExists = configuration.GetValue("BlobStoring:Minio:CreateBucketIfNotExists", true);
+                });
+            });
+            options.Containers.Configure<EducationPracticeImageBlobContainer>(container =>
+            {
+                container.UseMinio(minio =>
+                {
+                    minio.BucketName = configuration["BlobStoring:Minio:EducationAnswerBucketName"] ?? "knowpulse-education-answers";
                     minio.EndPoint = configuration["BlobStoring:Minio:EndPoint"] ?? "localhost:9000";
                     minio.AccessKey = configuration["BlobStoring:Minio:AccessKey"] ?? "knowpulse";
                     minio.SecretKey = configuration["BlobStoring:Minio:SecretKey"] ?? "knowpulse-local-password";
@@ -237,6 +442,7 @@ public class KnowPulseHttpApiHostModule : AbpModule
     {
         Configure<AbpAspNetCoreMvcOptions>(options =>
         {
+            options.ConventionalControllers.FormBodyBindingIgnoredTypes.Add(typeof(UploadEducationAssessmentAnswerImageDto));
             options.ConventionalControllers.Create(typeof(KnowPulseApplicationModule).Assembly);
         });
     }
@@ -300,7 +506,8 @@ public class KnowPulseHttpApiHostModule : AbpModule
 
         if (!env.IsDevelopment())
         {
-            app.UseErrorPage();
+            app.UseWhen(http => !http.Request.Path.StartsWithSegments("/api", StringComparison.OrdinalIgnoreCase) &&
+                !http.Request.Path.StartsWithSegments("/connect", StringComparison.OrdinalIgnoreCase), branch => branch.UseErrorPage());
         }
 
         app.UseCorrelationId();
@@ -316,6 +523,7 @@ public class KnowPulseHttpApiHostModule : AbpModule
         }
         app.UseUnitOfWork();
         app.UseDynamicClaims();
+        app.UseMiddleware<WeChatBindingSessionMiddleware>();
         app.UseAuthorization();
 
         app.UseSwagger();

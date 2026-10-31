@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using KnowPulse.Permissions;
 using Microsoft.AspNetCore.Authorization;
 using Volo.Abp.Application.Dtos;
+using Volo.Abp.DependencyInjection;
 using Volo.Abp.Domain.Repositories;
 
 namespace KnowPulse.RagAI;
@@ -35,7 +36,11 @@ public class RagCallLogAppService : KnowPulseAppService, IRagCallLogAppService
     /// </summary>
     public virtual async Task<PagedResultDto<RagCallLogDto>> GetListAsync(GetRagCallLogListInput input)
     {
-        var query = await _callLogRepository.GetQueryableAsync();
+        await CheckMvpPermissionAsync(KnowPulsePermissions.Rag.AuditLogs);
+        var sourceAccess = LazyServiceProvider.LazyGetRequiredService<KnowledgeSourceAccessGuard>();
+        var query = (await _callLogRepository.GetQueryableAsync())
+            .Where(x => x.TenantId == CurrentTenant.Id &&
+                        (x.PersonalOwnerUserId == null || x.PersonalOwnerUserId == CurrentUser.Id));
 
         // 每个过滤条件都保持可选，支持审计页按人、模型、时间、调用类型或知识版本逐步缩小范围。
         if (input.UserId.HasValue)
@@ -86,18 +91,32 @@ public class RagCallLogAppService : KnowPulseAppService, IRagCallLogAppService
             query = query.Where(x => callIds.Contains(x.Id));
         }
 
-        var totalCount = await AsyncExecuter.CountAsync(query);
-        var logs = await AsyncExecuter.ToListAsync(
-            query
-                .OrderByDescending(x => x.CreationTime)
-                .Skip(input.SkipCount)
-                .Take(input.MaxResultCount));
-
+        var logs = await AsyncExecuter.ToListAsync(query.OrderByDescending(x => x.CreationTime));
         var citationsByCallId = await GetCitationsByCallIdAsync(logs.Select(x => x.Id));
+        var visible = new List<RagCallLog>();
+        foreach (var log in logs)
+        {
+            var canRead = true;
+            foreach (var citation in citationsByCallId.GetValueOrDefault(log.Id) ?? new List<RagCitationRecord>())
+            {
+                if (!await sourceAccess.CanReadSourceAsync(citation.KnowledgeItemId, citation.KnowledgeVersionId, citation.ChunkId))
+                {
+                    canRead = false;
+                    break;
+                }
+            }
+
+            if (canRead)
+            {
+                visible.Add(log);
+            }
+        }
+
         return new PagedResultDto<RagCallLogDto>(
-            totalCount,
-            logs.Select(x => MapToDto(x, citationsByCallId.GetValueOrDefault(x.Id) ?? new List<RagCitationRecord>(),
-                CurrentUser.Id.HasValue && x.UserId == CurrentUser.Id)).ToList());
+            visible.Count,
+            visible.Skip(input.SkipCount).Take(input.MaxResultCount)
+                .Select(x => MapToDto(x, citationsByCallId.GetValueOrDefault(x.Id) ?? new List<RagCitationRecord>(),
+                    CurrentUser.Id.HasValue && x.UserId == CurrentUser.Id)).ToList());
     }
 
     /// <summary>

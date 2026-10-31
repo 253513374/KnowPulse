@@ -3,6 +3,7 @@ using System.Linq;
 using System.Security.Claims;
 using System.Threading.Tasks;
 using KnowPulse.KnowledgeBase;
+using KnowPulse.AiModelManagement;
 using KnowPulse.KnowledgeIndexing;
 using KnowPulse.RagAI;
 using Shouldly;
@@ -83,7 +84,7 @@ public class Mvp1RagAuditTests : KnowPulseEntityFrameworkCoreTestBase
         {
             UserId = CurrentUserId,
             KnowledgeVersionId = chunk.KnowledgeVersionId,
-            ModelVersion = "2026-06-mvp1",
+            ModelVersion = (await WithUnitOfWorkAsync(() => GetRequiredService<IAiModelResolver>().ResolveAsync(AiModelUsage.RagAnswerChat))).BusinessModelVersion,
             CallType = RagCallType.Answer,
             StartTime = windowStart,
             EndTime = windowEnd,
@@ -123,12 +124,8 @@ public class Mvp1RagAuditTests : KnowPulseEntityFrameworkCoreTestBase
                 EndTime = windowEnd,
                 MaxResultCount = 50
             });
-            var otherUserLog = otherUserLogs.Items.Single();
-            otherUserLog.Status.ShouldBe(RagCallStatus.Succeeded);
-            otherUserLog.CitationCount.ShouldBe(1);
-            otherUserLog.QuerySummary.ShouldBeEmpty();
-            otherUserLog.Citations.ShouldBeEmpty();
-            otherUserLog.FailureReason.ShouldBeNull();
+            otherUserLogs.TotalCount.ShouldBe(0);
+            otherUserLogs.Items.ShouldBeEmpty();
         }
     }
 
@@ -165,7 +162,7 @@ public class Mvp1RagAuditTests : KnowPulseEntityFrameworkCoreTestBase
         var logs = await _callLogAppService.GetListAsync(new GetRagCallLogListInput
         {
             UserId = CurrentUserId,
-            ModelVersion = "2026-06-mvp1",
+            ModelVersion = (await WithUnitOfWorkAsync(() => GetRequiredService<IAiModelResolver>().ResolveEmbeddingAsync())).BusinessModelVersion,
             CallType = RagCallType.Search,
             Status = RagCallStatus.NoContext,
             StartTime = DateTime.UtcNow.AddDays(-1),
@@ -207,7 +204,6 @@ public class Mvp1RagAuditTests : KnowPulseEntityFrameworkCoreTestBase
         var logs = await _callLogAppService.GetListAsync(new GetRagCallLogListInput
         {
             UserId = CurrentUserId,
-            ModelVersion = "2026-06-mvp1",
             Status = RagCallStatus.Failed,
             StartTime = DateTime.UtcNow.AddDays(-1),
             EndTime = DateTime.UtcNow.AddDays(1),

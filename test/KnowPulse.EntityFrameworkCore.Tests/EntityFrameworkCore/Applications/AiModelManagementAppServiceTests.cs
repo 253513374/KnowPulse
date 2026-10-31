@@ -2,6 +2,8 @@ using System;
 using System.Linq;
 using System.Threading.Tasks;
 using KnowPulse.AiModelManagement;
+using KnowPulse.RagAI;
+using Microsoft.Extensions.Options;
 using Shouldly;
 using Volo.Abp;
 using Xunit;
@@ -28,19 +30,20 @@ public class AiModelManagementAppServiceTests : KnowPulseEntityFrameworkCoreTest
     {
         await WithUnitOfWorkAsync(async () =>
         {
+            var options = GetRequiredService<IOptions<RagAiOptions>>().Value;
             var ragChat = await _resolver.ResolveAsync(AiModelUsage.RagAnswerChat);
             ragChat.Provider.ShouldBe("LiteLLM");
             ragChat.Alias.ShouldBe("knowpulse-chat-default");
-            ragChat.BusinessModelVersion.ShouldBe("2026-06-mvp1");
+            ragChat.BusinessModelVersion.ShouldBe(options.Embedding.ModelVersion);
             ragChat.Capability.ShouldBe(AiModelCapability.Chat);
 
             var aiQuestion = await _resolver.ResolveAsync(AiModelUsage.AiQuestionGeneration);
             aiQuestion.Alias.ShouldBe("knowpulse-chat-default");
-            aiQuestion.BusinessModelVersion.ShouldBe("2026-06-mvp2-questioning");
+            aiQuestion.BusinessModelVersion.ShouldBe(options.AiQuestionGeneration.ModelVersion);
 
             var embedding = await _resolver.ResolveEmbeddingAsync();
             embedding.Alias.ShouldBe("knowpulse-embedding-default");
-            embedding.BusinessModelVersion.ShouldBe("2026-06-mvp1");
+            embedding.BusinessModelVersion.ShouldBe(options.Embedding.ModelVersion);
             embedding.EmbeddingDimension.ShouldBe(1536);
             embedding.FallbackAliases.ShouldContain("knowpulse-embedding-fallback");
         });

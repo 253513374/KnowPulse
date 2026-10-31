@@ -16,7 +16,7 @@ namespace KnowPulse.RagAI;
 /// Embedding pipeline，负责把 active chunk 送入 embedding client，并把模型版本、维度、
 /// content hash 与外部向量 ID 写入业务主库。真实向量写入 Qdrant 由 IKnowledgeVectorStore 后续阶段处理。
 /// </summary>
-[Volo.Abp.RemoteService(false)]
+[RemoteService(false)]
 public class KnowledgeEmbeddingPipeline : KnowPulseAppService, IKnowledgeEmbeddingPipeline
 {
     private readonly IRepository<EmbeddingModelVersion, Guid> _modelVersionRepository;
@@ -72,13 +72,25 @@ public class KnowledgeEmbeddingPipeline : KnowPulseAppService, IKnowledgeEmbeddi
         Guid? knowledgeIndexJobId = null,
         CancellationToken cancellationToken = default)
     {
+        var version = await _versionRepository.GetAsync(knowledgeVersionId, cancellationToken: cancellationToken);
+        var item = await _itemRepository.GetAsync(version.KnowledgeItemId, cancellationToken: cancellationToken);
+        if (!await KnowledgeIndexVersionQuery.CanIndexAsync(LazyServiceProvider, version.Id, item.Id, item.TenantId, cancellationToken))
+        {
+            throw new BusinessException(KnowPulseDomainErrorCodes.KnowledgeVersionNotPublished);
+        }
+
+        var job = await GetIndexJobAsync(knowledgeVersionId, knowledgeIndexJobId, cancellationToken);
+        if (job != null && (job.KnowledgeItemId != item.Id || job.TenantId != item.TenantId ||
+                           job.Status is KnowledgeIndexJobStatus.Outdated or KnowledgeIndexJobStatus.Deleted))
+        {
+            throw new BusinessException(KnowPulseDomainErrorCodes.KnowledgeIndexJobVersionMismatch);
+        }
         // 模型版本是 embedding 记录的事实维度。没有显式指定时，使用 RagAI 配置创建/复用默认版本。
         // 维度或 collection 变化时应形成新的 EmbeddingModelVersion，而不是覆盖旧记录。
         var modelVersion = embeddingModelVersionId.HasValue
             ? await _modelVersionRepository.GetAsync(embeddingModelVersionId.Value, cancellationToken: cancellationToken)
             : await GetOrCreateDefaultModelVersionAsync(cancellationToken);
 
-        var job = await GetIndexJobAsync(knowledgeVersionId, knowledgeIndexJobId, cancellationToken);
         // 向量存储固定写入当前 collection，禁止旧模型任务把不匹配的向量写入新投影。
         if (!string.Equals(modelVersion.CollectionName, _options.VectorStore.KnowledgeCollectionName, StringComparison.Ordinal) ||
             modelVersion.VectorDimension != _options.VectorStore.VectorDimension)
@@ -104,15 +116,13 @@ public class KnowledgeEmbeddingPipeline : KnowPulseAppService, IKnowledgeEmbeddi
             await _jobRepository.UpdateAsync(job, autoSave: true, cancellationToken: cancellationToken);
         }
 
-        var chunks = await GetActiveChunksAsync(knowledgeVersionId, cancellationToken);
+        var chunks = await GetActiveChunksAsync(version, cancellationToken);
         if (chunks.Count == 0)
         {
             await MarkJobFailedAsync(job, "embedding", "No active chunks found for embedding.", cancellationToken);
             return Failed(knowledgeVersionId, modelVersion.Id, "No active chunks found for embedding.");
         }
 
-        var version = await _versionRepository.GetAsync(knowledgeVersionId, cancellationToken: cancellationToken);
-        var item = await _itemRepository.GetAsync(version.KnowledgeItemId, cancellationToken: cancellationToken);
         var permissionQueryable = await _permissionScopeRepository.GetQueryableAsync();
         var permissionScopes = await AsyncExecuter.ToListAsync(
             permissionQueryable.Where(x => x.KnowledgeItemId == item.Id && x.IsEnabled),
@@ -122,6 +132,10 @@ public class KnowledgeEmbeddingPipeline : KnowPulseAppService, IKnowledgeEmbeddi
         var vectorRecords = new List<KnowledgeChunkVectorRecord>(chunks.Count);
         for (var index = 0; index < chunks.Count; index++)
         {
+            if (!await KnowledgeIndexVersionQuery.CanIndexAsync(LazyServiceProvider, version.Id, item.Id, item.TenantId, cancellationToken))
+            {
+                return await MarkUnavailableAsync(job, knowledgeVersionId, modelVersion.Id, cancellationToken);
+            }
             var chunk = chunks[index];
             // embedding client 是唯一允许触达 LiteLLM/模型网关的边界。
             // pipeline 不直接依赖供应商 SDK，保证模型替换不影响业务服务。
@@ -181,6 +195,10 @@ public class KnowledgeEmbeddingPipeline : KnowPulseAppService, IKnowledgeEmbeddi
 
         try
         {
+            if (!await KnowledgeIndexVersionQuery.CanIndexAsync(LazyServiceProvider, version.Id, item.Id, item.TenantId, cancellationToken))
+            {
+                return await MarkUnavailableAsync(job, knowledgeVersionId, modelVersion.Id, cancellationToken);
+            }
             if (job?.Status == KnowledgeIndexJobStatus.Processing)
             {
                 job.ReportProgress("vector-store", 95, DateTime.UtcNow);
@@ -202,6 +220,10 @@ public class KnowledgeEmbeddingPipeline : KnowPulseAppService, IKnowledgeEmbeddi
             return Failed(knowledgeVersionId, modelVersion.Id, reason, "vector-store");
         }
 
+        if (!await KnowledgeIndexVersionQuery.CanIndexAsync(LazyServiceProvider, version.Id, item.Id, item.TenantId, cancellationToken))
+        {
+            return await MarkUnavailableAsync(job, knowledgeVersionId, modelVersion.Id, cancellationToken);
+        }
         if (job != null)
         {
             job.MarkIndexed(DateTime.UtcNow);
@@ -228,8 +250,11 @@ public class KnowledgeEmbeddingPipeline : KnowPulseAppService, IKnowledgeEmbeddi
         // 不依赖 Qdrant 当前是否仍有对应向量。
         var modelVersion = await _modelVersionRepository.GetAsync(embeddingModelVersionId, cancellationToken: cancellationToken);
         var chunkQueryable = await _chunkRepository.GetQueryableAsync();
+        var indexableVersions = await KnowledgeIndexVersionQuery.GetIndexableVersionsAsync(LazyServiceProvider);
         var chunks = await AsyncExecuter.ToListAsync(
-            chunkQueryable.Where(x => x.IsActive).OrderBy(x => x.KnowledgeVersionId).ThenBy(x => x.Sequence),
+            chunkQueryable.Where(x => x.IsActive && indexableVersions.Any(version => version.Id == x.KnowledgeVersionId &&
+                version.KnowledgeItemId == x.KnowledgeItemId && version.TenantId == x.TenantId))
+                .OrderBy(x => x.KnowledgeVersionId).ThenBy(x => x.Sequence),
             cancellationToken);
 
         if (chunks.Count == 0)
@@ -336,12 +361,13 @@ public class KnowledgeEmbeddingPipeline : KnowPulseAppService, IKnowledgeEmbeddi
     /// <summary>
     /// 读取指定知识版本当前 active 的 chunk。
     /// </summary>
-    private async Task<List<KnowledgeChunk>> GetActiveChunksAsync(Guid knowledgeVersionId, CancellationToken cancellationToken)
+    private async Task<List<KnowledgeChunk>> GetActiveChunksAsync(KnowledgeVersion version, CancellationToken cancellationToken)
     {
         var queryable = await _chunkRepository.GetQueryableAsync();
         return await AsyncExecuter.ToListAsync(
             queryable
-                .Where(x => x.KnowledgeVersionId == knowledgeVersionId && x.IsActive)
+                .Where(x => x.KnowledgeVersionId == version.Id && x.KnowledgeItemId == version.KnowledgeItemId &&
+                    x.TenantId == version.TenantId && x.IsActive)
                 .OrderBy(x => x.Sequence),
             cancellationToken);
     }
@@ -404,6 +430,17 @@ public class KnowledgeEmbeddingPipeline : KnowPulseAppService, IKnowledgeEmbeddi
         await _jobRepository.UpdateAsync(job, autoSave: true, cancellationToken: cancellationToken);
     }
 
+    private async Task<KnowledgeEmbeddingRunResult> MarkUnavailableAsync(KnowledgeIndexJob? job, Guid versionId,
+        Guid modelVersionId, CancellationToken cancellationToken)
+    {
+        if (job != null)
+        {
+            job.MarkOutdated("Knowledge version became unavailable during embedding.");
+            await _jobRepository.UpdateAsync(job, autoSave: true, cancellationToken: cancellationToken);
+        }
+        return Failed(versionId, modelVersionId, "Knowledge version is unavailable for indexing.", "vector-store");
+    }
+
     private static KnowledgeChunkVectorRecord BuildVectorRecord(
         KnowledgeChunk chunk,
         KnowledgeItem item,
@@ -411,8 +448,9 @@ public class KnowledgeEmbeddingPipeline : KnowPulseAppService, IKnowledgeEmbeddi
         IReadOnlyCollection<KnowledgePermissionScope> permissionScopes,
         ReadOnlyMemory<float> embedding)
     {
-        var hasAllAccess = permissionScopes.Count == 0 ||
-                           permissionScopes.Any(x => x.ScopeType == KnowledgePermissionScopeType.All);
+        var isPersonal = item.LibraryId.HasValue || item.OwnerUserId.HasValue;
+        var hasAllAccess = !isPersonal && (permissionScopes.Count == 0 ||
+                           permissionScopes.Any(x => x.ScopeType == KnowledgePermissionScopeType.All));
         return new KnowledgeChunkVectorRecord
         {
             ChunkId = chunk.Id,
@@ -429,10 +467,13 @@ public class KnowledgeEmbeddingPipeline : KnowPulseAppService, IKnowledgeEmbeddi
                 ChunkId = chunk.Id,
                 CategoryId = item.CategoryId,
                 Visibility = hasAllAccess ? "All" : "Restricted",
-                DepartmentIds = GetTargets(permissionScopes, KnowledgePermissionScopeType.Department),
-                PositionIds = GetTargets(permissionScopes, KnowledgePermissionScopeType.Position),
-                RoleIds = GetTargets(permissionScopes, KnowledgePermissionScopeType.Role),
-                UserIds = GetTargets(permissionScopes, KnowledgePermissionScopeType.User),
+                DepartmentIds = isPersonal ? Array.Empty<Guid>() : GetTargets(permissionScopes, KnowledgePermissionScopeType.Department),
+                PositionIds = isPersonal ? Array.Empty<Guid>() : GetTargets(permissionScopes, KnowledgePermissionScopeType.Position),
+                RoleIds = isPersonal ? Array.Empty<Guid>() : GetTargets(permissionScopes, KnowledgePermissionScopeType.Role),
+                UserIds = isPersonal
+                    ? (item.LibraryId.HasValue && item.LibraryId != Guid.Empty && item.OwnerUserId.HasValue && item.OwnerUserId != Guid.Empty
+                        ? new[] { item.OwnerUserId.Value } : Array.Empty<Guid>())
+                    : GetTargets(permissionScopes, KnowledgePermissionScopeType.User),
                 SecurityLevel = chunk.SecurityLevelSnapshot,
                 IsPublished = version.Status == KnowledgeVersionStatus.Published,
                 SourceTitle = chunk.SourceTitle,

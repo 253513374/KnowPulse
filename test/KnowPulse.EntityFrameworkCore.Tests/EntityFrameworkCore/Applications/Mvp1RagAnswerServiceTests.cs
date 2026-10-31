@@ -170,6 +170,8 @@ public class Mvp1RagAnswerServiceTests : KnowPulseEntityFrameworkCoreTestBase
 
         var ingestion = await _ingestionPipeline.IngestAsync(version.Id);
         ingestion.Succeeded.ShouldBeTrue();
+        _embeddingClient.Reset();
+        _vectorStore.Reset();
 
         return await WithUnitOfWorkAsync(async () =>
         {

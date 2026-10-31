@@ -110,6 +110,16 @@ public static class KnowPulseDomainErrorCodes
     /// </summary>
     public const string KnowledgeFeedbackRevisionNotIndexed = "KnowPulse:00021";
 
+    public const string PersonalKnowledgeRequiresOwnerPolicy = "KnowPulse:00022";
+
+    public const string KnowledgeIndexCompletionRequiresPipeline = "KnowPulse:00023";
+
+    public const string PersonalKnowledgeAttachmentRequiresDraft = "KnowPulse:00024";
+
+    public const string PersonalKnowledgeAttachmentTooLarge = "KnowPulse:00025";
+
+    public const string PersonalKnowledgeAttachmentLimitReached = "KnowPulse:00026";
+
     public const string QuestionAnswerRequired = "KnowPulse:01001";
 
     public const string QuestionChoiceOptionsRequired = "KnowPulse:01002";

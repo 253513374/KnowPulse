@@ -1,0 +1,3 @@
+.preparation-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+select { max-width: 100%; }
+.kp-list__item { overflow-wrap: anywhere; }

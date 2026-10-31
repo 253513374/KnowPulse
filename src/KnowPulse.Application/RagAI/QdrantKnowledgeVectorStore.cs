@@ -389,11 +389,7 @@ public class QdrantKnowledgeVectorStore : IKnowledgeVectorStore, IKnowledgeVecto
         {
             must.Add(new { key = "knowledgeItemId", match = new { any = filter.KnowledgeItemIds.Select(x => x.ToString("D")).ToArray() } });
         }
-        var should = new List<object>
-        {
-            // All 表示公开范围，任何当前用户都可以作为候选。
-            MatchValue("visibility", "All")
-        };
+        var should = new List<object>();
 
         // must 表达硬条件：租户、发布态、安全等级。should 表达“任一组织/角色/用户范围可见”。
         // 这些条件只减少候选，不替代 KnowledgeRetriever 中的 PostgreSQL 二次校验。
@@ -409,14 +405,37 @@ public class QdrantKnowledgeVectorStore : IKnowledgeVectorStore, IKnowledgeVecto
 
         must.Add(Range("securityLevel", lessThanOrEqual: filter.SecurityLevel));
 
-        AddAnyMatch(should, "departmentIds", filter.DepartmentIds);
-        AddAnyMatch(should, "positionIds", filter.PositionIds);
-        AddAnyMatch(should, "roleIds", filter.RoleIds);
-        AddAnyMatch(should, "userIds", filter.UserIds);
-        if (filter.UserId.HasValue)
+        if (filter.AllowedCurriculumChunkIds != null)
+        {
+            var chunkIds = filter.AllowedCurriculumChunkIds.Distinct().ToArray();
+            if (chunkIds.Length == 0) must.Add(MatchValue("chunkId", Guid.Empty.ToString("D")));
+            else must.Add(new
+            {
+                key = "chunkId",
+                match = new { any = chunkIds.Select(x => x.ToString("D")).ToArray() }
+            });
+        }
+
+        if (filter.Scope == KnowledgeSearchScope.AllAccessible)
+        {
+            should.Add(MatchValue("visibility", "All"));
+            AddAnyMatch(should, "departmentIds", filter.DepartmentIds);
+            AddAnyMatch(should, "positionIds", filter.PositionIds);
+            AddAnyMatch(should, "roleIds", filter.RoleIds);
+            AddAnyMatch(should, "userIds", filter.UserIds);
+        }
+        if (filter.Scope != KnowledgeSearchScope.SchoolShared && filter.UserId.HasValue)
         {
             should.Add(MatchValue("userIds", filter.UserId.Value.ToString("D")));
         }
+        if (filter.Scope != KnowledgeSearchScope.PersonalLibrary && filter.AllowedSharedVersionIds.Count > 0)
+            should.Add(new
+            {
+                key = "knowledgeVersionId",
+                match = new { any = filter.AllowedSharedVersionIds.Distinct().Select(x => x.ToString("D")).ToArray() }
+            });
+        // 空学校授权不能退化成只有 tenant/published 的宽范围搜索。
+        if (should.Count == 0) must.Add(MatchValue("knowledgeVersionId", Guid.Empty.ToString("D")));
 
         return new
         {

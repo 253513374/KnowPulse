@@ -11,6 +11,19 @@ namespace KnowPulse.KnowledgeBase;
 /// </summary>
 public static class KnowledgeAccessPolicyValidator
 {
+    public static void EnsureValidForItem(KnowledgeItem item, IEnumerable<KnowledgeAccessPolicyRule> rules)
+    {
+        var policy = rules.ToList();
+        EnsureValid(policy);
+        if ((item.LibraryId.HasValue || item.OwnerUserId.HasValue) &&
+            (policy.Count != 1 || policy[0].ScopeType != KnowledgePermissionScopeType.User ||
+             policy[0].TargetId != item.OwnerUserId ||
+             policy[0].MinimumSecurityLevel.GetValueOrDefault() != 0))
+        {
+            throw new BusinessException(KnowPulseDomainErrorCodes.PersonalKnowledgeRequiresOwnerPolicy);
+        }
+    }
+
     public static void EnsureValid(IEnumerable<KnowledgeAccessPolicyRule> rules)
     {
         var policy = rules.ToList();

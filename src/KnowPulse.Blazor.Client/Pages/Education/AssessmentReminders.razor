@@ -1,0 +1,140 @@
+@page "/education/assessment-reminders/{SchoolId:guid}/{TaskId:guid?}"
+@attribute [Authorize]
+@inherits KnowPulseComponentBase
+@implements IDisposable
+@using KnowPulse.Education
+@using System.Text.Json
+@inject IEducationAssessmentReminderAppService Reminders
+@inject IJSRuntime JS
+@inject NavigationManager Navigation
+@inject Volo.Abp.Users.ICurrentUser Account
+@inject Volo.Abp.MultiTenancy.ICurrentTenant Tenant
+
+<PageTitle>@L[Teacher ? "EducationReminder:TeacherTitle" : "EducationReminder:StudentTitle"]</PageTitle>
+<h1>@L[Teacher ? "EducationReminder:TeacherTitle" : "EducationReminder:StudentTitle"]</h1>
+<p class="kp-text-muted">@L["EducationReminder:ScopeHint"]</p>
+@if (Error != null) { <div class="kp-alert kp-alert--error" role="alert">@Error</div> }
+@if (Notice != null) { <div class="kp-alert kp-alert--info" role="status">@Notice</div> }
+@if (Pending != null || InvalidPending) {
+    <div class="kp-alert kp-alert--warning"><h2 class="kp-heading-6">@L["EducationReminder:Pending"]</h2><p>@L["EducationReminder:RecoveryHint"]</p>
+        <button class="kp-button kp-button--sm kp-button--primary-outline" disabled="@(Busy || InvalidPending)" @onclick="() => RecoverAsync(false)">@L["EducationReminder:Recover"]</button>
+        <button class="kp-button kp-button--sm kp-button--primary-outline" disabled="@(Busy || InvalidPending)" @onclick="() => RecoverAsync(true)">@L["EducationReminder:Retry"]</button>
+        <button class="kp-button kp-button--sm kp-button--secondary" disabled="@Busy" @onclick="CloseTrackingAsync">@L["EducationReminder:CloseTracking"]</button>
+    </div>
+}
+@if (Preview != null) {
+    <section class="kp-card kp-mb-3"><div class="kp-card__body"><h2 class="kp-heading-5">@Preview.StudentName</h2><p>@Preview.TaskTitle</p><p>@Status(Preview) · @L["EducationReminder:Deadline"] @LocalTime(Preview.EndsAtUtc)</p>
+        <p>@L["EducationReminder:FrequencyHint"] @LocalTime(Preview.NextAllowedAtUtc)</p>
+        <label class="kp-block kp-mb-2"><input type="checkbox" @bind="Confirmed" disabled="@(Busy || Pending != null || InvalidPending || !Preview.CanSend)" /> @L["EducationReminder:Confirm"]</label>
+        <button class="kp-button kp-button--primary" disabled="@(Busy || Pending != null || InvalidPending || !Confirmed || !Preview.CanSend)" @onclick="SendAsync">@L["EducationReminder:Send"]</button>
+    </div></section>
+}
+<div class="kp-list kp-mb-3">
+@if (Teacher) {
+    @foreach (var row in Targets) { <div class="kp-list__item" @key="row.Id"><strong>@row.StudentName</strong><span class="ms-2">@Status(row)</span><button class="kp-button kp-button--sm kp-button--primary-outline ms-3" disabled="@(Busy || Pending != null || InvalidPending)" @onclick="() => PreviewAsync(row.Id)">@L["EducationReminder:Preview"]</button></div> }
+} else {
+    @foreach (var row in Inbox) { <div class="kp-list__item" @key="row.Id"><strong>@L["EducationReminder:Message" + row.Kind]</strong><p>@LocalTime(row.AvailableAtUtc) · @L[row.ReadAtUtc.HasValue ? "EducationReminder:Read" : "EducationReminder:Unread"]</p>@if (!row.CanOpen) { <p class="kp-text-muted">@L["EducationReminder:SourceChanged"]</p> }<button class="kp-button kp-button--sm kp-button--primary-outline" disabled="@Busy" @onclick="() => OpenAsync(row)">@L[row.CanOpen ? "EducationReminder:OpenSource" : "EducationReminder:ReadOnly"]</button></div> }
+}
+</div>
+@if (!Busy && Total == 0) { <p>@L["EducationReminder:Empty"]</p> }
+<div class="kp-flex kp-flex-wrap kp-gap-2 kp-align-center"><button class="kp-button kp-button--secondary" disabled="@(Busy || Pending != null || InvalidPending || Offset == 0)" @onclick="() => PageAsync(-1)">@L["EducationPaper:Previous"]</button><span>@Total</span><button class="kp-button kp-button--secondary" disabled="@(Busy || Pending != null || InvalidPending || Offset + 20 >= Total)" @onclick="() => PageAsync(1)">@L["EducationPaper:Next"]</button><button class="kp-button kp-button--secondary" disabled="@(Busy || Pending != null || InvalidPending)" @onclick="LoadAsync">@L["EducationReminder:Refresh"]</button></div>
+
+@code {
+    [Parameter] public Guid SchoolId { get; set; }
+    [Parameter] public Guid? TaskId { get; set; }
+    private bool Teacher => TaskId.HasValue;
+    private bool Busy, Confirmed, InvalidPending, Disposed;
+    private int Epoch, Offset;
+    private long Total;
+    private string? Error, Notice;
+    private List<EducationAssessmentReminderPreviewDto> Targets = [];
+    private List<EducationAssessmentReminderDto> Inbox = [];
+    private EducationAssessmentReminderPreviewDto? Preview;
+    private Command? Pending;
+    private sealed record Command(Guid SchoolId, Guid TaskId, Guid RecipientId, Guid PublicationId, Guid OperationId, string PreviewFingerprint);
+    private (Guid? User, Guid? Tenant, Guid School, Guid? Task, int Version) Ticket() => (Account.Id, Tenant.Id, SchoolId, TaskId, Epoch);
+    private bool Current((Guid? User, Guid? Tenant, Guid School, Guid? Task, int Version) t) => !Disposed && Account.Id == t.User && Account.IsAuthenticated && Tenant.Id == t.Tenant && SchoolId == t.School && TaskId == t.Task && Epoch == t.Version;
+    private static string Key((Guid? User, Guid? Tenant, Guid School, Guid? Task, int Version) t) => $"education.reminder:{t.Tenant}:{t.User}:{t.School}:{t.Task}";
+    private static string LocalTime(DateTime? value) => value?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") ?? "—";
+    private string Status(EducationAssessmentReminderPreviewDto row) => L["EducationReminder:" + (row.BlockReason.Length > 0 ? row.BlockReason : row.HasStarted ? "InProgress" : "NotStarted")];
+    protected override async Task OnParametersSetAsync() { Epoch++; Busy = false; Offset = 0; Targets = []; Inbox = []; Preview = null; Pending = null; InvalidPending = false; await LoadAsync(); }
+
+    private async Task LoadAsync()
+    {
+        if (Busy || Disposed) return; Epoch++; var t = Ticket(); Busy = true; Error = null; Preview = null; Confirmed = false; Targets = []; Inbox = []; Total = 0;
+        try {
+            if (t.Task.HasValue) {
+                var stored = await JS.InvokeAsync<string?>("sessionStorage.getItem", Key(t));
+                if (!Current(t)) return; Pending = null; InvalidPending = false;
+                if (stored != null) {
+                    try { var p = JsonSerializer.Deserialize<Command>(stored); if (p == null || p.SchoolId != t.School || p.TaskId != t.Task || p.RecipientId == Guid.Empty || p.PublicationId == Guid.Empty || p.OperationId == Guid.Empty || p.PreviewFingerprint == null || p.PreviewFingerprint.Length != 64 || p.PreviewFingerprint.Any(x => !Uri.IsHexDigit(x))) InvalidPending = true; else Pending = p; }
+                    catch (JsonException) { InvalidPending = true; }
+                }
+                var result = await Reminders.GetReminderTargetsAsync(new() { SchoolId = t.School, TaskId = t.Task.Value, SkipCount = Offset, MaxResultCount = 20 });
+                if (Current(t)) { Targets = result.Items.ToList(); Total = result.TotalCount; }
+            } else {
+                var result = await Reminders.GetMyNoticesAsync(new() { SchoolId = t.School, SkipCount = Offset, MaxResultCount = 20 });
+                if (Current(t)) { Inbox = result.Items.ToList(); Total = result.TotalCount; }
+            }
+        } catch { if (Current(t)) Error = L["EducationReminder:Failed"]; }
+        finally { if (Current(t)) Busy = false; }
+    }
+
+    private async Task PreviewAsync(Guid recipientId)
+    {
+        if (Busy || Pending != null || InvalidPending) return; var t = Ticket(); Busy = true; Error = null; Preview = null; Confirmed = false;
+        try { var result = await Reminders.GetReminderPreviewAsync(recipientId, t.School); if (Current(t) && result.TaskId == t.Task && result.Id == recipientId) Preview = result; }
+        catch { if (Current(t)) Error = L["EducationReminder:Failed"]; } finally { if (Current(t)) Busy = false; }
+    }
+
+    private async Task SendAsync()
+    {
+        if (Busy || Pending != null || InvalidPending || !Confirmed || Preview is not { CanSend: true } row || row.SchoolId != SchoolId || row.TaskId != TaskId) return;
+        var t = Ticket(); var command = new Command(t.School, row.TaskId, row.Id, row.PublicationId, Guid.NewGuid(), row.PreviewFingerprint); Busy = true; Error = null;
+        try { await JS.InvokeVoidAsync("sessionStorage.setItem", Key(t), JsonSerializer.Serialize(command)); if (Current(t)) Pending = command; }
+        catch { if (Current(t)) Error = L["EducationReminder:StorageFailed"]; return; }
+        finally { if (Current(t)) Busy = false; }
+        if (Current(t)) await RecoverAsync(true);
+    }
+
+    private async Task RecoverAsync(bool retry)
+    {
+        if (Busy || Pending == null || InvalidPending) return; var t = Ticket(); var command = Pending; Busy = true; Error = null; EducationAssessmentReminderDto? result = null;
+        try {
+            result = await Reminders.GetReminderOperationAsync(command.RecipientId, command.SchoolId, command.OperationId);
+            if (!Current(t)) return;
+            if (result == null && retry) result = await Reminders.SendReminderAsync(command.RecipientId, command.SchoolId, new() { OperationId = command.OperationId, PreviewFingerprint = command.PreviewFingerprint, ConfirmRecipient = true });
+            if (!Current(t)) return;
+            if (result == null) { Notice = L["EducationReminder:NotFound"]; return; }
+            if (result.Id != command.OperationId || result.RecipientId != command.RecipientId || result.PublicationId != command.PublicationId || result.SchoolId != command.SchoolId || result.TaskId != command.TaskId) throw new InvalidOperationException();
+            await JS.InvokeVoidAsync("sessionStorage.removeItem", Key(t)); if (!Current(t)) return; Pending = null; Notice = L["EducationReminder:Sent"];
+        } catch { if (Current(t)) { Error = L["EducationReminder:Failed"]; result = null; } }
+        finally { if (Current(t)) Busy = false; }
+        if (Current(t) && result != null) await LoadAsync();
+    }
+
+    private async Task CloseTrackingAsync()
+    {
+        if (Busy) return; var t = Ticket(); Busy = true;
+        try { await JS.InvokeVoidAsync("sessionStorage.removeItem", Key(t)); if (Current(t)) { Pending = null; InvalidPending = false; Notice = L["EducationReminder:ClosedTracking"]; } }
+        catch { if (Current(t)) Error = L["EducationReminder:StorageFailed"]; } finally { if (Current(t)) Busy = false; }
+        if (Current(t) && Pending == null && !InvalidPending) await LoadAsync();
+    }
+
+    private async Task OpenAsync(EducationAssessmentReminderDto row)
+    {
+        if (Busy || Teacher) return; var t = Ticket(); Busy = true; Error = null;
+        try {
+            var result = await Reminders.ReadMyReminderAsync(row.Id, t.School);
+            if (Current(t) && result.Id == row.Id && result.RecipientId == row.RecipientId && result.TaskId == row.TaskId && result.SchoolId == t.School && result.PublicationId == row.PublicationId && result.Kind == row.Kind && result.ResultReleaseId == row.ResultReleaseId) {
+                if (!result.CanOpen) { Busy = false; Notice = L["EducationReminder:SourceChanged"]; await LoadAsync(); return; }
+                Navigation.NavigateTo(result.Kind == EducationAssessmentReminderKind.ResultReleased
+                    ? $"/education/assessment-results?recipientId={result.RecipientId}&schoolId={result.SchoolId}&taskRevisionId={result.PublicationId}&releaseId={result.ResultReleaseId}"
+                    : $"/education/assessments/{result.RecipientId}");
+            }
+        }
+        catch { if (Current(t)) Error = L["EducationReminder:Failed"]; } finally { if (Current(t)) Busy = false; }
+    }
+    private async Task PageAsync(int direction) { if (Busy || Pending != null || InvalidPending || Offset + direction * 20 < 0 || direction > 0 && Offset + 20 >= Total) return; Offset += direction * 20; await LoadAsync(); }
+    public void Dispose() { Disposed = true; Epoch++; Targets.Clear(); Inbox.Clear(); Preview = null; Pending = null; }
+}

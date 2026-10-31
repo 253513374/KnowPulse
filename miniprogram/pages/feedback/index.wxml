@@ -1,0 +1,25 @@
+<view class="page">
+  <view class="hero"><text class="title">{{mode === 'teacher' ? '学生评语中心' : '我的教师评语'}}</text><text class="muted">当前学校，每页 20 条。卡片与提醒不展示正文，也不代表已读。</text></view>
+  <view wx:if="{{error}}" class="error" aria-role="alert">{{error}}<button bindtap="login">重新登录</button></view><text wx:if="{{busy}}">正在重新核对…</text>
+  <block wx:if="{{mode === 'teacher'}}">
+    <picker range="{{teachings}}" range-key="label" value="{{teachingIndex}}" bindchange="chooseTeaching" disabled="{{busy}}"><view class="field">{{teachings.length ? teachings[teachingIndex].label : '暂无当前有效任教关系'}}</view></picker>
+    <view class="card"><text class="heading">选择单个学生新建评语</text><text class="muted">核对姓名与账号。新评语先保存草稿，发布前再次核对接收人。</text>
+      <button wx:for="{{students}}" wx:key="enrollmentId" data-id="{{item.enrollmentId}}" bindtap="create" disabled="{{busy}}">{{item.name}}（{{item.accountName}}）</button>
+      <view class="pager"><button data-group="students" data-direction="-1" bindtap="paginate" disabled="{{busy || studentOffset === 0}}">上一页</button><text>{{studentTotal}} 人</text><button data-group="students" data-direction="1" bindtap="paginate" disabled="{{busy || studentOffset + 20 >= studentTotal}}">下一页</button></view>
+    </view>
+  </block>
+  <text class="heading">{{mode === 'teacher' ? '已保存记录' : '已获准查看的评语'}}</text>
+  <view class="card" wx:for="{{saved}}" wx:key="id">
+    <text class="heading">{{mode === 'teacher' ? item.name : item.teacherName}} · {{item.subjectName}}</text><text>{{item.className}} {{mode === 'teacher' ? item.accountName : item.schoolName}}</text>
+    <text>{{item.status}} · v{{item.version}} · {{item.opened ? '该版本已打开' : '该版本未打开'}}</text>
+    <text wx:if="{{item.hasDraft}}" class="muted">另有保存的草稿，保存不会替换已发布版本。</text>
+    <button data-id="{{item.id}}" data-version="{{item.versionId}}" bindtap="open" disabled="{{busy}}">{{mode === 'teacher' ? '编辑与发布核对' : '打开确切版本'}}</button>
+  </view>
+  <view class="pager"><button data-direction="-1" bindtap="paginate" disabled="{{busy || offset === 0}}">上一页</button><text>共 {{total}} 条</text><button data-direction="1" bindtap="paginate" disabled="{{busy || offset + 20 >= total}}">下一页</button></view>
+  <block wx:if="{{mode === 'student'}}"><text class="heading">版本提醒</text>
+    <view class="card" wx:for="{{notices}}" wx:key="id"><text>{{item.withdrawn ? '评语撤回提醒' : '评语发布提醒'}} · {{item.time}}</text><text>{{item.current ? '当前版本' : '历史提醒'}} · {{item.read ? '已打开' : '未打开'}}</text>
+      <button data-id="{{item.feedbackId}}" data-version="{{item.id}}" bindtap="open" disabled="{{busy || !item.current}}">打开当前版本</button></view>
+    <view class="pager"><button data-group="notices" data-direction="-1" bindtap="paginate" disabled="{{busy || noticeOffset === 0}}">上一页</button><text>共 {{noticeTotal}} 条提醒</text><button data-group="notices" data-direction="1" bindtap="paginate" disabled="{{busy || noticeOffset + 20 >= noticeTotal}}">下一页</button></view>
+  </block>
+  <button bindtap="load" disabled="{{busy}}">刷新当前学校评语</button>
+</view>

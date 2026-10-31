@@ -1,0 +1,26 @@
+flowchart TD
+  %% 每个业务模块沿 Shared / Domain / Contracts / Application / EF / UI 分布；图中箭头表示业务依赖。
+  n0["Organization / Identity · 组织、账号、功能权限"]
+  n1["KnowledgeBase · 个人库、版本、共享、导出"]
+  n2["RagAI / KnowledgeIndexing · 摄取、Embedding、检索"]
+  n3["AiModelManagement · 用途、模型、维度"]
+  n4["QuestionBank · AiQuestioning · 候选、审核、评分定义"]
+  n5["Exam · 冻结试卷与企业旧考试"]
+  n6["Education / School · 身份、任教、教材、邀请"]
+  n7["Education / Assessment · 封存、批改、统一结果"]
+  n8["Education / Learning · 报告、方案、材料、评语"]
+  n9["WeChat · 原账号绑定与会话"]
+  n10["Learning · 企业学习路径"]
+  n11["miniprogram / Pages · 角色入口、请求与恢复"]
+  n0 --> n1
+  n1 --> n2
+  n2 --> n3
+  n4 --> n2
+  n4 --> n5
+  n6 --> n7
+  n5 -->|"冻结卷"| n7
+  n7 -->|"证据"| n8
+  n9 --> n0
+  n11 -->|"身份"| n9
+  n11 -->|"业务"| n7
+  n10 -->|"知识"| n1

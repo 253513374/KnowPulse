@@ -1,0 +1,28 @@
+page { background: #f5f6fa; color: #24283d; font-size: 30rpx; }
+.page { padding: 40rpx 32rpx 64rpx; }
+.hero { display: flex; flex-direction: column; gap: 20rpx; padding: 20rpx 0 36rpx; }
+.eyebrow { color: #4856d6; font-size: 26rpx; font-weight: 600; }
+.title { font-size: 44rpx; font-weight: 600; line-height: 1.4; }
+.card { background: #fff; border-radius: 20rpx; padding: 32rpx; margin-bottom: 28rpx; display: flex; flex-direction: column; gap: 24rpx; }
+.heading { display: block; font-size: 34rpx; font-weight: 600; }
+.muted { color: #5c647b; line-height: 1.7; }
+.strong { font-weight: 600; }
+.field { min-height: 96rpx; border: 2rpx solid #c5cadd; border-radius: 12rpx; padding: 0 20rpx; box-sizing: border-box; width: 100%; }
+button { width: 100%; margin-top: 16rpx; min-height: 88rpx; font-size: 30rpx; }
+button[type=primary] { background: #4454e8; }
+.secondary { color: #4454bd; background: #fff; }
+.notice, .error { border-radius: 12rpx; padding: 24rpx; margin-bottom: 24rpx; line-height: 1.7; }
+.notice { background: #fff3d6; color: #735019; }
+.error { background: #ffe9e9; color: #8d2525; }
+.footnote { display: block; margin-top: 20rpx; font-size: 26rpx; color: #606a80; line-height: 1.7; }
+.class-row { display: flex; flex-wrap: wrap; gap: 12rpx 24rpx; border-top: 2rpx solid #edf0f7; padding-top: 24rpx; }
+.prewrap { white-space: pre-wrap; line-height: 1.8; overflow-wrap: anywhere; }
+.score { font-size: 52rpx; font-weight: 600; }
+.pager { display: flex; align-items: center; gap: 20rpx; }
+.pager button { flex: 1; }
+.image-panel { position: fixed; z-index: 10; top: 5vh; left: 3vw; width: 94vw; padding: 24rpx; box-sizing: border-box; background: #fff; border: 2rpx solid #c5cadd; border-radius: 16rpx; }
+.image-area { width: 100%; height: 65vh; overflow: hidden; background: #eef0f6; }
+.image-view, .answer-image { width: 100%; height: 100%; }
+.feedback-text { width: 100%; min-height: 300rpx; border: 2rpx solid #c5cadd; border-radius: 12rpx; padding: 20rpx; box-sizing: border-box; }
+.short-text { min-height: 180rpx; }
+.check-row { display: flex; align-items: flex-start; padding: 16rpx 0; line-height: 1.7; }

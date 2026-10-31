@@ -90,8 +90,7 @@ public class AiQuestionGenerationController : KnowPulseController
     }
 
     /// <summary>
-    /// 创建并执行 AI 出题任务。
-    /// 该端点返回候选题生成结果，候选题不会直接进入正式题库。
+    /// 持久化待执行的 AI 出题任务，由后台处理候选，候选不会直接进入正式题库。
     /// </summary>
     [HttpPost("tasks")]
     [Authorize(KnowPulsePermissions.QuestionBank.AiGeneration)]
@@ -102,13 +101,27 @@ public class AiQuestionGenerationController : KnowPulseController
 
     /// <summary>
     /// 重试指定 AI 出题任务。
-    /// 重试会重新生成候选题并保留调用日志审计链路。
+    /// 重试恢复失败运行，不删除已编辑或已采纳候选。
     /// </summary>
     [HttpPost("tasks/{id:guid}/retry")]
     [Authorize(KnowPulsePermissions.QuestionBank.AiGeneration)]
     public Task<AiQuestionGenerationTaskDto> RetryAsync(Guid id)
     {
         return _generationAppService.RetryAsync(id);
+    }
+
+    [HttpPost("tasks/{id:guid}/regenerate")]
+    [Authorize(KnowPulsePermissions.QuestionBank.AiGeneration)]
+    public Task<AiQuestionGenerationTaskDto> RegenerateAsync(Guid id, [FromBody] RegenerateAiQuestionGenerationTaskDto input)
+    {
+        return _generationAppService.RegenerateAsync(id, input);
+    }
+
+    [HttpPut("candidates/{id:guid}")]
+    [Authorize(KnowPulsePermissions.QuestionBank.AiGeneration)]
+    public Task<AiQuestionCandidateDto> UpdateCandidateAsync(Guid id, [FromBody] UpdateAiQuestionCandidateDto input)
+    {
+        return _generationAppService.UpdateCandidateAsync(id, input);
     }
 
     /// <summary>

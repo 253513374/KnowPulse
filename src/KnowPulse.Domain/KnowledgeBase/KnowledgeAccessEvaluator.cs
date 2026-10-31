@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -18,6 +19,13 @@ public static class KnowledgeAccessEvaluator
         if (!context.UserId.HasValue)
         {
             return false;
+        }
+
+        if (item.LibraryId.HasValue || item.OwnerUserId.HasValue)
+        {
+            return item.LibraryId.HasValue && item.LibraryId != Guid.Empty &&
+                   item.OwnerUserId.HasValue && item.OwnerUserId != Guid.Empty &&
+                   item.OwnerUserId == context.UserId;
         }
 
         if (!item.OwnerTeacherId.HasValue)

@@ -1,0 +1,8 @@
+{
+  "appid": "",
+  "projectname": "KnowPulse",
+  "compileType": "miniprogram",
+  "miniprogramRoot": "./",
+  "setting": { "es6": true, "minified": true, "urlCheck": true },
+  "packOptions": { "ignore": [{ "type": "folder", "value": "tests" }, { "type": "file", "value": "package.json" }] }
+}

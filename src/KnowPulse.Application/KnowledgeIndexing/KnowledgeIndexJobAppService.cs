@@ -13,15 +13,17 @@ using Volo.Abp.Domain.Repositories;
 namespace KnowPulse.KnowledgeIndexing;
 
 /// <summary>
-/// 知识索引任务应用服务。管理入口按资料所有权授权，真实处理器执行分块、Embedding 和向量写入。
+/// 知识索引任务应用服务，校验交互式管理入口的功能权限及个人知识归属。
+/// 实际索引由独立任务处理器执行，后台消费不依赖交互式用户身份。
 /// </summary>
-[Authorize(KnowPulsePermissions.KnowledgeIndexing.IndexJobs)]
+[Authorize]
 public class KnowledgeIndexJobAppService : KnowPulseAppService, IKnowledgeIndexJobAppService
 {
     private static readonly TimeSpan StaleJobTimeout = TimeSpan.FromMinutes(15);
 
     private readonly IRepository<KnowledgeIndexJob, Guid> _jobRepository;
     private readonly IRepository<KnowledgeItem, Guid> _itemRepository;
+    private readonly IRepository<KnowledgeLibrary, Guid> _libraryRepository;
     private readonly IRepository<KnowledgeVersion, Guid> _versionRepository;
     private readonly IKnowledgeIndexJobProcessor _jobProcessor;
 
@@ -31,11 +33,13 @@ public class KnowledgeIndexJobAppService : KnowPulseAppService, IKnowledgeIndexJ
     public KnowledgeIndexJobAppService(
         IRepository<KnowledgeIndexJob, Guid> jobRepository,
         IRepository<KnowledgeItem, Guid> itemRepository,
+        IRepository<KnowledgeLibrary, Guid> libraryRepository,
         IRepository<KnowledgeVersion, Guid> versionRepository,
         IKnowledgeIndexJobProcessor jobProcessor)
     {
         _jobRepository = jobRepository;
         _itemRepository = itemRepository;
+        _libraryRepository = libraryRepository;
         _versionRepository = versionRepository;
         _jobProcessor = jobProcessor;
     }
@@ -45,9 +49,7 @@ public class KnowledgeIndexJobAppService : KnowPulseAppService, IKnowledgeIndexJ
     /// </summary>
     public virtual async Task<PagedResultDto<KnowledgeIndexJobDto>> GetListAsync(GetKnowledgeIndexJobListInput input)
     {
-        await CheckMvpPermissionAsync(KnowPulsePermissions.KnowledgeIndexing.IndexJobs);
-
-        var query = await GetOwnedJobsQueryAsync();
+        var query = await GetPermittedJobQueryAsync();
         if (input.KnowledgeItemId.HasValue)
         {
             query = query.Where(x => x.KnowledgeItemId == input.KnowledgeItemId.Value);
@@ -79,8 +81,7 @@ public class KnowledgeIndexJobAppService : KnowPulseAppService, IKnowledgeIndexJ
     /// </summary>
     public virtual async Task<KnowledgeIndexJobDto> GetAsync(Guid id)
     {
-        await CheckMvpPermissionAsync(KnowPulsePermissions.KnowledgeIndexing.IndexJobs);
-        return MapToDto(await GetOwnedJobAsync(id));
+        return MapToDto(await GetAuthorizedJobAsync(id));
     }
 
     /// <summary>
@@ -88,11 +89,9 @@ public class KnowledgeIndexJobAppService : KnowPulseAppService, IKnowledgeIndexJ
     /// </summary>
     public virtual async Task<KnowledgeIndexJobOperationalSummaryDto> GetOperationalSummaryAsync()
     {
-        await CheckMvpPermissionAsync(KnowPulsePermissions.KnowledgeIndexing.IndexJobs);
-
         var now = DateTime.UtcNow;
         var staleBoundary = now.Subtract(StaleJobTimeout);
-        var query = await GetOwnedJobsQueryAsync();
+        var query = await GetPermittedJobQueryAsync();
         var lastIndexedTime = await AsyncExecuter.FirstOrDefaultAsync(
             query
                 .Where(x => x.Status == KnowledgeIndexJobStatus.Indexed && x.CompletedTime.HasValue)
@@ -123,7 +122,6 @@ public class KnowledgeIndexJobAppService : KnowPulseAppService, IKnowledgeIndexJ
     /// </summary>
     public virtual async Task<KnowledgeIndexJobDto> CreateAsync(CreateKnowledgeIndexJobDto input)
     {
-        await CheckMvpPermissionAsync(KnowPulsePermissions.KnowledgeIndexing.IndexJobs);
         await EnsureVersionBelongsToItemAsync(input.KnowledgeItemId, input.KnowledgeVersionId);
 
         return MapToDto(await InsertJobAsync(
@@ -139,9 +137,11 @@ public class KnowledgeIndexJobAppService : KnowPulseAppService, IKnowledgeIndexJ
     /// </summary>
     public virtual async Task<KnowledgeIndexJobDto> ReindexVersionAsync(Guid knowledgeVersionId)
     {
-        await CheckMvpPermissionAsync(KnowPulsePermissions.KnowledgeIndexing.IndexJobs);
         var version = await _versionRepository.GetAsync(knowledgeVersionId);
-        await EnsureOwnedItemAsync(version.KnowledgeItemId);
+        var item = await _itemRepository.GetAsync(version.KnowledgeItemId);
+        await CheckKnowledgeItemPermissionAsync(item, KnowPulsePermissions.KnowledgeIndexing.IndexJobs);
+        EnsureTeachingOwner(item.OwnerUserId ?? item.OwnerTeacherId);
+        await EnsureVersionIndexableAsync(item, version);
 
         var activeJob = await FindActiveJobAsync(version.Id);
         if (activeJob != null)
@@ -163,13 +163,13 @@ public class KnowledgeIndexJobAppService : KnowPulseAppService, IKnowledgeIndexJ
     /// </summary>
     public virtual async Task<KnowledgeIndexJobDto> RetryAsync(Guid id)
     {
-        await CheckMvpPermissionAsync(KnowPulsePermissions.KnowledgeIndexing.IndexJobs);
-        var failedJob = await GetOwnedJobAsync(id);
+        var failedJob = await GetAuthorizedJobAsync(id);
         if (failedJob.Status != KnowledgeIndexJobStatus.Failed)
         {
             throw new BusinessException(KnowPulseDomainErrorCodes.KnowledgeIndexJobRetryRequiresFailedStatus);
         }
 
+        await EnsureVersionBelongsToItemAsync(failedJob.KnowledgeItemId, failedJob.KnowledgeVersionId);
         var activeJob = await FindActiveJobAsync(failedJob.KnowledgeVersionId);
         if (activeJob != null)
         {
@@ -191,10 +191,9 @@ public class KnowledgeIndexJobAppService : KnowPulseAppService, IKnowledgeIndexJ
     /// </summary>
     public virtual async Task<KnowledgeIndexJobDto> ExecuteAsync(Guid id)
     {
-        await CheckMvpPermissionAsync(KnowPulsePermissions.KnowledgeIndexing.IndexJobs);
-        await GetOwnedJobAsync(id);
+        await GetAuthorizedJobAsync(id);
         await _jobProcessor.ProcessAsync(id, ignoreRetrySchedule: true);
-        return MapToDto(await GetOwnedJobAsync(id));
+        return MapToDto(await GetAuthorizedJobAsync(id));
     }
 
     /// <summary>
@@ -202,16 +201,16 @@ public class KnowledgeIndexJobAppService : KnowPulseAppService, IKnowledgeIndexJ
     /// </summary>
     public virtual async Task<KnowledgeIndexJobDto> RecoverAsync(Guid id)
     {
-        await CheckMvpPermissionAsync(KnowPulsePermissions.KnowledgeIndexing.IndexJobs);
-        var stuckJob = await GetOwnedJobAsync(id);
+        var stuckJob = await GetAuthorizedJobAsync(id);
         if (stuckJob.Status != KnowledgeIndexJobStatus.Processing)
         {
             throw new BusinessException(KnowPulseDomainErrorCodes.KnowledgeIndexJobRecoveryRequiresProcessingStatus);
         }
 
+        await EnsureVersionBelongsToItemAsync(stuckJob.KnowledgeItemId, stuckJob.KnowledgeVersionId);
         stuckJob.MarkFailed(
             "recovery",
-            "The processing job was stopped by an administrator and replaced with a recovery job.",
+            "The processing job was stopped by an authorized user and replaced with a recovery job.",
             DateTime.UtcNow);
         await _jobRepository.UpdateAsync(stuckJob, autoSave: true);
 
@@ -229,9 +228,9 @@ public class KnowledgeIndexJobAppService : KnowPulseAppService, IKnowledgeIndexJ
     /// </summary>
     public virtual async Task<KnowledgeIndexJobDto> StartAsync(Guid id)
     {
-        await CheckMvpPermissionAsync(KnowPulsePermissions.KnowledgeIndexing.IndexJobs);
         EnsureMaintenanceAdministrator();
-        var job = await GetOwnedJobAsync(id);
+        var job = await GetAuthorizedJobAsync(id);
+        await EnsureVersionBelongsToItemAsync(job.KnowledgeItemId, job.KnowledgeVersionId);
         job.Start(DateTime.UtcNow);
 
         return MapToDto(await _jobRepository.UpdateAsync(job, autoSave: true));
@@ -251,9 +250,8 @@ public class KnowledgeIndexJobAppService : KnowPulseAppService, IKnowledgeIndexJ
     /// </summary>
     public virtual async Task<KnowledgeIndexJobDto> MarkFailedAsync(Guid id, MarkKnowledgeIndexJobFailedDto input)
     {
-        await CheckMvpPermissionAsync(KnowPulsePermissions.KnowledgeIndexing.IndexJobs);
         EnsureMaintenanceAdministrator();
-        var job = await GetOwnedJobAsync(id);
+        var job = await GetAuthorizedJobAsync(id);
         job.MarkFailed(input.FailureStage, input.FailureReason, DateTime.UtcNow, input.NextRetryTime);
 
         return MapToDto(await _jobRepository.UpdateAsync(job, autoSave: true));
@@ -265,12 +263,60 @@ public class KnowledgeIndexJobAppService : KnowPulseAppService, IKnowledgeIndexJ
     private async Task EnsureVersionBelongsToItemAsync(Guid knowledgeItemId, Guid knowledgeVersionId)
     {
         // 显式验证版本归属，避免调用方构造 item/version 交叉组合导致索引任务指向错误业务事实。
-        await EnsureOwnedItemAsync(knowledgeItemId);
+        var item = await _itemRepository.GetAsync(knowledgeItemId);
+        await CheckKnowledgeItemPermissionAsync(item, KnowPulsePermissions.KnowledgeIndexing.IndexJobs);
+        EnsureTeachingOwner(item.OwnerUserId ?? item.OwnerTeacherId);
         var version = await _versionRepository.GetAsync(knowledgeVersionId);
         if (version.KnowledgeItemId != knowledgeItemId)
         {
             throw new EntityNotFoundException(typeof(KnowledgeVersion), knowledgeVersionId);
         }
+        await EnsureVersionIndexableAsync(item, version);
+    }
+
+    private async Task EnsureVersionIndexableAsync(KnowledgeItem item, KnowledgeVersion version)
+    {
+        if (!await KnowledgeIndexVersionQuery.CanIndexAsync(LazyServiceProvider, version.Id, item.Id, item.TenantId))
+        {
+            throw new BusinessException(KnowPulseDomainErrorCodes.KnowledgeVersionNotPublished);
+        }
+    }
+
+    private async Task<KnowledgeIndexJob> GetAuthorizedJobAsync(Guid id)
+    {
+        var job = await _jobRepository.GetAsync(id);
+        var item = await _itemRepository.GetAsync(job.KnowledgeItemId);
+        await CheckKnowledgeItemPermissionAsync(item, KnowPulsePermissions.KnowledgeIndexing.IndexJobs);
+        EnsureTeachingOwner(item.OwnerUserId ?? item.OwnerTeacherId);
+        if (job.TenantId != item.TenantId)
+        {
+            throw new AbpAuthorizationException("The index job does not belong to the knowledge item's tenant.");
+        }
+
+        return job;
+    }
+
+    private async Task<IQueryable<KnowledgeIndexJob>> GetPermittedJobQueryAsync()
+    {
+        var canManageOrganization = await IsMvpPermissionGrantedAsync(KnowPulsePermissions.KnowledgeIndexing.IndexJobs);
+        var canManagePersonal = await IsMvpPermissionGrantedAsync(KnowPulsePermissions.KnowledgeBase.PersonalLibrary);
+        if (!canManageOrganization && !canManagePersonal)
+        {
+            throw new AbpAuthorizationException("The current user is not allowed to manage knowledge index jobs.");
+        }
+
+        var userId = CurrentUser.Id;
+        var tenantId = CurrentTenant.Id;
+        var libraries = await _libraryRepository.GetQueryableAsync();
+        var items = await _itemRepository.GetQueryableAsync();
+        var permittedItems = items.Where(item => item.TenantId == tenantId &&
+            ((canManageOrganization && !item.LibraryId.HasValue && !item.OwnerUserId.HasValue &&
+              (item.OwnerTeacherId == userId || (item.OwnerTeacherId == null && IsLegacyAdministrator))) ||
+             (canManagePersonal && userId.HasValue && item.LibraryId.HasValue && item.OwnerUserId == userId &&
+              libraries.Any(library => library.Id == item.LibraryId.Value &&
+                  library.OwnerUserId == userId.Value && library.TenantId == item.TenantId))));
+        var jobs = await _jobRepository.GetQueryableAsync();
+        return jobs.Where(job => permittedItems.Any(item => item.Id == job.KnowledgeItemId && item.TenantId == job.TenantId));
     }
 
     /// <summary>
@@ -362,7 +408,7 @@ public class KnowledgeIndexJobAppService : KnowPulseAppService, IKnowledgeIndexJ
 
     private async Task<KnowledgeIndexJob?> FindActiveJobAsync(Guid knowledgeVersionId)
     {
-        var query = await GetOwnedJobsQueryAsync();
+        var query = await GetPermittedJobQueryAsync();
         return await AsyncExecuter.FirstOrDefaultAsync(
             query
                 .Where(x => x.KnowledgeVersionId == knowledgeVersionId)

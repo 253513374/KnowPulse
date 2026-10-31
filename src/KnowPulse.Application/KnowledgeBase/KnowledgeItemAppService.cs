@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
 using System.Threading.Tasks;
 using KnowPulse.KnowledgeIndexing;
 using KnowPulse.Permissions;
@@ -11,6 +12,7 @@ using Volo.Abp.Application.Dtos;
 using Volo.Abp.Authorization;
 using Volo.Abp.BlobStoring;
 using Volo.Abp.Content;
+using Volo.Abp.Data;
 using Volo.Abp.Domain.Entities;
 using Volo.Abp.Domain.Repositories;
 using Volo.Abp.Uow;
@@ -22,7 +24,7 @@ namespace KnowPulse.KnowledgeBase;
 /// 该服务是页面和 REST API 的业务入口，会在每个操作中显式执行权限检查，
 /// 并在读取知识时叠加知识权限范围，避免仅依赖前端菜单隐藏。
 /// </summary>
-[Authorize(KnowPulsePermissions.KnowledgeBase.Items)]
+[Authorize]
 public partial class KnowledgeItemAppService : KnowPulseAppService, IKnowledgeItemAppService
 {
     private readonly IRepository<KnowledgeItem, Guid> _itemRepository;
@@ -64,8 +66,19 @@ public partial class KnowledgeItemAppService : KnowPulseAppService, IKnowledgeIt
     /// </summary>
     public virtual async Task<PagedResultDto<KnowledgeItemDto>> GetListAsync(PagedAndSortedResultRequestDto input)
     {
-        await CheckMvpPermissionAsync(KnowPulsePermissions.KnowledgeBase.Items);
+        var canManageOrganization = await IsMvpPermissionGrantedAsync(KnowPulsePermissions.KnowledgeBase.Items);
+        var canManagePersonal = await IsMvpPermissionGrantedAsync(KnowPulsePermissions.KnowledgeBase.PersonalLibrary);
+        if (!canManageOrganization && !canManagePersonal)
+        {
+            throw new AbpAuthorizationException("Knowledge access permission is required.");
+        }
         var queryable = await _itemRepository.GetQueryableAsync();
+        var libraries = await LazyServiceProvider.LazyGetRequiredService<IRepository<KnowledgeLibrary, Guid>>().GetQueryableAsync();
+        queryable = queryable.Where(x =>
+            (canManageOrganization && !x.LibraryId.HasValue && !x.OwnerUserId.HasValue) ||
+            (canManagePersonal && x.LibraryId.HasValue && x.OwnerUserId == CurrentUser.Id && x.TenantId == CurrentTenant.Id &&
+             libraries.Any(library => !library.IsDeleted && library.Id == x.LibraryId &&
+                 library.OwnerUserId == x.OwnerUserId && library.TenantId == x.TenantId)));
         var allItems = await AsyncExecuter.ToListAsync(queryable.OrderBy(x => x.Title));
         var scopesByItemId = await GetScopeLookupAsync(allItems.Select(x => x.Id));
         var accessContext = await _accessContextProvider.CreateAsync();
@@ -88,7 +101,6 @@ public partial class KnowledgeItemAppService : KnowPulseAppService, IKnowledgeIt
     /// </summary>
     public virtual async Task<KnowledgeItemDto> GetAsync(Guid id)
     {
-        await CheckMvpPermissionAsync(KnowPulsePermissions.KnowledgeBase.Items);
         return MapToDto(await GetVisibleItemAsync(id));
     }
 
@@ -97,9 +109,31 @@ public partial class KnowledgeItemAppService : KnowPulseAppService, IKnowledgeIt
     /// </summary>
     public virtual async Task<KnowledgeItemDto> CreateAsync(CreateKnowledgeItemDto input)
     {
-        await CheckMvpPermissionAsync(KnowPulsePermissions.KnowledgeBase.Items);
-        var item = new KnowledgeItem(GuidGenerator.Create(), CurrentTenant.Id, input.Title, input.CategoryId, input.Summary);
-        item.AssignTeacher(CurrentUser.Id!.Value);
+        KnowledgeItem item;
+        if (input.LibraryId.HasValue)
+        {
+            await CheckMvpPermissionAsync(KnowPulsePermissions.KnowledgeBase.PersonalLibrary);
+            var library = await LazyServiceProvider.LazyGetRequiredService<IRepository<KnowledgeLibrary, Guid>>()
+                .GetAsync(input.LibraryId.Value);
+            if (library.OwnerUserId != CurrentUser.Id || library.TenantId != CurrentTenant.Id)
+            {
+                throw new AbpAuthorizationException("Only the current user's personal library can be used.");
+            }
+            item = new KnowledgeItem(GuidGenerator.Create(), CurrentTenant.Id, input.Title,
+                input.CategoryId, input.Summary, library.Id, library.OwnerUserId);
+        }
+        else
+        {
+            await CheckMvpPermissionAsync(KnowPulsePermissions.KnowledgeBase.Items);
+            item = new KnowledgeItem(GuidGenerator.Create(), CurrentTenant.Id, input.Title, input.CategoryId, input.Summary);
+            item.AssignTeacher(CurrentUser.Id!.Value);
+        }
+        await ValidatePersonalCategoryAsync(item, input.CategoryId);
+        if (input.Organization != null)
+        {
+            if (!item.LibraryId.HasValue) throw new BusinessException(PersonalKnowledgeOrganizationErrorCodes.InvalidOrganization);
+            await LazyServiceProvider.LazyGetRequiredService<KnowledgeLibraryAppService>().ApplyOrganizationAsync(item, input.Organization);
+        }
         return MapToDto(await _itemRepository.InsertAsync(item, autoSave: true));
     }
 
@@ -108,8 +142,8 @@ public partial class KnowledgeItemAppService : KnowPulseAppService, IKnowledgeIt
     /// </summary>
     public virtual async Task<KnowledgeItemDto> UpdateAsync(Guid id, UpdateKnowledgeItemDto input)
     {
-        await CheckMvpPermissionAsync(KnowPulsePermissions.KnowledgeBase.Items);
-        var item = await GetOwnedItemAsync(id);
+        var item = await GetItemForOperationAsync(id, KnowPulsePermissions.KnowledgeBase.Items);
+        await ValidatePersonalCategoryAsync(item, input.CategoryId);
         item.Rename(input.Title);
         item.ChangeSummary(input.Summary);
         item.ChangeCategory(input.CategoryId);
@@ -123,9 +157,9 @@ public partial class KnowledgeItemAppService : KnowPulseAppService, IKnowledgeIt
     /// </summary>
     public virtual async Task DeleteAsync(Guid id)
     {
-        await CheckMvpPermissionAsync(KnowPulsePermissions.KnowledgeBase.Items);
-        await GetOwnedItemAsync(id);
-        await _itemRepository.DeleteAsync(id);
+        var item = await GetItemForOperationAsync(id, KnowPulsePermissions.KnowledgeBase.Items);
+        await MarkItemIndexOutdatedAsync(id, "Knowledge item deleted.");
+        await _itemRepository.DeleteAsync(item);
     }
 
     /// <summary>
@@ -133,7 +167,6 @@ public partial class KnowledgeItemAppService : KnowPulseAppService, IKnowledgeIt
     /// </summary>
     public virtual async Task<ListResultDto<KnowledgeVersionDto>> GetVersionsAsync(Guid id)
     {
-        await CheckMvpPermissionAsync(KnowPulsePermissions.KnowledgeBase.Items);
         var item = await GetVisibleItemAsync(id);
 
         var queryable = await _versionRepository.GetQueryableAsync();
@@ -149,41 +182,40 @@ public partial class KnowledgeItemAppService : KnowPulseAppService, IKnowledgeIt
     /// <summary>
     /// 为知识文档创建新版本。版本号按该知识已有版本数量递增，初始状态为草稿。
     /// </summary>
-    [Authorize(KnowPulsePermissions.KnowledgeBase.Versions)]
     public virtual async Task<KnowledgeVersionDto> CreateVersionAsync(Guid id, CreateKnowledgeVersionDto input)
     {
-        await CheckMvpPermissionAsync(KnowPulsePermissions.KnowledgeBase.Versions);
-        await GetOwnedItemAsync(id);
+        var item = await GetItemForOperationAsync(id, KnowPulsePermissions.KnowledgeBase.Versions);
+        return MapToDto(await AppendVersionAsync(item, GuidGenerator.Create(), input.Title, input.ContentText));
+    }
 
-        var queryable = await _versionRepository.GetQueryableAsync();
-        var versionCount = await AsyncExecuter.CountAsync(queryable.Where(x => x.KnowledgeItemId == id));
-
-        var version = new KnowledgeVersion(
-            GuidGenerator.Create(),
-            CurrentTenant.Id,
-            id,
-            versionCount + 1,
-            input.Title,
-            input.ContentText);
-
-        return MapToDto(await _versionRepository.InsertAsync(version, autoSave: true));
+    internal async Task<KnowledgeVersion> AppendVersionAsync(KnowledgeItem item, Guid versionId, string title, string? content)
+    {
+        // Legacy and notebook saves share the item barrier and never reuse a soft-deleted version number.
+        if (item.LibraryId.HasValue) await _itemRepository.UpdateManyAsync([item], autoSave: true);
+        using var deleted = LazyServiceProvider.LazyGetRequiredService<IDataFilter>().Disable<ISoftDelete>();
+        var query = (await _versionRepository.GetQueryableAsync()).Where(x => x.KnowledgeItemId == item.Id && x.TenantId == item.TenantId);
+        var maximum = await AsyncExecuter.MaxAsync(query.Select(x => (int?)x.VersionNumber)) ?? 0;
+        return await _versionRepository.InsertAsync(new KnowledgeVersion(versionId, item.TenantId, item.Id, checked(maximum + 1), title, content), autoSave: true);
     }
 
     /// <summary>
     /// 发布指定版本，并维护“同一知识只有一个当前发布版本”的业务规则。
     /// </summary>
-    [Authorize(KnowPulsePermissions.KnowledgeBase.Versions)]
+    [UnitOfWork]
     public virtual async Task<KnowledgeVersionDto> PublishVersionAsync(Guid id, Guid versionId)
     {
-        await CheckMvpPermissionAsync(KnowPulsePermissions.KnowledgeBase.Versions);
-        var item = await GetOwnedItemAsync(id);
+        var item = await GetItemForOperationAsync(id, KnowPulsePermissions.KnowledgeBase.Versions);
         var version = await GetVersionOfItemAsync(id, versionId);
         version.EnsureCanPublish();
 
-        // 旧调用方没有显式访问策略参数；首次发布时补齐一条全员规则，
-        // 使后续管理页面不再依赖“空范围等于全员”的历史兼容语义。
+        // 个人资料准备可检索时显式持久化所有者策略；组织旧入口保留首次发布全员兼容。
         var scopes = await GetEnabledScopesAsync(id);
-        if ((item.OwnerTeacherId.HasValue && !scopes.Any(x =>
+        if (item.LibraryId.HasValue)
+        {
+            await ReplacePermissionScopesAsync(item,
+                [new KnowledgeAccessPolicyRule(KnowledgePermissionScopeType.User, item.OwnerUserId, null)]);
+        }
+        else if ((item.OwnerTeacherId.HasValue && !scopes.Any(x =>
                 x.ScopeType == KnowledgePermissionScopeType.User && x.TargetId == item.OwnerTeacherId)) ||
             (!item.OwnerTeacherId.HasValue && scopes.Count == 0))
         {
@@ -205,21 +237,18 @@ public partial class KnowledgeItemAppService : KnowPulseAppService, IKnowledgeIt
     /// 使用显式访问策略发布知识版本。策略替换、当前版本切换、旧索引失效和新索引任务创建
     /// 在同一个工作单元中完成；任一步失败都会回滚发布事实。
     /// </summary>
-    [Authorize(KnowPulsePermissions.KnowledgeBase.Versions)]
     [UnitOfWork]
     public virtual async Task<PublishKnowledgeVersionResultDto> PublishVersionWithAccessPolicyAsync(
         Guid id,
         PublishKnowledgeVersionInput input)
     {
-        await CheckMvpPermissionAsync(KnowPulsePermissions.KnowledgeBase.Versions);
-        await CheckMvpPermissionAsync(KnowPulsePermissions.KnowledgeBase.PermissionScopes);
+        var item = await GetItemForOperationAsync(id, KnowPulsePermissions.KnowledgeBase.Versions);
+        await CheckKnowledgeItemPermissionAsync(item, KnowPulsePermissions.KnowledgeBase.PermissionScopes);
 
         var rules = input.PermissionScopes
             .Select(x => new KnowledgeAccessPolicyRule(x.ScopeType, x.TargetId, x.MinimumSecurityLevel))
             .ToList();
-        KnowledgeAccessPolicyValidator.EnsureValid(rules);
-
-        var item = await GetOwnedItemAsync(id);
+        KnowledgeAccessPolicyValidator.EnsureValidForItem(item, rules);
         var version = await GetVersionOfItemAsync(id, input.KnowledgeVersionId);
         version.EnsureCanPublish();
         rules = await ValidateTeachingPolicyAsync(item, rules);
@@ -239,7 +268,10 @@ public partial class KnowledgeItemAppService : KnowPulseAppService, IKnowledgeIt
         KnowledgeVersion version)
     {
         version.EnsureCanPublish();
-        await MarkItemIndexOutdatedAsync(item.Id, "Knowledge version or access policy republished.");
+        var sharedVersions = await KnowledgeIndexVersionQuery.GetSharedVersionsAsync(LazyServiceProvider);
+        var retainedVersionIds = await AsyncExecuter.ToListAsync(sharedVersions
+            .Where(x => x.KnowledgeItemId == item.Id && x.Id != version.Id).Select(x => x.Id));
+        await MarkItemIndexOutdatedAsync(item.Id, "Knowledge version or access policy republished.", retainedVersionIds);
 
         var queryable = await _versionRepository.GetQueryableAsync();
         var currentVersions = await AsyncExecuter.ToListAsync(queryable.Where(x => x.KnowledgeItemId == item.Id && x.IsCurrentPublished));
@@ -267,11 +299,9 @@ public partial class KnowledgeItemAppService : KnowPulseAppService, IKnowledgeIt
     /// <summary>
     /// 下架指定版本。如果该版本是知识文档当前发布版本，同步清空知识上的当前版本引用。
     /// </summary>
-    [Authorize(KnowPulsePermissions.KnowledgeBase.Versions)]
     public virtual async Task<KnowledgeVersionDto> WithdrawVersionAsync(Guid id, Guid versionId)
     {
-        await CheckMvpPermissionAsync(KnowPulsePermissions.KnowledgeBase.Versions);
-        var item = await GetOwnedItemAsync(id);
+        var item = await GetItemForOperationAsync(id, KnowPulsePermissions.KnowledgeBase.Versions);
         var version = await GetVersionOfItemAsync(id, versionId);
 
         version.Withdraw(DateTime.UtcNow);
@@ -290,11 +320,10 @@ public partial class KnowledgeItemAppService : KnowPulseAppService, IKnowledgeIt
     /// <summary>
     /// 归档指定版本。归档后不再作为当前发布版本参与访问。
     /// </summary>
-    [Authorize(KnowPulsePermissions.KnowledgeBase.Versions)]
+    [UnitOfWork]
     public virtual async Task<KnowledgeVersionDto> ArchiveVersionAsync(Guid id, Guid versionId)
     {
-        await CheckMvpPermissionAsync(KnowPulsePermissions.KnowledgeBase.Versions);
-        var item = await GetOwnedItemAsync(id);
+        var item = await GetItemForOperationAsync(id, KnowPulsePermissions.KnowledgeBase.Versions);
         var version = await GetVersionOfItemAsync(id, versionId);
 
         version.Archive(DateTime.UtcNow);
@@ -313,11 +342,9 @@ public partial class KnowledgeItemAppService : KnowPulseAppService, IKnowledgeIt
     /// <summary>
     /// 获取指定版本的附件列表。附件列表读取前同样校验知识可见性，避免通过版本编号绕过权限。
     /// </summary>
-    [Authorize(KnowPulsePermissions.KnowledgeBase.Attachments)]
     public virtual async Task<ListResultDto<KnowledgeAttachmentDto>> GetAttachmentsAsync(Guid id, Guid versionId)
     {
-        await CheckMvpPermissionAsync(KnowPulsePermissions.KnowledgeBase.Attachments);
-        await GetVisibleItemAsync(id);
+        await GetVisibleItemAsync(id, KnowPulsePermissions.KnowledgeBase.Attachments);
         await GetVersionOfItemAsync(id, versionId);
 
         var queryable = await _attachmentRepository.GetQueryableAsync();
@@ -330,45 +357,127 @@ public partial class KnowledgeItemAppService : KnowPulseAppService, IKnowledgeIt
     /// <summary>
     /// 上传知识版本附件。文件内容写入 BlobStoring，数据库只保存附件元数据。
     /// </summary>
-    [Authorize(KnowPulsePermissions.KnowledgeBase.Attachments)]
-    public virtual async Task<KnowledgeAttachmentDto> UploadAttachmentAsync(Guid id, Guid versionId, IRemoteStreamContent file)
+    public virtual Task<KnowledgeAttachmentDto> UploadAttachmentAsync(Guid id, Guid versionId, IRemoteStreamContent file)
+        => UploadAttachmentCoreAsync(id, versionId, file);
+
+    internal Task<KnowledgeAttachmentDto> UploadNotebookAttachmentAsync(Guid id, Guid versionId, Guid operationId, IRemoteStreamContent file, Func<KnowledgeAttachmentDto, Task> record)
+        => UploadAttachmentCoreAsync(id, versionId, file, operationId, record);
+
+    private async Task<KnowledgeAttachmentDto> UploadAttachmentCoreAsync(Guid id, Guid versionId, IRemoteStreamContent file,
+        Guid? stableId = null, Func<KnowledgeAttachmentDto, Task>? record = null)
     {
-        await CheckMvpPermissionAsync(KnowPulsePermissions.KnowledgeBase.Attachments);
+        var item = await GetItemForOperationAsync(id, KnowPulsePermissions.KnowledgeBase.Attachments);
         Check.NotNull(file, nameof(file));
+        var isPersonal = item.LibraryId.HasValue || item.OwnerUserId.HasValue;
+        using var privateUow = isPersonal
+            ? LazyServiceProvider.LazyGetRequiredService<IUnitOfWorkManager>().Begin(new AbpUnitOfWorkOptions { IsTransactional = true }, requiresNew: true)
+            : null;
+        if (isPersonal)
+        {
+            // 独立事务重新读取归属及版本，附件数量和版本并发标记共享一个提交边界。
+            await GetItemForOperationAsync(id, KnowPulsePermissions.KnowledgeBase.Attachments);
+        }
+        var version = await GetVersionOfItemAsync(id, versionId);
+        PersonalKnowledgeAttachmentOptions? limits = null;
+        if (isPersonal)
+        {
+            version.EnsureCanChangePersonalAttachments();
+            limits = LazyServiceProvider.LazyGetRequiredService<Microsoft.Extensions.Options.IOptions<PersonalKnowledgeAttachmentOptions>>().Value;
+            limits.EnsureValid();
+            if (file.ContentLength > limits.MaxFileBytes)
+            {
+                throw new BusinessException(KnowPulseDomainErrorCodes.PersonalKnowledgeAttachmentTooLarge)
+                    .WithData("MaxFileBytes", limits.MaxFileBytes);
+            }
+            var attachments = await _attachmentRepository.GetQueryableAsync();
+            if (await AsyncExecuter.CountAsync(attachments.Where(x => x.KnowledgeVersionId == versionId)) >= limits.MaxFilesPerVersion)
+            {
+                throw new BusinessException(KnowPulseDomainErrorCodes.PersonalKnowledgeAttachmentLimitReached)
+                    .WithData("MaxFilesPerVersion", limits.MaxFilesPerVersion);
+            }
+        }
 
-        await GetOwnedItemAsync(id);
-        await GetVersionOfItemAsync(id, versionId);
-
-        var attachmentId = GuidGenerator.Create();
+        var attachmentId = stableId ?? GuidGenerator.Create();
         var fileName = NormalizeFileName(file.FileName);
         var contentType = NormalizeContentType(file.ContentType);
         var blobName = BuildAttachmentBlobName(id, versionId, attachmentId, fileName);
 
-        // 先保存对象存储，再写入元数据；如果对象保存失败，不会产生悬空附件记录。
         using var stream = file.GetStream();
-        var size = GetContentLength(file, stream);
-        await _attachmentContainer.SaveAsync(blobName, stream, overrideExisting: false);
+        using var boundedContent = isPersonal ? new MemoryStream() : null;
+        var size = isPersonal ? 0 : GetContentLength(file, stream);
+        if (limits != null)
+        {
+            // 只读取上限加一个探测字节；不相信声明长度，超限时尚未向 Blob 写入任何内容。
+            var buffer = new byte[81920];
+            while (true)
+            {
+                var remaining = limits.MaxFileBytes - size;
+                var readSize = remaining < buffer.Length ? (int)remaining + 1 : buffer.Length;
+                var read = await stream.ReadAsync(buffer.AsMemory(0, readSize));
+                if (read == 0)
+                {
+                    break;
+                }
+                if (read > remaining)
+                {
+                    throw new BusinessException(KnowPulseDomainErrorCodes.PersonalKnowledgeAttachmentTooLarge)
+                        .WithData("MaxFileBytes", limits.MaxFileBytes);
+                }
+                await boundedContent!.WriteAsync(buffer.AsMemory(0, read));
+                size += read;
+            }
+            boundedContent!.Position = 0;
+            // 单个 UpdateAsync 不会将已跟踪且未改变的实体标成 Modified。
+            // 显式更新该版本以轮换 ConcurrencyStamp，令竞争上传/发布在 Blob 写入前失败。
+            await _versionRepository.UpdateManyAsync([version], autoSave: true);
+        }
 
-        var attachment = new KnowledgeAttachment(
-            attachmentId,
-            CurrentTenant.Id,
-            versionId,
-            fileName,
-            blobName,
-            contentType,
-            size);
-
-        return MapToDto(await _attachmentRepository.InsertAsync(attachment, autoSave: true));
+        var blobSaved = false;
+        try
+        {
+            if (stableId.HasValue && await _attachmentContainer.ExistsAsync(blobName))
+            {
+                using var stored = await _attachmentContainer.GetAsync(blobName);
+                var expected = SHA256.HashData(boundedContent!.GetBuffer().AsSpan(0, checked((int)boundedContent.Length)));
+                using var digest = IncrementalHash.CreateHash(HashAlgorithmName.SHA256); var bytes = new byte[81920]; long length = 0;
+                int read; while ((read = await stored.ReadAsync(bytes.AsMemory())) > 0) { length += read; if (length > size) break; digest.AppendData(bytes, 0, read); }
+                if (length != size || !digest.GetHashAndReset().AsSpan().SequenceEqual(expected)) throw new BusinessException(PersonalNotebookErrors.OperationConflict);
+            }
+            else { await _attachmentContainer.SaveAsync(blobName, boundedContent ?? stream, overrideExisting: false); blobSaved = true; }
+            var attachment = new KnowledgeAttachment(
+                attachmentId, CurrentTenant.Id, versionId, fileName, blobName, contentType, size);
+            var result = MapToDto(await _attachmentRepository.InsertAsync(attachment, autoSave: true));
+            if (record != null) await record(result);
+            if (privateUow != null)
+            {
+                await privateUow.CompleteAsync();
+            }
+            return result;
+        }
+        catch
+        {
+            if (isPersonal && blobSaved)
+            {
+                try
+                {
+                    await _attachmentContainer.DeleteAsync(blobName);
+                }
+                catch (Exception cleanupError)
+                {
+                    Microsoft.Extensions.Logging.LoggerExtensions.LogWarning(Logger, cleanupError,
+                        "Could not remove an uncommitted personal attachment blob {BlobName}.", blobName);
+                }
+            }
+            throw;
+        }
     }
 
     /// <summary>
     /// 下载指定附件。返回远程流内容，由 ABP 框架负责序列化给 HTTP 调用方。
     /// </summary>
-    [Authorize(KnowPulsePermissions.KnowledgeBase.Attachments)]
     public virtual async Task<IRemoteStreamContent> DownloadAttachmentAsync(Guid id, Guid versionId, Guid attachmentId)
     {
-        await CheckMvpPermissionAsync(KnowPulsePermissions.KnowledgeBase.Attachments);
-        await GetVisibleItemAsync(id);
+        await GetVisibleItemAsync(id, KnowPulsePermissions.KnowledgeBase.Attachments);
         await GetVersionOfItemAsync(id, versionId);
 
         var attachment = await GetAttachmentOfVersionAsync(versionId, attachmentId);
@@ -378,28 +487,59 @@ public partial class KnowledgeItemAppService : KnowPulseAppService, IKnowledgeIt
     }
 
     /// <summary>
-    /// 删除指定附件，同时删除对象存储中的文件和业务主库中的元数据。
+    /// 删除附件元数据，数据库提交成功后清理对应文件。
     /// </summary>
-    [Authorize(KnowPulsePermissions.KnowledgeBase.Attachments)]
     public virtual async Task DeleteAttachmentAsync(Guid id, Guid versionId, Guid attachmentId)
     {
-        await CheckMvpPermissionAsync(KnowPulsePermissions.KnowledgeBase.Attachments);
-        await GetOwnedItemAsync(id);
-        await GetVersionOfItemAsync(id, versionId);
+        var item = await GetItemForOperationAsync(id, KnowPulsePermissions.KnowledgeBase.Attachments);
+        var isPersonal = item.LibraryId.HasValue || item.OwnerUserId.HasValue;
+        using var privateUow = isPersonal
+            ? LazyServiceProvider.LazyGetRequiredService<IUnitOfWorkManager>().Begin(new AbpUnitOfWorkOptions { IsTransactional = true }, requiresNew: true)
+            : null;
+        if (isPersonal)
+        {
+            await GetItemForOperationAsync(id, KnowPulsePermissions.KnowledgeBase.Attachments);
+        }
+        var version = await GetVersionOfItemAsync(id, versionId);
+        if (isPersonal)
+        {
+            version.EnsureCanChangePersonalAttachments();
+        }
 
         var attachment = await GetAttachmentOfVersionAsync(versionId, attachmentId);
-        await _attachmentContainer.DeleteAsync(attachment.BlobName);
+        if (isPersonal)
+        {
+            // 强制已跟踪版本参与并发校验，不能让附件删除绕过同时发生的发布。
+            await _versionRepository.UpdateManyAsync([version], autoSave: true);
+        }
+        var metadataUow = privateUow ?? LazyServiceProvider.LazyGetRequiredService<IUnitOfWorkManager>().Current
+            ?? throw new InvalidOperationException("An active unit of work is required to delete an attachment.");
         await _attachmentRepository.DeleteAsync(attachment, autoSave: true);
+        metadataUow.OnCompleted(async () =>
+        {
+            try
+            {
+                await _attachmentContainer.DeleteAsync(attachment.BlobName);
+            }
+            catch (Exception cleanupError)
+            {
+                // 元数据已提交，清理失败只留下不可下载的孤立文件，不能伪装成可回滚的删除失败。
+                Microsoft.Extensions.Logging.LoggerExtensions.LogWarning(Logger, cleanupError,
+                    "Could not remove a committed deleted attachment blob {BlobName}.", attachment.BlobName);
+            }
+        });
+        if (privateUow != null)
+        {
+            await privateUow.CompleteAsync();
+        }
     }
 
     /// <summary>
     /// 获取知识文档的权限范围列表。该接口面向管理员配置，不按当前用户可见性过滤。
     /// </summary>
-    [Authorize(KnowPulsePermissions.KnowledgeBase.PermissionScopes)]
     public virtual async Task<ListResultDto<KnowledgePermissionScopeDto>> GetPermissionScopesAsync(Guid id)
     {
-        await CheckMvpPermissionAsync(KnowPulsePermissions.KnowledgeBase.PermissionScopes);
-        await GetOwnedItemAsync(id);
+        await GetItemForOperationAsync(id, KnowPulsePermissions.KnowledgeBase.PermissionScopes);
 
         var queryable = await _permissionScopeRepository.GetQueryableAsync();
         var scopes = await AsyncExecuter.ToListAsync(queryable.Where(x => x.KnowledgeItemId == id).OrderBy(x => x.ScopeType));
@@ -410,15 +550,13 @@ public partial class KnowledgeItemAppService : KnowPulseAppService, IKnowledgeIt
     /// <summary>
     /// 为知识文档新增权限范围，支持全员、部门、岗位、角色和指定用户。
     /// </summary>
-    [Authorize(KnowPulsePermissions.KnowledgeBase.PermissionScopes)]
     public virtual async Task<KnowledgePermissionScopeDto> CreatePermissionScopeAsync(Guid id, CreateKnowledgePermissionScopeDto input)
     {
-        await CheckMvpPermissionAsync(KnowPulsePermissions.KnowledgeBase.PermissionScopes);
-        var item = await GetOwnedItemAsync(id);
+        var item = await GetItemForOperationAsync(id, KnowPulsePermissions.KnowledgeBase.PermissionScopes);
 
         var targetId = input.ScopeType == KnowledgePermissionScopeType.All ? null : input.TargetId;
         var rule = new KnowledgeAccessPolicyRule(input.ScopeType, targetId, input.MinimumSecurityLevel);
-        KnowledgeAccessPolicyValidator.EnsureValid([rule]);
+        KnowledgeAccessPolicyValidator.EnsureValidForItem(item, [rule]);
         await ValidateTeachingPolicyAsync(item, [rule]);
 
         var existingScopes = await GetEnabledScopesAsync(id);
@@ -451,17 +589,19 @@ public partial class KnowledgeItemAppService : KnowPulseAppService, IKnowledgeIt
     /// <summary>
     /// 删除知识文档上的权限范围。传入的范围不属于当前知识时直接忽略，保持接口幂等。
     /// </summary>
-    [Authorize(KnowPulsePermissions.KnowledgeBase.PermissionScopes)]
     public virtual async Task DeletePermissionScopeAsync(Guid id, Guid scopeId)
     {
-        await CheckMvpPermissionAsync(KnowPulsePermissions.KnowledgeBase.PermissionScopes);
+        var item = await GetItemForOperationAsync(id, KnowPulsePermissions.KnowledgeBase.PermissionScopes);
         var scope = await _permissionScopeRepository.GetAsync(scopeId);
         if (scope.KnowledgeItemId != id)
         {
             return;
         }
 
-        var item = await GetOwnedItemAsync(id);
+        if (item.LibraryId.HasValue && scope.IsEnabled)
+        {
+            throw new BusinessException(KnowPulseDomainErrorCodes.PersonalKnowledgeRequiresOwnerPolicy);
+        }
         if (item.OwnerTeacherId.HasValue && scope.ScopeType == KnowledgePermissionScopeType.User &&
             scope.TargetId == item.OwnerTeacherId)
         {
@@ -504,7 +644,10 @@ public partial class KnowledgeItemAppService : KnowPulseAppService, IKnowledgeIt
     /// </summary>
     private async Task QueuePermissionChangedReindexAsync(KnowledgeItem item)
     {
-        await MarkItemIndexOutdatedAsync(item.Id, "Permission scope changed.");
+        var sharedVersions = await KnowledgeIndexVersionQuery.GetSharedVersionsAsync(LazyServiceProvider);
+        var retainedVersionIds = await AsyncExecuter.ToListAsync(sharedVersions
+            .Where(x => x.KnowledgeItemId == item.Id && x.Id != item.CurrentPublishedVersionId).Select(x => x.Id));
+        await MarkItemIndexOutdatedAsync(item.Id, "Permission scope changed.", retainedVersionIds);
         if (item.CurrentPublishedVersionId.HasValue)
         {
             await CreateIndexJobAsync(
@@ -574,13 +717,16 @@ public partial class KnowledgeItemAppService : KnowPulseAppService, IKnowledgeIt
     }
 
     /// <summary>
-    /// 将指定知识条目的所有索引任务和 active chunk 标记为过期。
+    /// 将指定知识条目的索引任务和 active chunk 标记为过期；另行授权的学校共享版本保留独立索引。
     /// </summary>
-    private async Task MarkItemIndexOutdatedAsync(Guid knowledgeItemId, string reason)
+    private async Task MarkItemIndexOutdatedAsync(Guid knowledgeItemId, string reason,
+        IReadOnlyCollection<Guid>? retainedVersionIds = null)
     {
+        retainedVersionIds ??= Array.Empty<Guid>();
         var chunkQueryable = await _chunkRepository.GetQueryableAsync();
         var chunks = await AsyncExecuter.ToListAsync(
-            chunkQueryable.Where(x => x.KnowledgeItemId == knowledgeItemId && x.IsActive));
+            chunkQueryable.Where(x => x.KnowledgeItemId == knowledgeItemId && x.IsActive &&
+                !retainedVersionIds.Contains(x.KnowledgeVersionId)));
         foreach (var chunk in chunks)
         {
             chunk.MarkOutdated();
@@ -589,7 +735,8 @@ public partial class KnowledgeItemAppService : KnowPulseAppService, IKnowledgeIt
 
         var jobQueryable = await _indexJobRepository.GetQueryableAsync();
         var jobs = await AsyncExecuter.ToListAsync(
-            jobQueryable.Where(x => x.KnowledgeItemId == knowledgeItemId)
+            jobQueryable.Where(x => x.KnowledgeItemId == knowledgeItemId &&
+                !retainedVersionIds.Contains(x.KnowledgeVersionId))
                 .Where(x => x.Status == KnowledgeIndexJobStatus.Pending ||
                             x.Status == KnowledgeIndexJobStatus.Processing ||
                             x.Status == KnowledgeIndexJobStatus.Indexed));
@@ -603,9 +750,32 @@ public partial class KnowledgeItemAppService : KnowPulseAppService, IKnowledgeIt
     /// <summary>
     /// 获取当前用户可见的知识条目。
     /// </summary>
-    private async Task<KnowledgeItem> GetVisibleItemAsync(Guid id)
+    private async Task ValidatePersonalCategoryAsync(KnowledgeItem item, Guid? categoryId)
+    {
+        if (!item.LibraryId.HasValue || !categoryId.HasValue) return;
+        var category = await LazyServiceProvider.LazyGetRequiredService<IRepository<KnowledgeCategory, Guid>>()
+            .FindAsync(categoryId.Value);
+        if (category == null || category.TenantId != item.TenantId)
+        {
+            throw new AbpAuthorizationException("The category is unavailable in the personal library's tenant.");
+        }
+    }
+
+    private async Task<KnowledgeItem> GetItemForOperationAsync(Guid id, string permission, bool requireOwnership = true)
     {
         var item = await _itemRepository.GetAsync(id);
+        await CheckKnowledgeItemPermissionAsync(item, permission);
+        if (requireOwnership) EnsureTeachingOwner(item.OwnerUserId ?? item.OwnerTeacherId);
+        if (!item.LibraryId.HasValue && permission != KnowPulsePermissions.KnowledgeBase.Items)
+        {
+            await CheckMvpPermissionAsync(KnowPulsePermissions.KnowledgeBase.Items);
+        }
+        return item;
+    }
+
+    private async Task<KnowledgeItem> GetVisibleItemAsync(Guid id, string permission = KnowPulsePermissions.KnowledgeBase.Items)
+    {
+        var item = await GetItemForOperationAsync(id, permission, requireOwnership: false);
         var scopes = await GetEnabledScopesAsync(id);
         var accessContext = await _accessContextProvider.CreateAsync();
 
@@ -699,7 +869,7 @@ public partial class KnowledgeItemAppService : KnowPulseAppService, IKnowledgeIt
     /// <summary>
     /// 归一化上传文件名：去掉路径信息、替换非法字符，并按领域模型限制截断长度。
     /// </summary>
-    private static string NormalizeFileName(string? fileName)
+    internal static string NormalizeFileName(string? fileName)
     {
         var normalized = Path.GetFileName(fileName);
         if (string.IsNullOrWhiteSpace(normalized))
@@ -730,7 +900,7 @@ public partial class KnowledgeItemAppService : KnowPulseAppService, IKnowledgeIt
     /// <summary>
     /// 归一化内容类型。浏览器未提供类型时使用二进制默认类型。
     /// </summary>
-    private static string NormalizeContentType(string? contentType)
+    internal static string NormalizeContentType(string? contentType)
     {
         if (string.IsNullOrWhiteSpace(contentType))
         {
@@ -771,6 +941,13 @@ public partial class KnowledgeItemAppService : KnowPulseAppService, IKnowledgeIt
             IsDeleted = item.IsDeleted,
             DeleterId = item.DeleterId,
             DeletionTime = item.DeletionTime,
+            LibraryId = item.LibraryId,
+            OwnerUserId = item.OwnerUserId,
+            ConcurrencyStamp = item.ConcurrencyStamp,
+            MaterialType = item.MaterialType,
+            MaterialYear = item.MaterialYear,
+            SubjectName = item.SubjectName,
+            CustomTags = item.GetPersonalTags().ToList(),
             CategoryId = item.CategoryId,
             CurrentPublishedVersionId = item.CurrentPublishedVersionId,
             Title = item.Title,

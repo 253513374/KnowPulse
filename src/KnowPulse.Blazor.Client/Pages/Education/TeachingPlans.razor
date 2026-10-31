@@ -1,0 +1,163 @@
+@page "/education/teaching-plans"
+@attribute [Authorize(EducationPermissions.TeachingPlanManage)]
+@attribute [Authorize(EducationPermissions.AnalysisManage)]
+@inherits KnowPulseComponentBase
+@using KnowPulse.Education
+@using System.Text.Json
+@inject IEducationTeachingPlanAppService Plans
+@inject IEducationLearningReportAppService Reports
+@inject IJSRuntime JS
+@inject Volo.Abp.Users.ICurrentUser Account
+@inject Volo.Abp.MultiTenancy.ICurrentTenant Tenant
+
+<PageTitle>@L["EducationPlan:Title"]</PageTitle>
+<NavigationLock ConfirmExternalNavigation="@(Busy || Dirty || Pending != null)" OnBeforeInternalNavigation="LeaveAsync" />
+<h1 class="kp-heading-4">@L["EducationPlan:Title"]</h1><p class="kp-text-muted">@L["EducationPlan:Description"] <a href="/education/learning-reports">@L["EducationPlan:FromReport"]</a></p>
+@if (Error != null) { <div class="kp-alert kp-alert--error" role="alert">@Error</div> }
+@if (Receipt != null) { <p class="kp-alert kp-alert--success" role="status">@L["EducationGrading:Receipt", Receipt]</p> }
+@if (Pending != null) { <div class="kp-alert kp-alert--info" role="status">@L["EducationReport:Pending"] <button class="kp-button kp-button--sm kp-button--primary-outline" disabled="@Busy" @onclick="RecoverAsync">@L["EducationGrading:Recover"]</button> <button class="kp-button kp-button--sm kp-button--primary-outline" disabled="@Busy" @onclick="(() => RunAsync(SendAsync))">@L["EducationReport:RetryCommand"]</button> <button class="kp-button kp-button--sm kp-button--secondary" disabled="@Busy" @onclick="AbandonAsync">@L["EducationReport:Abandon"]</button></div> }
+<div class="kp-grid kp-grid-gap-3">
+<aside class="kp-col-12 kp-col-lg-3"><div class="kp-list">@foreach (var item in Items) { <button class="kp-list__item list-group-item-action" disabled="@(Busy || Pending != null || !StorageReady)" @onclick="(() => SelectAsync(item.Id))">@item.StudentName · @item.ClassName · @item.SubjectName<br /><small>@L["EducationPlan:Version", item.RevisionNumber]</small></button> }</div>
+    <div class="kp-flex kp-gap-2 kp-mt-2"><button class="kp-button kp-button--sm kp-button--secondary" disabled="@(Busy || Offset == 0)" @onclick="(() => ListPageAsync(-1))">@L["EducationPaper:Previous"]</button><button class="kp-button kp-button--sm kp-button--secondary" disabled="@(Busy || Offset + PageSize >= Total)" @onclick="(() => ListPageAsync(1))">@L["EducationPaper:Next"]</button></div>
+</aside>
+<main class="kp-col-12 col-lg-9">
+@if (Current is { } current)
+{
+    <p>@current.StudentName · @current.ClassName · @current.SubjectName · @L["EducationPlan:Version", current.RevisionNumber] · @L[$"EducationPlan:Kind:{(int)current.Current.Kind}"]</p>
+    <p class="kp-text-small">@L["EducationPlan:StudentState"] @L[$"EducationPlan:Availability:{(int)current.StudentAvailability}"]</p>
+    @if (current.LastPublishedRevisionId != null) { <a href="@($"/education/teaching-plans/{current.Id}/progress")">@L["EducationActivity:TeacherTitle"]</a> }
+    @if (current.LastPublishedRevisionId != null) { <p><a href="@($"/education/teaching-plans/{current.Id}/execution")">@L["EducationPlanExecution:Title"]</a> · @L[$"EducationPlanExecution:State:{(int)current.ExecutionState}"]</p> }
+    @if (!current.SourceIsCurrent && current.Current.Kind != EducationTeachingPlanRevisionKind.Withdrawn) { <p class="kp-alert kp-alert--warning">@L["EducationPlan:SourceChanged"]</p> }
+}
+@if (Source != null)
+{
+    @if (GenerationSourceId is Guid generationSource) { <p class="kp-alert kp-alert--info">@L["EducationPlanGeneration:Origin", generationSource]</p> }
+    <fieldset disabled="@(Busy || Pending != null || !StorageReady)">
+    <div class="kp-card kp-card__body kp-mb-3"><h2 class="kp-heading-6">@L["EducationPlan:Basis"]</h2><p>@Source.Student.StudentName · @Source.Curriculum.SubjectName · @Source.Curriculum.TextbookTitle</p>
+        <p class="kp-text-small">@Local(Source.WindowStartsAtUtc) → @Local(Source.WindowEndsAtUtc)</p><button class="kp-button kp-button--sm kp-button--secondary kp-align-self-start" @onclick="RefreshSourceAsync">@L["EducationPlan:RefreshBasis"]</button>
+        <div class="kp-flex kp-flex-wrap kp-gap-3 kp-mt-3">@foreach (var point in Source.Points) { <label><input type="checkbox" class="kp-check__input" checked="@SelectedTargets.Contains(point.Point.KnowledgePointRevisionId)" @onchange="e => Toggle(point.Point.KnowledgePointRevisionId, e)" /> @point.Point.Code · @point.Point.Name · @L[$"EducationReport:Mastery:{(int)point.State}"]</label> }</div>
+    </div>
+    <div class="kp-card kp-card__body kp-mb-3"><h2 class="kp-heading-6">@L["EducationPlan:StudentContent"]</h2>
+        <label class="kp-mb-2">@L["EducationPlan:Name"]<input class="kp-input" @bind="Form.Title" @bind:after="Changed" maxlength="256" /></label>
+        <label class="kp-mb-2">@L["EducationPlan:Goal"]<textarea class="kp-input" @bind="Form.Goal" @bind:after="Changed" maxlength="2000"></textarea></label>
+        <label class="kp-mb-2">@L["EducationPlan:Actions"]<textarea class="kp-input" @bind="Form.Actions" @bind:after="Changed" maxlength="2000"></textarea></label>
+        <label class="kp-mb-2">@L["EducationPlan:Criteria"]<textarea class="kp-input" @bind="Form.Criteria" @bind:after="Changed" maxlength="2000"></textarea></label>
+        <div class="kp-flex kp-flex-wrap kp-gap-3"><label>@L["EducationPlan:Starts"]<input type="datetime-local" class="kp-input" @bind="Form.Starts" @bind:after="Changed" /></label><label>@L["EducationPlan:Ends"]<input type="datetime-local" class="kp-input" @bind="Form.Ends" @bind:after="Changed" /></label><label>@L["EducationPlan:Reassessment"]<input type="datetime-local" class="kp-input" @bind="Form.Reassessment" @bind:after="ReassessmentChanged" /></label></div>
+        <h3 class="kp-heading-6 kp-mt-3">@L["EducationPlan:Steps"]</h3><p class="kp-text-small kp-text-muted">@L["EducationPlan:StepHint"]</p>
+        @for (var i = 0; i < Form.Steps.Count; i++)
+        {
+            var index = i; var step = Form.Steps[index];
+            <div class="kp-border kp-rounded kp-p-2 kp-mb-2" @key="step.Id"><div class="kp-flex kp-gap-2 kp-align-end kp-flex-wrap"><label>@L["EducationPlan:StepType"]<select class="kp-select" @bind="step.Kind" @bind:after="Changed">@foreach (var kind in Enum.GetValues<EducationTeachingPlanStepKind>()) { <option value="@kind">@L[$"EducationPlan:Step:{(int)kind}"]</option> }</select></label><label class="flex-grow-1">@L["EducationPlan:StepTitle"]<input class="kp-input" @bind="step.Title" @bind:after="Changed" maxlength="256" /></label><button class="kp-button kp-button--sm kp-button--secondary" @onclick="(() => RemoveStep(index))">@L["EducationGeneration:Remove"]</button></div>
+                <label class="kp-block kp-mt-2">@L["EducationPlan:Instructions"]<textarea class="kp-input" @bind="step.Instructions" @bind:after="Changed" maxlength="4000"></textarea></label>
+                <div class="kp-flex kp-flex-wrap kp-gap-3 kp-mt-2"><label>@L["EducationPlan:Minutes"]<input type="number" class="kp-input" min="1" max="1440" @bind="step.Minutes" @bind:after="Changed" /></label><label>@L["EducationPlan:Due"]<input type="datetime-local" class="kp-input" @bind="step.Due" @bind:after="Changed" /></label></div>
+            </div>
+        }
+        <button class="kp-button kp-button--sm kp-button--secondary kp-align-self-start" @onclick="AddStep" disabled="@(Form.Steps.Count >= 50)">@L["EducationPlan:AddStep"]</button><p class="kp-text-small kp-mt-2">@L["EducationPlan:TotalMinutes", Form.Steps.Sum(x => x.Minutes)]</p>
+    </div>
+    <div class="kp-card kp-card__body kp-mb-3"><label>@L["EducationPlan:PrivateNotes"]<textarea class="kp-input" @bind="Form.Notes" @bind:after="Changed" maxlength="4000"></textarea></label><p class="kp-text-small kp-text-muted kp-mb-0 kp-mt-1">@L["EducationPlan:PrivateHint"]</p></div>
+    @if (Current != null) {
+        <TeachingMaterialPicker @key="EditingId" PlanId="EditingId" Items="Form.Materials" Steps="MaterialSteps" Disabled="@(Busy || Pending != null)" Changed="Changed" />
+        @if (Current.Current.Content is { } saved) { <TeachingMaterialReader PlanId="EditingId" RevisionId="Current.Current.Id" Materials="@(saved.Materials.Select(x => new EducationStudentTeachingMaterial(x.Id, x.StepId, x.Title)).ToList())" Disabled="@(Busy || Pending != null)" /> }
+    } else { <p>@L["EducationMaterial:SaveFirst"]</p> }
+    <button class="kp-button kp-button--primary kp-mb-3" @onclick="SaveAsync">@L["EducationPlan:SaveDraft"]</button>
+    @if (Current != null)
+    {
+        <div class="kp-card kp-card__body"><label>@L["EducationPlan:Reason"]<textarea class="kp-input" @bind="Reason" maxlength="2048"></textarea></label>
+            <label class="kp-mt-2"><input class="kp-check__input" type="checkbox" @bind="ConfirmTarget" /> @L["EducationPlan:ConfirmTarget"]</label>
+            <label class="kp-mt-2"><input class="kp-check__input" type="checkbox" @bind="ConfirmMaterials" /> @L["EducationPlan:ConfirmMaterials"]</label>
+            <label class="kp-mt-2"><input class="kp-check__input" type="checkbox" @bind="ConfirmSafe" /> @L["EducationPlan:ConfirmSafe"]</label>
+            <div class="kp-flex kp-gap-2 kp-mt-3"><button class="kp-button kp-button--primary-outline" disabled="@(Dirty || Current.Current.Kind != EducationTeachingPlanRevisionKind.Draft)" @onclick="ConfirmAsync">@L["EducationPlan:Confirm"]</button><button class="kp-button kp-button--primary" disabled="@(Dirty || Current.Current.Kind != EducationTeachingPlanRevisionKind.Confirmed)" @onclick="PublishAsync">@L["EducationPlan:Publish"]</button><button class="kp-button kp-button--danger-outline" disabled="@(Dirty || Current.PublishedRevisionId == null)" @onclick="WithdrawAsync">@L["EducationPlan:Withdraw"]</button></div>
+        </div>
+    }
+    </fieldset>
+}
+else { <p class="kp-text-muted">@L["EducationPlan:ChooseSource"]</p> }
+</main></div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "planId")] public Guid? PlanId { get; set; }
+    [SupplyParameterFromQuery(Name = "reportId")] public Guid? ReportId { get; set; }
+    [SupplyParameterFromQuery(Name = "snapshotId")] public Guid? SnapshotId { get; set; }
+    [SupplyParameterFromQuery(Name = "studentId")] public Guid? StudentId { get; set; }
+    [SupplyParameterFromQuery(Name = "generationId")] public Guid? GenerationId { get; set; }
+    private Guid? GenerationSourceId;
+    private const int PageSize = 20;
+    private bool Busy, Dirty, StorageAttempted, StorageReady, ConfirmTarget, ConfirmMaterials, ConfirmSafe; private string? Error, Receipt, QueryKey;
+    private string Reason = ""; private Guid EditingId = Guid.NewGuid(); private int Offset; private long Total;
+    private List<EducationTeachingPlanListDto> Items = []; private EducationTeachingPlanDto? Current; private EducationTeachingPlanBasis? Source;
+    private Editor Form = new(); private HashSet<Guid> SelectedTargets = []; private Command? Pending;
+    private string StorageKey => $"knowpulse-teaching-plan-v1:{Tenant.Id}:{Account.Id}";
+    protected override Task OnInitializedAsync() => RunAsync(LoadListAsync);
+    protected override Task OnParametersSetAsync() => RunAsync(async () => {
+        var key = $"{PlanId}|{ReportId}|{SnapshotId}|{StudentId}|{GenerationId}"; if (key == QueryKey || Pending != null) return; QueryKey = key;
+        if (GenerationId is Guid generated) { await LoadGeneratedAsync(generated); return; }
+        if (PlanId is Guid id) await LoadPlanAsync(id);
+        if (ReportId is Guid report && SnapshotId is Guid snapshot && StudentId is Guid student) { Source = await SourceAsync(report, snapshot, student); if (Current == null) { Form = new(); SelectedTargets.Clear(); Dirty = false; } }
+    });
+    protected override async Task OnAfterRenderAsync(bool firstRender) {
+        if (StorageAttempted || Busy) return; StorageAttempted = true;
+        await RunAsync(async () => { var json = await JS.InvokeAsync<string?>("sessionStorage.getItem", StorageKey); if (json != null) { var command = JsonSerializer.Deserialize<Command>(json); if (command == null || !Matches(command)) throw new InvalidOperationException(L["EducationGrading:NoReceipt"]); Pending = command; } StorageReady = true; }); StateHasChanged();
+    }
+    private async Task LoadListAsync() { var page = await Plans.GetListAsync(new() { SkipCount = Offset, MaxResultCount = PageSize }); Items = page.Items.ToList(); Total = page.TotalCount; }
+    private Task ListPageAsync(int step) => RunAsync(async () => { Offset += step * PageSize; await LoadListAsync(); });
+    private Task SelectAsync(Guid id) => RunAsync(async () => { if (await CanReplaceAsync()) await LoadPlanAsync(id); });
+    private async Task LoadPlanAsync(Guid id) {
+        var current = await Plans.GetAsync(id); Current = current; EditingId = id; var revision = current.Current; GenerationSourceId = revision.GenerationJobId;
+        if (revision.Content == null && revision.BasedOnRevisionId is Guid previous) revision = await Plans.GetRevisionAsync(id, previous);
+        Source = revision.Basis; if (revision.Content is { } content) {
+            Form = new() { Title = content.Title, Goal = content.StudentGoal, Actions = content.TeacherActions, Criteria = content.SuccessCriteria, Notes = revision.InternalNotes ?? "", Starts = content.StartsAtUtc.ToLocalTime(), Ends = content.EndsAtUtc.ToLocalTime(), Reassessment = content.ReassessmentAtUtc.ToLocalTime(),
+                Steps = content.Steps.Select(x => new StepEditor { Id = x.Id, Kind = x.Kind, Title = x.Title, Instructions = x.Instructions, Minutes = x.EstimatedMinutes, Due = x.DueAtUtc.ToLocalTime() }).ToList(), Materials = content.Materials.ToList() };
+            SelectedTargets = content.TargetPointRevisionIds.ToHashSet();
+        }
+        Dirty = false; ConfirmTarget = ConfirmMaterials = ConfirmSafe = false; Reason = "";
+    }
+    private async Task<EducationTeachingPlanBasis> SourceAsync(Guid reportId, Guid snapshotId, Guid student) {
+        var report = await Reports.GetAsync(reportId); if (!report.SourceIsCurrent || report.CurrentSnapshotId != snapshotId) throw new InvalidOperationException(L["EducationPlan:SourceChanged"]);
+        var person = await Reports.GetStudentAsync(reportId, snapshotId, student);
+        return new() { ReportId = reportId, ReportSnapshotId = snapshotId, Student = person.Student, WindowStartsAtUtc = report.WindowStartsAtUtc, WindowEndsAtUtc = report.WindowEndsAtUtc,
+            Curriculum = new() { TeacherUserId = Account.Id!.Value, SubjectName = report.Summary!.SubjectName, TextbookTitle = report.Summary.TextbookTitle }, Points = person.Analysis.Points.ToList() };
+    }
+    private async Task LoadGeneratedAsync(Guid id) {
+        var job = await Plans.GetGenerationAsync(id) ?? throw new InvalidOperationException(L["EducationPlanGeneration:NoReceipt"]);
+        if (job.HasSavedPlan) { await LoadPlanAsync(job.PlanId); return; }
+        if (!job.SourceIsCurrent || job.Status != EducationPlanGenerationStatus.Completed || job.Content is not { } content || job.Basis == null) throw new InvalidOperationException(L["EducationPlanGeneration:NotReady"]);
+        Current = null; EditingId = job.PlanId; Source = job.Basis; GenerationSourceId = job.Id;
+        Form = new() { Title = content.Title, Goal = content.StudentGoal, Actions = content.TeacherActions, Criteria = content.SuccessCriteria, Starts = content.StartsAtUtc.ToLocalTime(), Ends = content.EndsAtUtc.ToLocalTime(), Reassessment = content.ReassessmentAtUtc.ToLocalTime(),
+            Steps = content.Steps.Select(x => new StepEditor { Id = x.Id, Kind = x.Kind, Title = x.Title, Instructions = x.Instructions, Minutes = x.EstimatedMinutes, Due = x.DueAtUtc.ToLocalTime() }).ToList() };
+        SelectedTargets = content.TargetPointRevisionIds.ToHashSet(); Dirty = true; ConfirmTarget = ConfirmMaterials = ConfirmSafe = false;
+    }
+    private Task RefreshSourceAsync() => RunAsync(async () => { if (Source == null) return; var report = await Reports.GetAsync(Source.ReportId); if (report.CurrentSnapshotId is not Guid snapshot || !report.SourceIsCurrent) throw new InvalidOperationException(L["EducationPlan:SourceChanged"]);
+        Source = await SourceAsync(Source.ReportId, snapshot, Source.Student.StudentUserId); SelectedTargets.IntersectWith(Source.Points.Select(x => x.Point.KnowledgePointRevisionId)); GenerationSourceId = null; Dirty = true;
+    });
+    private void Changed() => Dirty = true;
+    private void Toggle(Guid id, ChangeEventArgs args) { if (args.Value is true) SelectedTargets.Add(id); else SelectedTargets.Remove(id); Dirty = true; }
+    private void AddStep() { Form.Steps.Add(new() { Id = Guid.NewGuid(), Kind = Form.Steps.Count == 0 ? EducationTeachingPlanStepKind.Diagnostic : EducationTeachingPlanStepKind.Practice, Due = Form.Ends }); Dirty = true; }
+    private void RemoveStep(int index) { var id = Form.Steps[index].Id; Form.Steps.RemoveAt(index); Form.Materials.RemoveAll(x => x.StepId == id); Dirty = true; }
+    private List<EducationTeachingPlanStep> MaterialSteps => Form.Steps.Select(x => new EducationTeachingPlanStep { Id = x.Id, Kind = x.Kind, Title = x.Title }).ToList();
+    private void ReassessmentChanged() { foreach (var step in Form.Steps.Where(x => x.Kind == EducationTeachingPlanStepKind.Reassessment)) step.Due = Form.Reassessment; Dirty = true; }
+    private static DateTime Utc(DateTime value) => DateTime.SpecifyKind(value, DateTimeKind.Local).ToUniversalTime();
+    private Task SaveAsync() => RunAsync(() => StartAsync(new() { Kind = "save", PlanId = EditingId, Save = new() { OperationId = Guid.NewGuid(), ReportId = Source!.ReportId, ReportSnapshotId = Source.ReportSnapshotId, StudentUserId = Source.Student.StudentUserId,
+        ExpectedRevisionId = Current?.Current.Id, ConcurrencyStamp = Current?.ConcurrencyStamp, InternalNotes = Form.Notes, GenerationJobId = GenerationSourceId,
+        Content = new() { Title = Form.Title, StudentGoal = Form.Goal, TeacherActions = Form.Actions, SuccessCriteria = Form.Criteria, StartsAtUtc = Utc(Form.Starts), EndsAtUtc = Utc(Form.Ends), ReassessmentAtUtc = Utc(Form.Reassessment), TargetPointRevisionIds = SelectedTargets.Order().ToList(),
+            Steps = Form.Steps.Select(x => new EducationTeachingPlanStep { Id = x.Id, Kind = x.Kind, Title = x.Title, Instructions = x.Instructions, EstimatedMinutes = x.Minutes, DueAtUtc = Utc(x.Due) }).ToList(), Materials = Form.Materials.ToList() } } }));
+    private Task ConfirmAsync() => TransitionAsync("confirm");
+    private Task PublishAsync() => TransitionAsync("publish");
+    private Task WithdrawAsync() => TransitionAsync("withdraw");
+    private Task TransitionAsync(string kind) => RunAsync(() => StartAsync(new() { Kind = kind, PlanId = EditingId, Transition = new() { OperationId = Guid.NewGuid(), ExpectedRevisionId = Current!.Current.Id, ConcurrencyStamp = Current.ConcurrencyStamp, Reason = Reason,
+        ConfirmRecipientAndContent = ConfirmTarget, ConfirmInlineMaterialRights = ConfirmMaterials, ConfirmStudentSafeText = ConfirmSafe } }));
+    private async Task StartAsync(Command command) { if (Pending != null || !StorageReady) return; command.AccountId = Account.Id; command.TenantId = Tenant.Id; await JS.InvokeVoidAsync("sessionStorage.setItem", StorageKey, JsonSerializer.Serialize(command)); Pending = command; await SendAsync(); }
+    private bool Matches(Command c) => c.AccountId == Account.Id && c.TenantId == Tenant.Id && c.PlanId != Guid.Empty && c.OperationId != Guid.Empty && (c.Kind == "save" && c.Save != null && c.Transition == null || c.Kind is "confirm" or "publish" or "withdraw" && c.Transition != null && c.Save == null);
+    private async Task SendAsync() { if (Pending is not { } c || !Matches(c)) throw new InvalidOperationException(L["EducationGrading:NoReceipt"]);
+        var result = c.Kind switch { "save" => await Plans.SaveDraftAsync(c.PlanId, c.Save!), "confirm" => await Plans.ConfirmAsync(c.PlanId, c.Transition!), "publish" => await Plans.PublishAsync(c.PlanId, c.Transition!), _ => await Plans.WithdrawAsync(c.PlanId, c.Transition!) }; await CompleteAsync(result);
+    }
+    private Task RecoverAsync() => RunAsync(async () => { if (Pending is not { } c || !Matches(c)) throw new InvalidOperationException(L["EducationGrading:NoReceipt"]); var result = await Plans.GetOperationAsync(c.PlanId, c.OperationId); if (result == null) Error = L["EducationReport:NoReceipt"]; else await CompleteAsync(result); });
+    private async Task CompleteAsync(EducationTeachingPlanRevisionDto result) { if (Pending == null || Pending.PlanId != result.PlanId || Pending.OperationId != result.Id) throw new InvalidOperationException(L["EducationGrading:NoReceipt"]); await JS.InvokeVoidAsync("sessionStorage.removeItem", StorageKey); Pending = null; Receipt = result.Id.ToString(); await LoadPlanAsync(result.PlanId); await LoadListAsync(); }
+    private Task AbandonAsync() => RunAsync(async () => { if (await JS.InvokeAsync<bool>("confirm", L["EducationReport:AbandonHint"].Value)) { await JS.InvokeVoidAsync("sessionStorage.removeItem", StorageKey); Pending = null; StorageReady = true; Current = null; Source = null; Dirty = false; await LoadListAsync(); } });
+    private async Task<bool> CanReplaceAsync() => !Dirty || await JS.InvokeAsync<bool>("confirm", L["EducationGrading:Discard"].Value);
+    private async Task LeaveAsync(Microsoft.AspNetCore.Components.Routing.LocationChangingContext context) { if (Busy) { context.PreventNavigation(); return; } if ((Dirty || Pending != null) && !await JS.InvokeAsync<bool>("confirm", L["EducationGrading:Discard"].Value)) context.PreventNavigation(); }
+    private async Task RunAsync(Func<Task> action) { if (Busy) return; Busy = true; Error = null; try { await action(); } catch (Exception ex) { Error = GetUserFriendlyErrorMessage(ex); } finally { Busy = false; } }
+    private static string Local(DateTime value) => value.ToLocalTime().ToString("yyyy-MM-dd HH:mm");
+    private sealed class Editor { public string Title { get; set; } = ""; public string Goal { get; set; } = ""; public string Actions { get; set; } = ""; public string Criteria { get; set; } = ""; public string Notes { get; set; } = ""; public Editor() { Starts = DateTime.Now; Ends = Starts.AddDays(7); Reassessment = Ends; } public DateTime Starts { get; set; } public DateTime Ends { get; set; } public DateTime Reassessment { get; set; } public List<StepEditor> Steps { get; set; } = []; public List<EducationTeachingPlanMaterial> Materials { get; set; } = []; }
+    private sealed class StepEditor { public Guid Id { get; set; } public EducationTeachingPlanStepKind Kind { get; set; } public string Title { get; set; } = ""; public string Instructions { get; set; } = ""; public int Minutes { get; set; } public DateTime Due { get; set; } }
+    private sealed class Command { public Guid? AccountId { get; set; } public Guid? TenantId { get; set; } public Guid PlanId { get; set; } public string Kind { get; set; } = ""; public SaveEducationTeachingPlanDraftDto? Save { get; set; } public TransitionEducationTeachingPlanDto? Transition { get; set; } public Guid OperationId => Save?.OperationId ?? Transition?.OperationId ?? Guid.Empty; }
+}

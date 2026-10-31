@@ -1,7 +1,19 @@
 @page "/question-bank/ai-candidates"
 @attribute [Authorize(KnowPulsePermissions.QuestionBank.AiGeneration)]
 @inherits KnowPulseComponentBase
+@using KnowPulse.Education
+@using System.Text.Json
+@using System.Security.Cryptography
+@using System.Text
+@using System.Threading
+@implements IAsyncDisposable
 @inject IAiQuestionGenerationAppService AiQuestionGenerationAppService
+@inject IJSRuntime JSRuntime
+@inject IEducationSchoolAppService SchoolAppService
+@inject IEducationCurriculumAppService CurriculumAppService
+@inject IEducationPreparationAppService PreparationAppService
+@inject Volo.Abp.Users.ICurrentUser CurrentAccount
+@inject Volo.Abp.MultiTenancy.ICurrentTenant CurrentTenantContext
 @inject IQuestionAppService QuestionAppService
 @inject IPositionAppService PositionAppService
 @inject IPermissionChecker PermissionChecker
@@ -9,6 +21,7 @@
 <PageTitle>AI 候选题</PageTitle>
 
 <QuestionBankFlowNav ActiveStage="create" />
+<NavigationLock OnBeforeInternalNavigation="ConfirmNavigationAsync" ConfirmExternalNavigation="@HasUnsavedChanges" />
 
 @* 页面只负责生成和采纳候选题；审核动作统一在题库审核队列处理。 *@
 <div class="kp-flex kp-flex-wrap kp-align-center kp-justify-between kp-gap-2 kp-mb-3">
@@ -31,6 +44,11 @@
 {
     <div class="kp-alert kp-alert--success" role="alert">@SuccessMessage</div>
 }
+@if (CreationOperation != null)
+{
+    <div class="kp-alert kp-alert--info kp-flex kp-flex-wrap kp-justify-between kp-gap-2" role="status"><span>@L["EducationGeneration:OperationRecoveryHint"]</span><button type="button" class="kp-button kp-button--sm kp-button--primary-outline" @onclick="RecoverCreationAsync" disabled="@IsBusy">@L["EducationGeneration:CheckCreationResult"]</button></div>
+}
+@if (StorageNotice != null) { <p class="kp-text-small kp-text-warning" role="status">@StorageNotice</p> }
 
 <div class="kp-grid kp-grid-gap-3">
     <div class="kp-col-xl-4">
@@ -45,16 +63,104 @@
                 <div class="kp-text-small kp-text-muted kp-mb-3">描述要覆盖的内容，系统会检索可引用的知识。</div>
                 <EditForm Model="@FormModel" OnValidSubmit="@GenerateAsync">
                     <DataAnnotationsValidator />
+                    <fieldset disabled="@IsBusy">
+                    <div class="kp-mb-3">
+                        <label class="kp-label" for="ai-generation-mode">@L["EducationGeneration:Mode"]</label>
+                        <select id="ai-generation-mode" class="kp-select" @bind="IsCurriculumGeneration" @bind:after="GenerationModeChanged" disabled="@HasPreparationContext">
+                            <option value="true">@L["EducationGeneration:CurriculumMode"]</option>
+                            <option value="false">@L["EducationGeneration:EnterpriseMode"]</option>
+                        </select>
+                        <p class="kp-text-small kp-text-muted kp-mt-1">@L[IsCurriculumGeneration ? "EducationGeneration:CurriculumRequiredHint" : "EducationGeneration:UnconfirmedHint"]</p>
+                    </div>
+                    @if (HasPreparationContext)
+                    {
+                        <div class="kp-alert @(PreparationError == null ? "kp-alert--info" : "kp-alert--warning")" role="status">
+                            @if (PreparationRevision != null)
+                            {
+                                <strong>@L["EducationGeneration:FromPreparation", PreparationRevision.Title, PreparationRevision.RevisionNumber]</strong>
+                            }
+                            <a class="kp-block kp-mt-1" href="/education/preparations">@L["EducationGeneration:ReturnPreparation"]</a>
+                            @if (PreparationError != null) { <p class="kp-mb-0 kp-mt-1">@PreparationError</p> }
+                            <button type="button" class="kp-button kp-button--sm kp-button--secondary kp-mt-2" @onclick="ReloadPreparationAsync">@L["EducationGeneration:ReloadPreparation"]</button>
+                        </div>
+                    }
+                    @if (IsCurriculumGeneration)
+                    {
+                        <div class="kp-mb-3">
+                            <label class="kp-label" for="ai-curriculum-choice">@L["EducationGeneration:Selection"]</label>
+                            <select id="ai-curriculum-choice" class="kp-select" @bind="SelectionIdText" @bind:after="SelectionChangedAsync" disabled="@(IsSchoolLoading || HasPreparationContext)">
+                                <option value="">@L["EducationCurriculum:Choose"]</option>
+                                @foreach (var choice in CurriculumChoices)
+                                {
+                                    <option value="@choice.Selection.Id">@SelectionLabel(choice)</option>
+                                }
+                            </select>
+                            @if (CurriculumChoices.Count == 0 && !IsSchoolLoading)
+                            {
+                                <p class="kp-text-small kp-text-muted kp-mt-1">@L["EducationGeneration:NoSelections"] <a href="/education/curriculum">@L["EducationGeneration:ManageSelections"]</a></p>
+                            }
+                            @if (CurriculumLoadError != null) { <p class="kp-text-small kp-text-danger" role="alert">@CurriculumLoadError</p> }
+                            <button type="button" class="kp-button kp-button--sm kp-button--secondary kp-mt-2" @onclick="RefreshCurriculumAsync" disabled="@IsSchoolLoading">@L["EducationGeneration:RefreshSelections"]</button>
+                        </div>
+                        @if (SelectedTextbook != null)
+                        {
+                            <div class="kp-text-small kp-text-muted kp-mb-2">@BookLabel(SelectedTextbook)</div>
+                            <div class="kp-mb-3">
+                                <label class="kp-label" for="ai-chapter-filter">@L["EducationGeneration:ChapterFilter"]</label>
+                                <select id="ai-chapter-filter" class="kp-select" @bind="ChapterFilterId">
+                                    <option value="">@L["EducationGeneration:AllChapters"]</option>
+                                    @foreach (var chapter in SelectedTextbook.Chapters.OrderBy(x => x.DisplayOrder))
+                                    { <option value="@chapter.Id">@chapter.Code · @chapter.Title</option> }
+                                </select>
+                                <div class="qb-ai-mappings kp-mt-2" role="group" aria-label="@L["EducationGeneration:Mappings"]">
+                                    @foreach (var mapping in FilteredMappings)
+                                    {
+                                        <label class="qb-ai-mapping" for="@($"ai-mapping-{mapping.Id:N}")">
+                                            <input id="@($"ai-mapping-{mapping.Id:N}")" type="checkbox" class="kp-check__input" checked="@SelectedMappingIds.Contains(mapping.Id)" @onchange="eventArgs => ToggleMapping(mapping.Id, eventArgs)" disabled="@HasPreparationContext" />
+                                            <span>@MappingLabel(mapping)</span>
+                                        </label>
+                                    }
+                                </div>
+                                <p class="kp-text-small kp-text-muted kp-mt-2 kp-mb-0">@L["EducationGeneration:SelectedCount", SelectedMappingIds.Count]</p>
+                            </div>
+                        }
+                    }
+
+                    <div class="kp-mb-3">
+                        <label class="kp-label" for="ai-knowledge-source">@L["KnowledgeScope:Label"]</label>
+                        <select id="ai-knowledge-source" class="kp-select" @bind="FormModel.Scope" @bind:after="ScopeChanged" disabled="@IsBusy">
+                            <option value="@KnowledgeSearchScope.AllAccessible">@L[IsCurriculumGeneration ? "EducationGeneration:PersonalAndSchool" : "KnowledgeScope:AllAccessible"]</option>
+                            <option value="@KnowledgeSearchScope.PersonalLibrary">@L["KnowledgeScope:PersonalLibrary"]</option>
+                            <option value="@KnowledgeSearchScope.SchoolShared">@L["KnowledgeScope:SchoolShared"]</option>
+                        </select>
+                    </div>
+                    @if (!IsCurriculumGeneration && FormModel.Scope != KnowledgeSearchScope.PersonalLibrary)
+                    {
+                        <div class="kp-mb-3">
+                            <label class="kp-label" for="ai-school-source">@L["KnowledgeScope:SchoolLabel"]</label>
+                            <select id="ai-school-source" class="kp-select" @bind="FormModel.SchoolIdText" disabled="@(IsBusy || IsSchoolLoading)">
+                                <option value="">@L["KnowledgeScope:AllSchools"]</option>
+                                @foreach (var school in TeacherSchools)
+                                {
+                                    <option value="@school.Id">@school.Name</option>
+                                }
+                            </select>
+                            <p class="kp-text-small kp-text-muted kp-mt-1 kp-mb-1">@L["KnowledgeScope:SchoolHint"]</p>
+                            @if (SchoolLoadError != null) { <p class="kp-text-small kp-text-danger" role="alert">@SchoolLoadError</p> }
+                            <button type="button" class="kp-button kp-button--sm kp-button--secondary" @onclick="LoadTeacherSchoolsAsync" disabled="@(IsBusy || IsSchoolLoading)">@L["KnowledgeScope:RefreshSchools"]</button>
+                        </div>
+                    }
 
                     <div class="kp-mb-3">
                         <label class="kp-label" for="ai-scope">想考察什么</label>
-                        <textarea id="ai-scope" class="kp-input" rows="3" @bind="FormModel.KnowledgeScope" @bind:event="oninput" placeholder="例如：新员工信息安全制度中的账号与密码要求"></textarea>
+                        <textarea id="ai-scope" class="kp-input" rows="3" @bind="FormModel.KnowledgeScope" @bind:event="oninput" placeholder="@(IsCurriculumGeneration ? L["EducationGeneration:ScopePlaceholder"].Value : "例如：新员工信息安全制度中的账号与密码要求")"></textarea>
                         <ValidationMessage For="@(() => FormModel.KnowledgeScope)" />
                     </div>
 
                     <div class="kp-mb-3">
-                        <label class="kp-label" for="ai-points">知识点标签</label>
-                        <input id="ai-points" class="kp-input" @bind="FormModel.KnowledgePointText" @bind:event="oninput" placeholder="例如：账号安全、密码规范" />
+                        <label class="kp-label" for="ai-points">@(IsCurriculumGeneration ? L["EducationGeneration:QueryTerms"].Value : "知识点标签")</label>
+                        <input id="ai-points" class="kp-input" @bind="FormModel.KnowledgePointText" @bind:event="oninput" />
+                        @if (IsCurriculumGeneration) { <p class="kp-text-small kp-text-muted kp-mt-1 kp-mb-0">@L["EducationGeneration:QueryTermsHint"]</p> }
                     </div>
 
                     <div class="kp-grid kp-grid-gap-2">
@@ -65,6 +171,7 @@
                                 <option value="@QuestionType.MultipleChoice">多选</option>
                                 <option value="@QuestionType.TrueFalse">判断</option>
                                 <option value="@QuestionType.FillBlank">填空</option>
+                                <option value="@QuestionType.Subjective" disabled="@(!IsCurriculumGeneration)">@L["QuestionType:Subjective"]</option>
                             </select>
                         </div>
                         <div class="kp-col-md-6">
@@ -81,7 +188,13 @@
                         <label class="kp-label" for="ai-count">生成数量</label>
                         <InputNumber id="ai-count" class="kp-input" @bind-Value="FormModel.RequestedCount" />
                     </div>
+                    <div class="kp-grid kp-grid-gap-2 kp-mt-2">
+                        <div class="kp-col-md-6"><label class="kp-label" for="ai-score">@L["EducationGeneration:Score"]</label><InputNumber id="ai-score" class="kp-input" step="0.01" @bind-Value="FormModel.Score" /><ValidationMessage For="@(() => FormModel.Score)" /></div>
+                        <div class="kp-col-md-6"><label class="kp-label" for="ai-purpose">@L["EducationGeneration:Purpose"]</label><select id="ai-purpose" class="kp-select" @bind="FormModel.Purpose"><option value="Practice">@L["EducationGeneration:Purpose:Practice"]</option><option value="ChapterPractice">@L["EducationGeneration:Purpose:ChapterPractice"]</option><option value="Assessment">@L["EducationGeneration:Purpose:Assessment"]</option><option value="Retest">@L["EducationGeneration:Purpose:Retest"]</option></select></div>
+                    </div>
 
+                    @if (!IsCurriculumGeneration)
+                    {
                     <div class="kp-mt-3">
                         <label class="kp-label" for="ai-position">适用岗位</label>
                         <select id="ai-position" class="kp-select" @bind="FormModel.ApplicablePositionIdText">
@@ -92,6 +205,7 @@
                             }
                         </select>
                     </div>
+                    }
 
                     <details class="kp-mt-3 qb-ai-advanced">
                         <summary>高级设置</summary>
@@ -111,7 +225,9 @@
                         </div>
                     </details>
 
-                    <button class="kp-button kp-button--primary kp-full-width kp-mt-3" type="submit" disabled="@IsBusy">@(IsBusy ? "正在生成…" : "开始生成候选题")</button>
+                    <button class="kp-button kp-button--primary kp-full-width kp-mt-3" type="submit" disabled="@(IsBusy || (IsCurriculumGeneration && !HasValidCurriculumScope))">@L[IsBusy ? "EducationGeneration:Submitting" : "EducationGeneration:Submit"]</button>
+                    <p class="kp-text-small kp-text-muted kp-mt-2 kp-mb-0">@L["EducationGeneration:AsyncHint"]</p>
+                    </fieldset>
                 </EditForm>
             </div>
         </div>
@@ -151,6 +267,7 @@
                                             <span class="kp-text-semibold">@Trim(task.KnowledgeScope, 40)</span>
                                         </button>
                                         <div class="kp-text-small kp-text-muted">@GetTypeText(task.Type) / @GetDifficultyText(task.Difficulty) / @task.GeneratedCount/@task.RequestedCount</div>
+                                        <div class="kp-text-small kp-text-muted">@TaskScopeText(task)</div>
                                     </td>
                                     <td><span class="kp-badge @GetTaskStatusBadge(task.Status)">@GetTaskStatusText(task.Status)</span></td>
                                     <td class="kp-text-end">
@@ -189,15 +306,34 @@
                         <div>
                             <h2 class="kp-heading-6 kp-mb-1">@SelectedTask.KnowledgeScope</h2>
                             <div class="kp-text-small kp-text-muted">已生成 @SelectedTask.GeneratedCount / @SelectedTask.RequestedCount 道 · @GetTypeText(SelectedTask.Type) · @GetDifficultyText(SelectedTask.Difficulty)</div>
+                            <div class="kp-text-small kp-text-muted kp-mt-1">@TaskScopeText(SelectedTask)</div>
+                            <div class="kp-text-small kp-text-muted">@L["KnowledgeScope:RetryHint"]</div>
+                            <div class="kp-text-small kp-text-muted">@L["EducationGeneration:RunSummary", SelectedTask.RunNumber, SelectedTask.AttemptCount, SelectedTask.Score, PurposeText(SelectedTask.Purpose)]</div>
                         </div>
                         <span class="kp-badge @GetTaskStatusBadge(SelectedTask.Status)">@GetTaskStatusText(SelectedTask.Status)</span>
                     </div>
+                    @if (SelectedTask.CurriculumSnapshot != null)
+                    {
+                        <div class="qb-ai-curriculum-summary kp-mt-3"><strong>@L["EducationGeneration:TaskScope"]</strong><div>@SnapshotLabel(SelectedTask.CurriculumSnapshot)</div><ul class="kp-text-small kp-mb-0 kp-mt-1">@foreach (var mapping in SelectedTask.CurriculumSnapshot.Mappings) { <li>@SnapshotMappingLabel(mapping)</li> }</ul></div>
+                    }
+                    else { <div class="kp-alert alert-secondary kp-mt-3 kp-mb-0">@L["EducationGeneration:UnconfirmedHint"]</div> }
+                    @if (IsRunning(SelectedTask))
+                    {
+                        <p class="kp-mt-3 kp-mb-0" role="status">@L["EducationGeneration:RunningHint"]</p>
+                        @if (SelectedTask.NextAttemptAtUtc.HasValue) { <p class="kp-text-small kp-text-muted kp-mb-0">@L["EducationGeneration:NextAttempt", SelectedTask.NextAttemptAtUtc.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")]</p> }
+                    }
+                    @if (PollError != null) { <p class="kp-text-small kp-text-warning kp-mt-2 kp-mb-0" role="status">@PollError</p> }
                     @if (!string.IsNullOrWhiteSpace(SelectedTask.FailureReason))
                     {
                         <div class="kp-alert kp-alert--warning kp-mt-3 kp-mb-0">
-                            @SelectedTask.FailureStage：@SelectedTask.FailureReason
+                            @L[SelectedTask.FailureReason]
                         </div>
                     }
+                    <div class="kp-flex kp-flex-wrap kp-gap-2 kp-mt-3">
+                        @if (SelectedTask.Status == AiQuestionGenerationTaskStatus.Failed) { <button type="button" class="kp-button kp-button--primary-outline kp-button--sm" @onclick="() => RetryAsync(SelectedTask.Id)" disabled="@IsBusy">@L["EducationGeneration:ResumeFailed"]</button> }
+                        @if (!IsRunning(SelectedTask) || RegenerationOperations.ContainsKey(SelectedTask.Id)) { <button type="button" class="kp-button kp-button--secondary kp-button--sm" @onclick="() => RegenerateAsync(SelectedTask.Id)" disabled="@(IsBusy || EditingCandidateId.HasValue)">@L[RegenerationOperations.ContainsKey(SelectedTask.Id) ? "EducationGeneration:ConfirmRegenerationResult" : "EducationGeneration:Regenerate"]</button> }
+                    </div>
+                    <p class="kp-text-small kp-text-muted kp-mt-2 kp-mb-0">@L["EducationGeneration:PreserveHint"]</p>
                 </div>
             </div>
 
@@ -219,6 +355,7 @@
                                     <div>
                                         <h3 class="kp-heading-6 kp-mb-1">@candidate.Title</h3>
                                         <div class="kp-text-small kp-text-muted">@GetTypeText(candidate.Type) / @GetDifficultyText(candidate.Difficulty)</div>
+                                        <div class="kp-text-small kp-text-muted">@L["EducationGeneration:CandidateRun", candidate.RunNumber, candidate.Score, PurposeText(candidate.Purpose)] @(candidate.IsEdited ? L["EducationGeneration:Edited"].Value : string.Empty)</div>
                                     </div>
                                     <div class="kp-flex kp-flex-wrap kp-gap-2">
                                         <span class="kp-badge @GetCandidateStatusBadge(candidate.Status)">@GetCandidateStatusText(candidate.Status)</span>
@@ -241,7 +378,53 @@
                                     </div>
                                 </div>
 
+                                @if (candidate.CurriculumSnapshot != null)
+                                {
+                                    <p class="kp-text-small kp-mt-2 kp-mb-0">@L["EducationGeneration:CandidateMappings"]：@CandidateMappingText(candidate)</p>
+                                    @if (!candidate.HasValidatedCurriculumMapping) { <p class="kp-text-small kp-text-danger">@L["EducationGeneration:UnvalidatedMapping"]</p> }
+                                }
+                                @if (EditingCandidateId == candidate.Id && CandidateEdit != null)
+                                {
+                                    <EditForm Model="@CandidateEdit" OnValidSubmit="SaveCandidateAsync" class="qb-ai-editor kp-mt-3">
+                                        <DataAnnotationsValidator /><Microsoft.AspNetCore.Components.Forms.ValidationSummary />
+                                        <fieldset disabled="@IsBusy">
+                                            <label class="kp-label" for="ai-edit-title">@L["EducationGeneration:EditTitle"]</label><InputText id="ai-edit-title" class="kp-input kp-mb-2" @bind-Value="CandidateEdit.Title" />
+                                            <label class="kp-label" for="ai-edit-stem">@L["EducationGeneration:EditStem"]</label><InputTextArea id="ai-edit-stem" class="kp-input kp-mb-2" rows="4" @bind-Value="CandidateEdit.Stem" />
+                                            <label class="kp-label" for="ai-edit-analysis">@L["EducationGeneration:EditAnalysis"]</label><InputTextArea id="ai-edit-analysis" class="kp-input kp-mb-2" rows="3" @bind-Value="CandidateEdit.Analysis" />
+                                            @foreach (var option in CandidateEdit.Options)
+                                            {
+                                                <div class="kp-grid kp-grid-gap-2 kp-mb-2" @key="option"><div class="col-3"><label class="kp-text-small">@L["EducationGeneration:OptionKey"]<InputText class="kp-input" @bind-Value="option.OptionKey" /></label></div><div class="col"><label class="kp-text-small kp-full-width">@L["EducationGeneration:OptionContent"]<InputText class="kp-input" @bind-Value="option.Content" /></label></div><div class="col-auto align-self-end"><button type="button" class="kp-button kp-button--secondary" @onclick="() => CandidateEdit.Options.Remove(option)">@L["EducationGeneration:Remove"]</button></div></div>
+                                            }
+                                            @if (candidate.Type is QuestionType.SingleChoice or QuestionType.MultipleChoice) { <button type="button" class="kp-button kp-button--sm kp-button--secondary kp-mb-2" @onclick="AddEditOption" disabled="@(CandidateEdit.Options.Count >= 100)">@L["EducationGeneration:AddOption"]</button> }
+                                            @if (candidate.CurriculumSnapshot == null || candidate.Type is not (QuestionType.FillBlank or QuestionType.Subjective))
+                                            {
+                                            @foreach (var answer in CandidateEdit.Answers)
+                                            {
+                                                <div class="kp-flex kp-gap-2 kp-mb-2" @key="answer"><label class="kp-text-small flex-grow-1">@L["EducationGeneration:EditAnswer"]<InputText class="kp-input" @bind-Value="answer.Value" /></label><button type="button" class="kp-button kp-button--secondary align-self-end" @onclick="() => CandidateEdit.Answers.Remove(answer)">@L["EducationGeneration:Remove"]</button></div>
+                                            }
+                                            <button type="button" class="kp-button kp-button--sm kp-button--secondary kp-mb-2" @onclick="AddEditAnswer" disabled="@(CandidateEdit.Answers.Count >= 100)">@L["EducationGeneration:AddAnswer"]</button>
+                                            }
+                                            else if (CandidateEdit.Answers.Count > 0)
+                                            {
+                                                <p class="kp-text-small kp-text-warning">@L["EducationScoring:CandidateLegacyAnswerHint"] @string.Join("；", CandidateEdit.Answers.Select(x => x.Value))</p><button type="button" class="kp-button kp-button--sm kp-button--secondary" @onclick="() => CandidateEdit.Answers.Clear()">@L["EducationScoring:ClearLegacyAnswers"]</button>
+                                            }
+                                            @if (candidate.CurriculumSnapshot != null && (candidate.Type is QuestionType.MultipleChoice or QuestionType.FillBlank or QuestionType.Subjective || CandidateEdit.ScoringDefinition != null))
+                                            {
+                                                <QuestionScoringEditor Type="candidate.Type" @bind-Definition="CandidateEdit.ScoringDefinition" Mappings="CandidateRuleMappings(candidate)" Stem="CandidateEdit.Stem" TotalScore="candidate.Score" />
+                                            }
+                                            <p class="kp-text-small kp-text-muted">@L["EducationGeneration:EditSourceHint"]</p>
+                                            <button type="submit" class="kp-button kp-button--primary kp-button--sm">@L["EducationGeneration:SaveEdit"]</button>
+                                            <button type="button" class="kp-button kp-button--secondary kp-button--sm ms-2" @onclick="CancelEditAsync">@L["EducationGeneration:CancelEdit"]</button>
+                                            <button type="button" class="kp-button kp-button--secondary kp-button--sm ms-2" @onclick="() => ReloadCandidateEditAsync(candidate.Id)">@L["EducationGeneration:ReloadEdit"]</button>
+                                        </fieldset>
+                                    </EditForm>
+                                }
+
                                 <p class="kp-mt-3 kp-mb-2">@candidate.Stem</p>
+                                @if (candidate.ScoringDefinition != null)
+                                {
+                                    <QuestionScoringEditor Type="candidate.Type" Definition="candidate.ScoringDefinition" Mappings="CandidateRuleMappings(candidate)" ReadOnly="true" Stem="candidate.Stem" TotalScore="candidate.Score" />
+                                }
 
                                 @if (candidate.Options.Count > 0)
                                 {
@@ -309,7 +492,8 @@
                                 </div>
 
                                 <div class="kp-flex kp-flex-wrap kp-gap-2 kp-mt-3">
-                                    @if (CanAdopt(candidate))
+                                    @if (CanEdit(candidate)) { <button class="kp-button kp-button--secondary kp-button--sm" type="button" @onclick="() => BeginEditAsync(candidate)" disabled="@(IsBusy || EditingCandidateId.HasValue)">@L["EducationGeneration:Edit"]</button> }
+                                    @if (CanAdopt(candidate) && EditingCandidateId != candidate.Id)
                                     {
                                         <button class="kp-button kp-button--primary kp-button--sm" type="button" @onclick="() => AdoptCandidateAsync(candidate)" disabled="@IsBusy">采纳为草稿</button>
                                     }
@@ -328,6 +512,42 @@
 </div>
 
 @code {
+    [Parameter, SupplyParameterFromQuery(Name = "preparationId")] public string? PreparationIdText { get; set; }
+    [Parameter, SupplyParameterFromQuery(Name = "revisionId")] public string? PreparationRevisionIdText { get; set; }
+    private bool HasPreparationContext => PreparationIdText != null || PreparationRevisionIdText != null;
+    private string? LoadedPreparationQuery;
+    private LessonPreparationRevisionDto? PreparationRevision;
+    private string? PreparationError;
+    private bool IsCurriculumGeneration = true;
+    private string SelectionIdText = string.Empty, ChapterFilterId = string.Empty;
+    private TextbookVersionDto? SelectedTextbook;
+    private readonly List<CurriculumChoice> CurriculumChoices = [];
+    private readonly HashSet<Guid> SelectedMappingIds = [];
+    private string? CurriculumLoadError, PollError, StorageNotice;
+    private readonly CancellationTokenSource PollStop = new();
+    private Task? PollTask;
+    private bool GenerationDisposed;
+    private CreationOperationState? CreationOperation;
+    private readonly Dictionary<Guid, Guid> RegenerationOperations = [];
+    private string FormBaseline = string.Empty;
+    private Guid? EditingCandidateId;
+    private UpdateAiQuestionCandidateDto? CandidateEdit;
+    private string CandidateEditBaseline = string.Empty;
+    private bool HasUnsavedChanges => CandidateEdit != null && JsonSerializer.Serialize(CandidateEdit) != CandidateEditBaseline || FormBaseline.Length > 0 && FormState() != FormBaseline;
+    private CurriculumChoice? SelectedChoice => CurriculumChoices.FirstOrDefault(x => x.Selection.Id.ToString() == SelectionIdText);
+    private bool HasValidCurriculumScope
+    {
+        get
+        {
+            var book = SelectedTextbook;
+            return SelectedChoice != null && book != null && book.Status == TextbookVersionStatus.Published &&
+                SelectedMappingIds.Count > 0 && SelectedMappingIds.All(id => book.Mappings.Any(x => x.Id == id)) &&
+                (!HasPreparationContext || PreparationRevision != null && PreparationError == null && !PreparationRevision.NeedsCurriculumConfirmation);
+        }
+    }
+    private IEnumerable<TextbookKnowledgePointMappingDto> FilteredMappings => SelectedTextbook is { } book ? book.Mappings
+        .Where(x => string.IsNullOrWhiteSpace(ChapterFilterId) || x.ChapterId.ToString() == ChapterFilterId)
+        .OrderBy(x => book.Chapters.FirstOrDefault(c => c.Id == x.ChapterId)?.DisplayOrder).ThenBy(x => x.KnowledgePointCode) : [];
     // 页面一次加载的任务数量。MVP-2 页面以最近任务审核为主，暂不做复杂分页控件。
     private const int PageSize = 20;
 
@@ -336,6 +556,9 @@
 
     // 岗位下拉选项，用于给生成任务指定适用岗位。
     private readonly List<PositionDto> PositionList = new();
+    private readonly List<MySchoolDto> TeacherSchools = [];
+    private bool IsSchoolLoading;
+    private string? SchoolLoadError;
 
     // 已采纳候选题关联的题库草稿，用于展示草稿状态。
     private readonly Dictionary<Guid, QuestionDto> LinkedQuestions = new();
@@ -365,8 +588,150 @@
     protected override async Task OnInitializedAsync()
     {
         CanViewQuestions = await PermissionChecker.IsGrantedAsync(KnowPulsePermissions.QuestionBank.Questions);
-        await LoadPositionsAsync();
+        if (await PermissionChecker.IsGrantedAsync(KnowPulsePermissions.Organization.Positions)) await LoadPositionsAsync();
+        await LoadTeacherSchoolsAsync();
         await LoadTasksAsync();
+        FormBaseline = FormState();
+        PollTask = PollTasksAsync(PollStop.Token);
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        var query = $"{PreparationIdText}|{PreparationRevisionIdText}";
+        if (LoadedPreparationQuery == query) return;
+        LoadedPreparationQuery = query;
+        if (HasPreparationContext) await ReloadPreparationAsync();
+        else { PreparationRevision = null; PreparationError = null; }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        try
+        {
+            var saved = await JSRuntime.InvokeAsync<string?>("sessionStorage.getItem", OperationStorageKey);
+            if (!string.IsNullOrWhiteSpace(saved))
+            {
+                var operations = JsonSerializer.Deserialize<SavedOperations>(saved);
+                if (operations?.Creation is { Id: var creationId } creation && creationId != Guid.Empty) CreationOperation = creation;
+                foreach (var operation in operations?.Regenerations ?? [])
+                    if (operation.Key != Guid.Empty && operation.Value != Guid.Empty) RegenerationOperations[operation.Key] = operation.Value;
+                StateHasChanged();
+            }
+        }
+        catch (Exception) { StorageNotice = L["EducationGeneration:StorageUnavailable"]; StateHasChanged(); }
+    }
+
+    private string OperationStorageKey => $"knowpulse.ai-generation.operations.{CurrentTenantContext.Id}.{CurrentAccount.Id}";
+    private async Task PersistOperationsAsync()
+    {
+        try { await JSRuntime.InvokeVoidAsync("sessionStorage.setItem", OperationStorageKey, JsonSerializer.Serialize(new SavedOperations { Creation = CreationOperation, Regenerations = new(RegenerationOperations) })); }
+        catch (Exception) { StorageNotice = L["EducationGeneration:StorageUnavailable"]; }
+    }
+
+    private async Task LoadTeacherSchoolsAsync()
+    {
+        IsSchoolLoading = true;
+        try
+        {
+            var schools = await SchoolAppService.GetMySchoolsAsync();
+            TeacherSchools.Clear();
+            TeacherSchools.AddRange(schools.Items.Where(x => x.Roles.Contains(SchoolMemberRole.Teacher)));
+            CurriculumChoices.Clear();
+            CurriculumLoadError = null;
+            foreach (var school in TeacherSchools)
+            {
+                try
+                {
+                    var context = await CurriculumAppService.GetContextAsync(school.Id);
+                    var selections = await CurriculumAppService.GetMySelectionsAsync(school.Id);
+                    foreach (var selection in selections.Items.Where(x => !x.EndedAtUtc.HasValue && x.TextbookStatus == TextbookVersionStatus.Published))
+                    {
+                        var assignment = context.TeachingContexts.FirstOrDefault(x => x.Id == selection.TeachingAssignmentId);
+                        if (assignment != null) CurriculumChoices.Add(new CurriculumChoice(school, assignment, selection));
+                    }
+                }
+                catch (Exception exception) { CurriculumLoadError = GetUserFriendlyErrorMessage(exception); }
+            }
+            SchoolLoadError = null;
+        }
+        catch (Exception exception) { TeacherSchools.Clear(); CurriculumChoices.Clear(); SchoolLoadError = CurriculumLoadError = GetUserFriendlyErrorMessage(exception); }
+        finally { IsSchoolLoading = false; }
+    }
+    private void ScopeChanged()
+    {
+        FormModel.SchoolIdText = FormModel.Scope == KnowledgeSearchScope.PersonalLibrary ? null : IsCurriculumGeneration ? SelectedChoice?.School.Id.ToString() : FormModel.SchoolIdText;
+    }
+    private void GenerationModeChanged()
+    {
+        if (HasPreparationContext) IsCurriculumGeneration = true;
+        ScopeChanged();
+    }
+    private async Task RefreshCurriculumAsync() => await RunBusyAsync(async () =>
+    {
+        await LoadTeacherSchoolsAsync();
+        if (HasPreparationContext) await LoadPreparationCoreAsync();
+        else await LoadSelectionBookAsync(preserveMappings: true);
+    });
+    private async Task SelectionChangedAsync() => await RunBusyAsync(() => LoadSelectionBookAsync(preserveMappings: false));
+    private async Task LoadSelectionBookAsync(bool preserveMappings)
+    {
+        var previous = SelectedMappingIds.ToList();
+        SelectedMappingIds.Clear(); SelectedTextbook = null; ChapterFilterId = string.Empty;
+        var choice = SelectedChoice;
+        if (choice == null) { SelectionIdText = string.Empty; return; }
+        var book = await CurriculumAppService.GetTextbookAsync(choice.Selection.TextbookVersionId);
+        if (book.Status != TextbookVersionStatus.Published || book.SchoolId != choice.School.Id || book.Grade != choice.Assignment.Grade || book.EducationSubjectId != choice.Assignment.EducationSubjectId)
+            throw new InvalidOperationException(L["EducationGeneration:InvalidSelection"]);
+        SelectedTextbook = book;
+        if (preserveMappings) foreach (var id in previous.Where(id => book.Mappings.Any(x => x.Id == id))) SelectedMappingIds.Add(id);
+        ScopeChanged();
+    }
+    private void ToggleMapping(Guid id, ChangeEventArgs change)
+    {
+        if (HasPreparationContext) return;
+        if (change.Value is true) SelectedMappingIds.Add(id); else SelectedMappingIds.Remove(id);
+    }
+    private Task ReloadPreparationAsync() => RunBusyAsync(LoadPreparationCoreAsync);
+    private async Task LoadPreparationCoreAsync()
+    {
+        var previousRevisionId = PreparationRevision?.Id;
+        IsCurriculumGeneration = true; PreparationRevision = null; PreparationError = null;
+        SelectedTextbook = null; SelectedMappingIds.Clear(); SelectionIdText = string.Empty;
+        try
+        {
+            if (!Guid.TryParse(PreparationIdText, out var id) || id == Guid.Empty || !Guid.TryParse(PreparationRevisionIdText, out var revisionId) || revisionId == Guid.Empty)
+                throw new InvalidOperationException(L["EducationGeneration:InvalidPreparationLink"]);
+            var revision = await PreparationAppService.GetRevisionAsync(id, revisionId);
+            if (revision.PreparationId != id || revision.Id != revisionId || revision.NeedsCurriculumConfirmation)
+                throw new InvalidOperationException(L["EducationGeneration:PreparationNeedsConfirmation"]);
+            PreparationRevision = revision;
+            SelectionIdText = revision.Curriculum.TeacherTextbookSelectionId.ToString();
+            if (SelectedChoice == null) throw new InvalidOperationException(L["EducationGeneration:PreparationNeedsConfirmation"]);
+            await LoadSelectionBookAsync(preserveMappings: false);
+            var book = SelectedTextbook;
+            if (book == null || book.Id != revision.Curriculum.TextbookVersionId || revision.Curriculum.Mappings.Any(x => !book.Mappings.Any(m => m.Id == x.MappingId)))
+                throw new InvalidOperationException(L["EducationGeneration:PreparationNeedsConfirmation"]);
+            foreach (var mapping in revision.Curriculum.Mappings) SelectedMappingIds.Add(mapping.MappingId);
+            if (previousRevisionId != revision.Id)
+            {
+                var scopeText = $"{revision.Title}：{revision.Objectives}";
+                var pointText = string.Join("、", revision.Curriculum.Mappings.Select(x => x.KnowledgePointName).Distinct());
+                FormModel.KnowledgeScope = scopeText.Length > 512 ? scopeText[..512] : scopeText;
+                FormModel.KnowledgePointText = pointText.Length > 512 ? pointText[..512] : pointText;
+                FormBaseline = FormState();
+            }
+        }
+        catch (Exception exception) { PreparationError = GetUserFriendlyErrorMessage(exception); }
+    }
+    private string TaskScopeText(AiQuestionGenerationTaskDto task)
+    {
+        var scope = L[$"KnowledgeScope:{task.Scope}"].Value;
+        if (task.Scope == KnowledgeSearchScope.PersonalLibrary) return scope;
+        var school = task.SchoolId.HasValue
+            ? TeacherSchools.FirstOrDefault(x => x.Id == task.SchoolId.Value)?.Name ?? L["KnowledgeScope:FormerSchool"].Value
+            : L["KnowledgeScope:AllSchools"].Value;
+        return $"{scope} · {L["KnowledgeScope:SchoolLabel"]}：{school}";
     }
 
     // 加载岗位列表。岗位只影响候选题适用范围，不改变 RAG 权限过滤。
@@ -404,6 +769,7 @@
     // 用户点击任务列表时切换右侧详情。
     private async Task SelectTaskAsync(Guid taskId)
     {
+        if (SelectedTask?.Id != taskId && !await DiscardEditAsync()) return;
         await RunBusyAsync(() => SelectTaskCoreAsync(taskId));
     }
 
@@ -439,36 +805,78 @@
         }
     }
 
-    // 创建 AI 出题任务。后端会同步执行 RAG 检索、模型调用和候选题校验。
+    // Same submitted input keeps its operation ID, including an unknown HTTP outcome.
     private async Task GenerateAsync()
     {
         await RunBusyAsync(async () =>
         {
-            var task = await AiQuestionGenerationAppService.CreateAsync(new CreateAiQuestionGenerationTaskDto
-            {
-                Type = FormModel.Type,
-                Difficulty = FormModel.Difficulty,
-                RequestedCount = FormModel.RequestedCount,
-                TopK = FormModel.TopK,
-                KnowledgeScope = FormModel.KnowledgeScope.Trim(),
-                KnowledgePointText = FormModel.KnowledgePointText,
-                ApplicablePositionId = ParseNullableGuid(FormModel.ApplicablePositionIdText),
-                SecurityLevel = FormModel.SecurityLevel,
-                Tags = FormModel.Tags
-            });
-
-            SuccessMessage = "生成任务已完成";
+            if (!await DiscardEditAsync()) return;
+            var input = BuildGenerationInput();
+            var signature = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(input))));
+            if (CreationOperation == null || CreationOperation.Signature != signature)
+                CreationOperation = new CreationOperationState { Id = Guid.NewGuid(), Signature = signature };
+            input.IdempotencyKey = CreationOperation.Id;
+            await PersistOperationsAsync();
+            var task = await AiQuestionGenerationAppService.CreateAsync(input);
+            SelectedTask = task;
+            FormBaseline = FormState();
+            SuccessMessage = L["EducationGeneration:Queued"];
             await LoadTasksCoreAsync(task.Id);
         });
     }
 
-    // 重试任务。后端会清理该任务旧候选题后重新生成，调用日志仍保留审计历史。
+    private CreateAiQuestionGenerationTaskDto BuildGenerationInput()
+    {
+        if (!IsCurriculumGeneration && FormModel.Type == QuestionType.Subjective) throw new InvalidOperationException(L["EducationScoring:CurriculumRequired"]);
+        if (decimal.Round(FormModel.Score, 2) != FormModel.Score) throw new InvalidOperationException(L["EducationGeneration:ScorePrecision"]);
+        if (HasPreparationContext && !IsCurriculumGeneration || IsCurriculumGeneration && !HasValidCurriculumScope)
+            throw new InvalidOperationException(L["EducationGeneration:ChooseScopeRequired"]);
+        return new CreateAiQuestionGenerationTaskDto
+        {
+            Scope = FormModel.Scope,
+            SchoolId = FormModel.Scope == KnowledgeSearchScope.PersonalLibrary ? null : IsCurriculumGeneration ? SelectedChoice!.School.Id : ParseNullableGuid(FormModel.SchoolIdText),
+            CurriculumScope = IsCurriculumGeneration ? new EducationCurriculumScopeDto
+            { TeacherTextbookSelectionId = SelectedChoice!.Selection.Id, TextbookKnowledgePointMappingIds = SelectedMappingIds.OrderBy(x => x).ToList() } : null,
+            Score = FormModel.Score, Purpose = FormModel.Purpose,
+            Type = FormModel.Type, Difficulty = FormModel.Difficulty, RequestedCount = FormModel.RequestedCount,
+            TopK = FormModel.TopK, KnowledgeScope = FormModel.KnowledgeScope.Trim(), KnowledgePointText = FormModel.KnowledgePointText?.Trim(),
+            ApplicablePositionId = IsCurriculumGeneration ? null : ParseNullableGuid(FormModel.ApplicablePositionIdText),
+            SecurityLevel = FormModel.SecurityLevel, Tags = FormModel.Tags
+        };
+    }
+
+    private Task RecoverCreationAsync() => RunBusyAsync(async () =>
+    {
+        if (CreationOperation == null || !await DiscardEditAsync()) return;
+        await LoadTasksCoreAsync(CreationOperation.Id);
+        SuccessMessage = L["EducationGeneration:Recovered"];
+    });
+
+    private async Task RegenerateAsync(Guid taskId)
+    {
+        if (!RegenerationOperations.ContainsKey(taskId) && !await ConfirmAsync(L["EducationGeneration:ConfirmRegenerate"])) return;
+        await RunBusyAsync(async () =>
+        {
+            if (!RegenerationOperations.TryGetValue(taskId, out var operation))
+                RegenerationOperations[taskId] = operation = Guid.NewGuid();
+            await PersistOperationsAsync();
+            var task = await AiQuestionGenerationAppService.RegenerateAsync(taskId, new RegenerateAiQuestionGenerationTaskDto { IdempotencyKey = operation });
+            SelectedTask = task;
+            RegenerationOperations.Remove(taskId);
+            await PersistOperationsAsync();
+            SuccessMessage = L["EducationGeneration:Queued"];
+            await LoadTasksCoreAsync(taskId);
+        });
+    }
+
+    // Retry resumes the failed run and never removes prior candidates.
     private async Task RetryAsync(Guid taskId)
     {
         await RunBusyAsync(async () =>
         {
             var task = await AiQuestionGenerationAppService.RetryAsync(taskId);
-            SuccessMessage = "任务已重试";
+            SelectedTask = task;
+            SuccessMessage = L["EducationGeneration:RetryQueued"];
             await LoadTasksCoreAsync(task.Id);
         });
     }
@@ -505,6 +913,7 @@
     // 页面异步操作统一包装：清空旧提示、设置忙碌状态、捕获友好错误并恢复 loading 标志。
     private async Task RunBusyAsync(Func<Task> action)
     {
+        if (IsBusy || GenerationDisposed) return;
         try
         {
             ErrorMessage = null;
@@ -532,9 +941,146 @@
     // 候选题只有生成成功、未采纳且没有校验错误时，才允许采纳为草稿。
     private bool CanAdopt(AiQuestionCandidateDto candidate)
     {
-        return candidate.Status == AiQuestionCandidateStatus.Generated &&
+        return !EditingCandidateId.HasValue && candidate.Status == AiQuestionCandidateStatus.Generated &&
                !candidate.LinkedQuestionId.HasValue &&
-               string.IsNullOrWhiteSpace(candidate.ValidationErrors);
+               string.IsNullOrWhiteSpace(candidate.ValidationErrors) &&
+               (candidate.CurriculumSnapshot == null || candidate.HasValidatedCurriculumMapping);
+    }
+
+    private static bool CanEdit(AiQuestionCandidateDto candidate) => !candidate.LinkedQuestionId.HasValue &&
+        candidate.Status is AiQuestionCandidateStatus.Generated or AiQuestionCandidateStatus.ValidationFailed;
+    private Task BeginEditAsync(AiQuestionCandidateDto candidate) => RunBusyAsync(() =>
+    {
+        if (!CanEdit(candidate)) return Task.CompletedTask;
+        SetCandidateEdit(candidate);
+        return Task.CompletedTask;
+    });
+    private void SetCandidateEdit(AiQuestionCandidateDto candidate)
+    {
+        EditingCandidateId = candidate.Id;
+        CandidateEdit = new UpdateAiQuestionCandidateDto
+        {
+            ContentRevision = candidate.ContentRevision, Title = candidate.Title, Stem = candidate.Stem, Analysis = candidate.Analysis,
+            ScoringDefinition = candidate.ScoringDefinition == null ? null : JsonSerializer.Deserialize<QuestionScoringDefinition>(JsonSerializer.Serialize(candidate.ScoringDefinition)),
+            Options = candidate.Options.Select(x => new AiQuestionOptionDto { OptionKey = x.OptionKey, Content = x.Content, DisplayOrder = x.DisplayOrder }).ToList(),
+            Answers = candidate.Answers.Select(x => new AiQuestionAnswerDto { Value = x.Value, DisplayOrder = x.DisplayOrder }).ToList()
+        };
+        CandidateEditBaseline = JsonSerializer.Serialize(CandidateEdit);
+    }
+    private async Task SaveCandidateAsync() => await RunBusyAsync(async () =>
+    {
+        if (EditingCandidateId == null || CandidateEdit == null) return;
+        for (var index = 0; index < CandidateEdit.Options.Count; index++) CandidateEdit.Options[index].DisplayOrder = index + 1;
+        for (var index = 0; index < CandidateEdit.Answers.Count; index++) CandidateEdit.Answers[index].DisplayOrder = index + 1;
+        var candidate = await AiQuestionGenerationAppService.UpdateCandidateAsync(EditingCandidateId.Value, CandidateEdit);
+        var candidateIndex = SelectedTask?.Candidates.FindIndex(x => x.Id == candidate.Id) ?? -1;
+        if (candidateIndex >= 0) SelectedTask!.Candidates[candidateIndex] = candidate;
+        ClearEdit();
+        SuccessMessage = L["EducationGeneration:EditSaved"];
+        await SelectTaskCoreAsync(candidate.TaskId);
+    });
+    private async Task ReloadCandidateEditAsync(Guid id)
+    {
+        if (!await ConfirmAsync(L["EducationGeneration:ConfirmReloadEdit"])) return;
+        await RunBusyAsync(async () =>
+        {
+            var latest = await AiQuestionGenerationAppService.GetCandidateAsync(id);
+            if (!CanEdit(latest)) throw new InvalidOperationException(L["EducationGeneration:CandidateLocked"]);
+            SetCandidateEdit(latest);
+        });
+    }
+    private void AddEditOption() { var edit = CandidateEdit; if (edit != null) edit.Options.Add(new AiQuestionOptionDto { OptionKey = ((char)('A' + edit.Options.Count)).ToString(), DisplayOrder = edit.Options.Count + 1 }); }
+    private void AddEditAnswer() { var edit = CandidateEdit; if (edit != null) edit.Answers.Add(new AiQuestionAnswerDto { DisplayOrder = edit.Answers.Count + 1 }); }
+    private IReadOnlyDictionary<Guid, string> CandidateRuleMappings(AiQuestionCandidateDto candidate) => (candidate.CurriculumSnapshot?.Mappings ?? [])
+        .Where(x => candidate.TextbookKnowledgePointMappingIds.Contains(x.MappingId)).ToDictionary(x => x.MappingId, SnapshotMappingLabel);
+    private async Task CancelEditAsync() => await DiscardEditAsync();
+    private async Task<bool> DiscardEditAsync()
+    {
+        if (CandidateEdit != null && JsonSerializer.Serialize(CandidateEdit) != CandidateEditBaseline && !await ConfirmAsync(L["EducationGeneration:ConfirmDiscardEdit"])) return false;
+        ClearEdit();
+        return true;
+    }
+    private void ClearEdit() { EditingCandidateId = null; CandidateEdit = null; CandidateEditBaseline = string.Empty; }
+    private async Task ConfirmNavigationAsync(LocationChangingContext context)
+    {
+        if (HasUnsavedChanges && !await ConfirmAsync(L["EducationGeneration:ConfirmLeave"])) context.PreventNavigation();
+    }
+    private string FormState() => JsonSerializer.Serialize(new { FormModel, IsCurriculumGeneration, SelectionIdText, Mappings = SelectedMappingIds.OrderBy(x => x).ToList() });
+    private static bool IsRunning(AiQuestionGenerationTaskDto task) => task.Status is AiQuestionGenerationTaskStatus.Pending or AiQuestionGenerationTaskStatus.Processing;
+    private async Task PollTasksAsync(CancellationToken token)
+    {
+        try
+        {
+            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(5));
+            while (await timer.WaitForNextTickAsync(token))
+            {
+                if (IsBusy || IsLoading || SelectedTask == null || !IsRunning(SelectedTask)) continue;
+                var id = SelectedTask.Id;
+                try
+                {
+                    var task = await AiQuestionGenerationAppService.GetAsync(id);
+                    if (token.IsCancellationRequested) break;
+                    await InvokeAsync(() =>
+                    {
+                        if (GenerationDisposed || IsBusy || SelectedTask?.Id != id) return;
+                        SelectedTask = task;
+                        var index = TaskList.FindIndex(x => x.Id == id);
+                        if (index >= 0) TaskList[index] = task;
+                        PollError = null;
+                        StateHasChanged();
+                    });
+                }
+                catch (Exception)
+                {
+                    if (token.IsCancellationRequested || GenerationDisposed) break;
+                    await InvokeAsync(() => { if (!GenerationDisposed) { PollError = L["EducationGeneration:RefreshFailed"]; StateHasChanged(); } });
+                }
+            }
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+    }
+    public async ValueTask DisposeAsync()
+    {
+        if (GenerationDisposed) return;
+        GenerationDisposed = true;
+        try
+        {
+            PollStop.Cancel();
+            if (PollTask != null) { try { await PollTask.WaitAsync(TimeSpan.FromSeconds(1)); } catch (TimeoutException) { } }
+        }
+        finally
+        {
+            PollStop.Dispose();
+            base.Dispose(true);
+        }
+    }
+    private string SelectionLabel(CurriculumChoice choice) => $"{choice.School.Name} · {choice.Assignment.TermName} · {choice.Assignment.ClassName} · {choice.Assignment.SubjectName} · {choice.Selection.TextbookTitle} · {L["EducationCurriculum:RevisionNumber", choice.Selection.CatalogRevision]}";
+    private string BookLabel(TextbookVersionDto book) => $"{book.Publisher} · {book.Edition} · {book.Volume} · {L["EducationCurriculum:GradeNumber", book.Grade]} · {L["EducationCurriculum:RevisionNumber", book.CatalogRevision]}";
+    private string MappingLabel(TextbookKnowledgePointMappingDto mapping) => $"{SelectedTextbook?.Chapters.FirstOrDefault(x => x.Id == mapping.ChapterId)?.Title} · {mapping.KnowledgePointCode} · {mapping.KnowledgePointName} · {L["EducationCurriculum:RevisionNumber", mapping.RevisionNumber]}";
+    private string SnapshotLabel(EducationCurriculumSnapshot snapshot) => $"{snapshot.SubjectName} · {L["EducationCurriculum:GradeNumber", snapshot.Grade]} · {snapshot.TextbookTitle} · {snapshot.Publisher} · {snapshot.Edition} · {snapshot.Volume} · {L["EducationCurriculum:RevisionNumber", snapshot.CatalogRevision]}";
+    private string SnapshotMappingLabel(EducationCurriculumMappingSnapshot mapping) => $"{mapping.ChapterCode} · {mapping.ChapterTitle} · {mapping.KnowledgePointCode} · {mapping.KnowledgePointName} · {L["EducationCurriculum:RevisionNumber", mapping.RevisionNumber]}";
+    private string CandidateMappingText(AiQuestionCandidateDto candidate)
+    {
+        var ids = candidate.TextbookKnowledgePointMappingIds;
+        var known = candidate.CurriculumSnapshot?.Mappings ?? [];
+        var labels = ids.Select(id => known.FirstOrDefault(x => x.MappingId == id)).Where(x => x != null).Select(x => SnapshotMappingLabel(x!)).ToList();
+        var unavailable = ids.Count(id => known.All(x => x.MappingId != id));
+        if (unavailable > 0) labels.Add(L["EducationGeneration:UnknownMappingCount", unavailable]);
+        return labels.Count == 0 ? L["EducationGeneration:NoCandidateMappings"].Value : string.Join("；", labels);
+    }
+    private string PurposeText(string purpose) => purpose is "Practice" or "ChapterPractice" or "Assessment" or "Retest" ? L[$"EducationGeneration:Purpose:{purpose}"].Value : purpose;
+    private sealed record CurriculumChoice(MySchoolDto School, MyTeachingContextDto Assignment, TeacherTextbookSelectionDto Selection);
+    private sealed class CreationOperationState
+    {
+        public CreationOperationState() { }
+        public Guid Id { get; set; }
+        public string Signature { get; set; } = string.Empty;
+    }
+    private sealed class SavedOperations
+    {
+        public SavedOperations() { }
+        public CreationOperationState? Creation { get; set; }
+        public Dictionary<Guid, Guid> Regenerations { get; set; } = [];
     }
 
     // 获取候选题已经采纳出的题库草稿；无题库查看权限时返回 null。
@@ -571,6 +1117,7 @@
         QuestionType.MultipleChoice => "多选",
         QuestionType.TrueFalse => "判断",
         QuestionType.FillBlank => "填空",
+        QuestionType.Subjective => "简答 / 解答",
         _ => type.ToString()
     };
 
@@ -654,6 +1201,12 @@
     // 创建任务表单模型。使用字符串保存岗位 ID，便于和 select 的空值选项绑定。
     private class GenerationFormModel
     {
+        [Range(typeof(decimal), "0.01", "1000")] public decimal Score { get; set; } = 1;
+        [Required, StringLength(64)] public string Purpose { get; set; } = "Practice";
+        [EnumDataType(typeof(KnowledgeSearchScope))]
+        public KnowledgeSearchScope Scope { get; set; } = KnowledgeSearchScope.PersonalLibrary;
+        public string? SchoolIdText { get; set; }
+
         // 本次生成希望得到的题型。
         public QuestionType Type { get; set; } = QuestionType.SingleChoice;
 

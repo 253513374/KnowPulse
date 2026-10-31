@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
+using KnowPulse.Education;
 using KnowPulse.QuestionBank;
 using KnowPulse.RagAI;
 using Volo.Abp.Application.Dtos;
@@ -121,6 +122,17 @@ public class CreateAiQuestionGenerationTaskDto
 {
     [MaxLength(50)]
     public List<Guid> KnowledgeItemIds { get; set; } = [];
+    public Guid? IdempotencyKey { get; set; }
+    public EducationCurriculumScopeDto? CurriculumScope { get; set; }
+    [Range(typeof(decimal), "0.01", "1000")]
+    public decimal Score { get; set; } = 1;
+    [Required, StringLength(64)]
+    public string Purpose { get; set; } = "Practice";
+    [EnumDataType(typeof(KnowledgeSearchScope))]
+    public KnowledgeSearchScope Scope { get; set; } = KnowledgeSearchScope.PersonalLibrary;
+
+    public Guid? SchoolId { get; set; }
+
     /// <summary>
     /// 本次生成希望得到的题型。
     /// 模型输出若与该题型不一致，会被结构化校验标记为失败候选题。
@@ -180,6 +192,22 @@ public class CreateAiQuestionGenerationTaskDto
     public string? Tags { get; set; }
 }
 
+public class RegenerateAiQuestionGenerationTaskDto
+{
+    public Guid IdempotencyKey { get; set; }
+}
+
+public class UpdateAiQuestionCandidateDto
+{
+    public QuestionScoringDefinition? ScoringDefinition { get; set; }
+    [Range(0, int.MaxValue)] public int ContentRevision { get; set; }
+    [Required, StringLength(256)] public string Title { get; set; } = string.Empty;
+    [Required, StringLength(4000)] public string Stem { get; set; } = string.Empty;
+    [StringLength(2048)] public string? Analysis { get; set; }
+    [Required, MaxLength(100)] public List<AiQuestionOptionDto> Options { get; set; } = [];
+    [Required, MaxLength(100)] public List<AiQuestionAnswerDto> Answers { get; set; } = [];
+}
+
 /// <summary>
 /// 旧版候选题提交入口的兼容输入。
 /// 当前入口仅采纳为草稿，字段不再参与审核记录。
@@ -201,6 +229,18 @@ public class AiQuestionGenerationTaskDto : FullAuditedEntityDto<Guid>
 {
     public Guid? OwnerTeacherId { get; set; }
     public List<Guid> KnowledgeItemIds { get; set; } = [];
+    public EducationCurriculumScopeDto? CurriculumScope { get; set; }
+    public EducationCurriculumSnapshot? CurriculumSnapshot { get; set; }
+    public decimal Score { get; set; }
+    public string Purpose { get; set; } = string.Empty;
+    public int RunNumber { get; set; }
+    public int AttemptCount { get; set; }
+    public DateTime? LastHeartbeatAtUtc { get; set; }
+    public DateTime? NextAttemptAtUtc { get; set; }
+    public KnowledgeSearchScope Scope { get; set; }
+
+    public Guid? SchoolId { get; set; }
+
     /// <summary>
     /// 任务当前生命周期状态。
     /// </summary>
@@ -423,6 +463,17 @@ public class AiQuestionModelConfigurationDto
 /// </summary>
 public class AiQuestionCandidateDto : FullAuditedEntityDto<Guid>
 {
+    public QuestionScoringDefinition? ScoringDefinition { get; set; }
+    public int RunNumber { get; set; }
+    public int OutputOrdinal { get; set; }
+    public int ContentRevision { get; set; }
+    public bool IsEdited { get; set; }
+    public decimal Score { get; set; }
+    public string Purpose { get; set; } = string.Empty;
+    public EducationCurriculumSnapshot? CurriculumSnapshot { get; set; }
+    public List<Guid> TextbookKnowledgePointMappingIds { get; set; } = [];
+    public List<Guid> SubmittedCitationChunkIds { get; set; } = [];
+    public bool HasValidatedCurriculumMapping { get; set; }
     /// <summary>
     /// 候选题所属 AI 出题任务。
     /// </summary>
@@ -566,6 +617,9 @@ public class AiQuestionAnswerDto
 /// </summary>
 public class AiQuestionCandidateCitationDto : EntityDto<Guid>
 {
+    public Guid? SchoolKnowledgeShareId { get; set; }
+    public List<Guid> CurriculumBindingIds { get; set; } = [];
+    public List<Guid> TextbookKnowledgePointMappingIds { get; set; } = [];
     /// <summary>
     /// citation 所属候选题 ID。
     /// </summary>

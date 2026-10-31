@@ -11,7 +11,7 @@ public partial class AiQuestionGenerationAppService
     private async Task<AiQuestionGenerationTask> GetOwnedTaskAsync(Guid id)
     {
         var task = await _taskRepository.GetAsync(id);
-        EnsureTeachingOwner(task.OwnerTeacherId);
+        await SourceAccess.EnsureTaskAsync(task);
         return task;
     }
 

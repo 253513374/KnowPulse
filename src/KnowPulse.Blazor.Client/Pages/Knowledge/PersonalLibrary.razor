@@ -1,0 +1,845 @@
+@page "/my-knowledge"
+@attribute [Authorize(KnowPulsePermissions.KnowledgeBase.PersonalLibrary)]
+@inherits KnowPulseComponentBase
+@inject IKnowledgeLibraryAppService LibraryAppService
+@inject IKnowledgeItemAppService ItemAppService
+@inject IKnowledgeIndexJobAppService IndexJobAppService
+@inject IKnowledgePersonalExportAppService ExportAppService
+@inject IJSRuntime JSRuntime
+@inject NavigationManager NavigationManager
+
+<PageTitle>@L[NotebookMode ? "EducationNotebook:Title" : "Menu:PersonalKnowledgeLibrary"]</PageTitle>
+
+<div class="kp-flex kp-flex-wrap kp-align-center kp-justify-between kp-gap-3 kp-mb-3">
+    <div>
+        <h1 class="kp-heading-3 kp-mb-1">@L[NotebookMode ? "EducationNotebook:Title" : "Menu:PersonalKnowledgeLibrary"]</h1>
+        <p class="kp-text-muted kp-mb-0">@L[NotebookMode ? "EducationNotebook:PrivateDescription" : "PersonalKnowledge:PrivateDescription"]</p>
+    </div>
+    <div class="kp-flex kp-gap-2">
+        <button class="kp-button kp-button--primary" @onclick="StartCreateAsync" disabled="@IsBusy">@L[NotebookMode ? "EducationNotebook:NewNote" : "PersonalKnowledge:NewItem"]</button>
+        <button class="kp-button kp-button--secondary" @onclick="RefreshAsync" disabled="@IsBusy">@L["PersonalKnowledge:Refresh"]</button>
+    </div>
+</div>
+
+@if (NotebookMode)
+{
+    <p class="kp-alert kp-alert--info">@L["EducationNotebook:SaveHint"]</p>
+    <p class="kp-text-small kp-text-muted">@L["EducationNotebook:SourceHint"]</p>
+}
+
+@if (!string.IsNullOrEmpty(ErrorMessage))
+{
+    <div class="kp-alert kp-alert--error" role="alert">@ErrorMessage</div>
+}
+@if (!string.IsNullOrEmpty(SuccessMessage))
+{
+    <div class="kp-alert kp-alert--success" role="status">@SuccessMessage</div>
+}
+
+<div class="kp-card kp-mb-3">
+    <div class="kp-card__body">
+        <div class="kp-flex kp-flex-wrap kp-justify-between kp-align-center kp-gap-2 kp-mb-2">
+            <h2 class="kp-heading-5 kp-mb-0">@L["PersonalKnowledge:Exports"]</h2>
+            <div class="kp-flex kp-gap-2">
+                <button class="kp-button kp-button--sm kp-button--primary-outline" @onclick="CreateExportAsync" disabled="@(IsBusy || Library == null)">@(ExportRequestId.HasValue ? L["PersonalKnowledge:RetryExportRequest"] : L["PersonalKnowledge:CreateExport"])</button>
+                <button class="kp-button kp-button--sm kp-button--secondary" @onclick="RefreshExportsAsync" disabled="@IsBusy">@L["PersonalKnowledge:Refresh"]</button>
+            </div>
+        </div>
+        <p class="kp-text-small kp-text-muted">@L["PersonalKnowledge:ExportDescription"]</p>
+        @if (ExportRequestId.HasValue)
+        {
+            <p class="kp-text-small" role="status">@L["PersonalKnowledge:ExportRequestUnconfirmed"]</p>
+        }
+        @if (Exports.Count == 0)
+        {
+            <p class="kp-text-small kp-text-muted kp-mb-0">@L["PersonalKnowledge:NoExports"]</p>
+        }
+        @foreach (var export in Exports)
+        {
+            <div class="border-top pt-2 kp-mt-2 kp-flex kp-flex-wrap kp-justify-between kp-align-center kp-gap-2">
+                <div>
+                    <span class="kp-text-semibold">@GetExportStatus(export.Status)</span>
+                    <span class="kp-text-small kp-text-muted ms-2">@export.CreationTime.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</span>
+                    @if (export.SnapshotAtUtc.HasValue)
+                    {
+                        <p class="kp-text-small kp-text-muted kp-mb-0">@L["PersonalKnowledge:ExportSnapshot", export.SnapshotAtUtc.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm")]</p>
+                    }
+                    @if (export.ExpiresAtUtc.HasValue)
+                    {
+                        <p class="kp-text-small kp-text-muted kp-mb-0">@L["PersonalKnowledge:ExportExpires", export.ExpiresAtUtc.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm")]</p>
+                    }
+                    @if (export.FileSize.HasValue)
+                    {
+                        <p class="kp-text-small kp-text-muted kp-mb-0">@L["PersonalKnowledge:ExportSize", Math.Ceiling(export.FileSize.Value / 1024d)]</p>
+                    }
+                    @if (export.Status == PersonalKnowledgeExportStatus.Failed)
+                    {
+                        <p class="kp-text-small kp-mb-0">@GetExportFailure(export.FailureCode)</p>
+                    }
+                </div>
+                <div class="kp-flex kp-gap-2">
+                    @if (export.CanDownload)
+                    {
+                        <button class="kp-button kp-button--sm kp-button--primary-outline" @onclick="() => DownloadExportAsync(export)" disabled="@IsBusy">@L["PersonalKnowledge:DownloadExport"]</button>
+                    }
+                    @if (export.CanRetry)
+                    {
+                        <button class="kp-button kp-button--sm kp-button--secondary" @onclick="() => RetryExportAsync(export)" disabled="@IsBusy">@L["PersonalKnowledge:RetryExport"]</button>
+                    }
+                    @if (export.Status is PersonalKnowledgeExportStatus.Pending or PersonalKnowledgeExportStatus.Processing or PersonalKnowledgeExportStatus.Completed)
+                    {
+                        <button class="kp-button kp-button--sm kp-button--danger-outline" @onclick="() => CancelExportAsync(export)" disabled="@IsBusy">@(export.Status == PersonalKnowledgeExportStatus.Completed ? L["PersonalKnowledge:RemoveExport"] : L["PersonalKnowledge:CancelExport"])</button>
+                    }
+                </div>
+            </div>
+        }
+        @if (ExportTotal > ExportPageSize)
+        {
+            <div class="kp-flex kp-justify-between kp-mt-3">
+                <button class="kp-button kp-button--sm kp-button--secondary" @onclick="PreviousExportsAsync" disabled="@(IsBusy || ExportSkip == 0)">@L["PersonalKnowledge:Previous"]</button>
+                <button class="kp-button kp-button--sm kp-button--secondary" @onclick="NextExportsAsync" disabled="@(IsBusy || ExportSkip + ExportPageSize >= ExportTotal)">@L["PersonalKnowledge:Next"]</button>
+            </div>
+        }
+    </div>
+</div>
+
+<div class="kp-grid kp-grid-gap-3">
+    <div class="kp-col-12 kp-col-lg-4">
+        <div class="kp-card">
+            <div class="kp-card__body">
+                <label for="personal-search" class="kp-label">@L["PersonalKnowledge:SearchLabel"]</label>
+                <div class="kp-input-group kp-mb-3">
+                    <input id="personal-search" class="kp-input" @bind="Keyword" disabled="@IsBusy" />
+                    <button class="kp-button kp-button--secondary" @onclick="SearchAsync" disabled="@IsBusy">@L["PersonalKnowledge:Search"]</button>
+                </div>
+                <div class="kp-grid kp-grid-gap-2 kp-mb-3">
+                    <div class="kp-col-12 col-7">
+                        <label for="personal-filter-type" class="kp-label">@L["PersonalKnowledgeOrganization:Type"]</label>
+                        <select id="personal-filter-type" class="kp-select" @bind="TypeFilter" disabled="@IsBusy">
+                            <option value="">@L["PersonalKnowledgeOrganization:AllTypes"]</option>
+                            @foreach (var type in Enum.GetValues<PersonalMaterialType>())
+                            {
+                                <option value="@type">@GetMaterialTypeName(type)</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="kp-col-12 col-5">
+                        <label for="personal-filter-year" class="kp-label">@L["PersonalKnowledgeOrganization:Year"]</label>
+                        <input id="personal-filter-year" type="number" min="1" max="9999" class="kp-input" @bind="YearFilter" disabled="@IsBusy" />
+                    </div>
+                    <div class="kp-col-12">
+                        <label for="personal-filter-subject" class="kp-label">@L["PersonalKnowledgeOrganization:Subject"]</label>
+                        <input id="personal-filter-subject" class="kp-input" list="personal-subject-options" maxlength="128" @bind="SubjectFilter" disabled="@IsBusy" />
+                    </div>
+                    <div class="kp-col-12">
+                        <label for="personal-filter-tag" class="kp-label">@L["PersonalKnowledgeOrganization:ExactTag"]</label>
+                        <input id="personal-filter-tag" class="kp-input" list="personal-tag-options" maxlength="64" @bind="TagFilter" disabled="@IsBusy" />
+                    </div>
+                    <div class="kp-col-12">
+                        <button class="kp-button kp-button--sm kp-button--secondary" @onclick="ClearFiltersAsync" disabled="@IsBusy">@L["PersonalKnowledgeOrganization:ClearFilters"]</button>
+                    </div>
+                </div>
+                <datalist id="personal-subject-options">
+                    @foreach (var subject in OrganizationOptions.Subjects) { <option value="@subject"></option> }
+                </datalist>
+                <datalist id="personal-tag-options">
+                    @foreach (var tag in OrganizationOptions.Tags) { <option value="@tag"></option> }
+                </datalist>
+                <p class="kp-text-small kp-text-muted">@L["PersonalKnowledge:ItemCount", TotalCount]</p>
+                @if (IsBusy && Items.Count == 0)
+                {
+                    <p role="status">@L["PersonalKnowledge:Loading"]</p>
+                }
+                else if (Items.Count == 0)
+                {
+                    <p class="kp-text-muted">@(HasFilters ? L["PersonalKnowledge:NoMatches"] : L["PersonalKnowledge:Empty"])</p>
+                }
+                <div class="kp-list">
+                    @foreach (var item in Items)
+                    {
+                        <button class="kp-list__item list-group-item-action @(SelectedItem?.Id == item.Id ? "active" : null)"
+                                @onclick="() => SelectItemAsync(item)" disabled="@IsBusy">
+                            <span class="kp-block kp-text-semibold">@item.Title</span>
+                            <span class="kp-block kp-text-small">@item.Summary</span>
+                            <span class="kp-block kp-text-small">@GetMaterialTypeName(item.MaterialType) · @(item.MaterialYear?.ToString() ?? L["PersonalKnowledgeOrganization:YearUnspecified"].Value) · @(item.SubjectName ?? L["PersonalKnowledgeOrganization:SubjectUnspecified"].Value)</span>
+                            @if (item.CustomTags.Count != 0) { <span class="kp-block kp-text-small">@string.Join(" · ", item.CustomTags)</span> }
+                            <span class="kp-block kp-text-small">@L["PersonalKnowledgeOrganization:Created", item.CreationTime.ToLocalTime().ToString("yyyy-MM-dd")]</span>
+                            <span class="kp-block kp-text-small kp-mt-1">@L["PersonalKnowledge:Private"] · @(item.CurrentPublishedVersionId.HasValue ? L["PersonalKnowledge:Prepared"] : L["PersonalKnowledge:NoPreparedVersion"])</span>
+                        </button>
+                    }
+                </div>
+                <div class="kp-flex kp-justify-between kp-mt-3">
+                    <button class="kp-button kp-button--sm kp-button--secondary" @onclick="PreviousAsync" disabled="@(IsBusy || SkipCount == 0)">@L["PersonalKnowledge:Previous"]</button>
+                    <button class="kp-button kp-button--sm kp-button--secondary" @onclick="NextAsync" disabled="@(IsBusy || SkipCount + PageSize >= TotalCount)">@L["PersonalKnowledge:Next"]</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="kp-col-12 kp-col-lg-8">
+        @if (IsCreating)
+        {
+            <div class="kp-card">
+                <div class="kp-card__body">
+                    <h2 class="kp-heading-5">@L["PersonalKnowledge:NewItem"]</h2>
+                    <EditForm Model="CreateForm" OnValidSubmit="CreateItemAsync">
+                        <DataAnnotationsValidator />
+                        <Microsoft.AspNetCore.Components.Forms.ValidationSummary />
+                        <label for="personal-create-title" class="kp-label">@L["PersonalKnowledge:Title"]</label>
+                        <InputText id="personal-create-title" class="kp-input kp-mb-3" @bind-Value="CreateForm.Title" disabled="@IsBusy" />
+                        <label for="personal-create-summary" class="kp-label">@L["PersonalKnowledge:Summary"]</label>
+                        <InputTextArea id="personal-create-summary" class="kp-input kp-mb-3" rows="3" @bind-Value="CreateForm.Summary" disabled="@IsBusy" />
+                        <div class="kp-grid kp-grid-gap-2 kp-mb-3">
+                            <div class="kp-col-12 col-sm-6">
+                                <label for="personal-create-type" class="kp-label">@L["PersonalKnowledgeOrganization:Type"]</label>
+                                <InputSelect id="personal-create-type" class="kp-select" @bind-Value="CreateOrganization.MaterialType" disabled="@IsBusy">
+                                    @foreach (var type in Enum.GetValues<PersonalMaterialType>()) { <option value="@type">@GetMaterialTypeName(type)</option> }
+                                </InputSelect>
+                            </div>
+                            <div class="kp-col-12 col-sm-6">
+                                <label for="personal-create-year" class="kp-label">@L["PersonalKnowledgeOrganization:Year"]</label>
+                                <InputNumber id="personal-create-year" class="kp-input" min="1" max="9999" @bind-Value="CreateOrganization.MaterialYear" disabled="@IsBusy" />
+                            </div>
+                        </div>
+                        <label for="personal-create-subject" class="kp-label">@L["PersonalKnowledgeOrganization:Subject"]</label>
+                        <InputText id="personal-create-subject" class="kp-input kp-mb-3" list="personal-subject-options" maxlength="128" @bind-Value="CreateOrganization.SubjectName" disabled="@IsBusy" />
+                        <label for="personal-create-tags" class="kp-label">@L["PersonalKnowledgeOrganization:Tags"]</label>
+                        <InputTextArea id="personal-create-tags" class="kp-input kp-mb-1" rows="3" maxlength="1301" @bind-Value="CreateTagsText" disabled="@IsBusy" />
+                        <p class="kp-text-small kp-text-muted">@L["PersonalKnowledgeOrganization:TagsHelp"]</p>
+                        <button type="submit" class="kp-button kp-button--primary" disabled="@(IsBusy || Library == null)">@L["PersonalKnowledge:SaveItem"]</button>
+                    </EditForm>
+                </div>
+            </div>
+        }
+        else if (SelectedItem != null)
+        {
+            <div class="kp-card kp-mb-3">
+                <div class="kp-card__body">
+                    <h2 class="kp-heading-5">@SelectedItem.Title <span class="kp-badge kp-bg-secondary">@L["PersonalKnowledge:Private"]</span></h2>
+                    <button class="kp-button kp-button--sm kp-button--danger-outline kp-mb-3" @onclick="DeleteItemAsync" disabled="@IsBusy">@L["PersonalKnowledge:DeleteItem"]</button>
+                    <EditForm Model="MetadataForm" OnValidSubmit="SaveMetadataAsync">
+                        <DataAnnotationsValidator />
+                        <Microsoft.AspNetCore.Components.Forms.ValidationSummary />
+                        <label for="personal-edit-title" class="kp-label">@L["PersonalKnowledge:Title"]</label>
+                        <InputText id="personal-edit-title" class="kp-input kp-mb-3" @bind-Value="MetadataForm.Title" disabled="@IsBusy" />
+                        <label for="personal-edit-summary" class="kp-label">@L["PersonalKnowledge:Summary"]</label>
+                        <InputTextArea id="personal-edit-summary" class="kp-input kp-mb-3" rows="3" @bind-Value="MetadataForm.Summary" disabled="@IsBusy" />
+                        <button type="submit" class="kp-button kp-button--primary-outline" disabled="@IsBusy">@L["PersonalKnowledge:SaveMetadata"]</button>
+                    </EditForm>
+                </div>
+            </div>
+            <div class="kp-card kp-mb-3">
+                <div class="kp-card__body">
+                    <h2 class="kp-heading-5">@L["PersonalKnowledgeOrganization:Organize"]</h2>
+                    <p class="kp-text-small kp-text-muted">@L["PersonalKnowledgeOrganization:PrivateOrganization"]</p>
+                    <EditForm Model="OrganizationForm" OnValidSubmit="SaveOrganizationAsync">
+                        <DataAnnotationsValidator />
+                        <Microsoft.AspNetCore.Components.Forms.ValidationSummary />
+                        <div class="kp-grid kp-grid-gap-2 kp-mb-3">
+                            <div class="kp-col-12 col-sm-6">
+                                <label for="personal-edit-type" class="kp-label">@L["PersonalKnowledgeOrganization:Type"]</label>
+                                <InputSelect id="personal-edit-type" class="kp-select" @bind-Value="OrganizationForm.MaterialType" disabled="@IsBusy">
+                                    @foreach (var type in Enum.GetValues<PersonalMaterialType>()) { <option value="@type">@GetMaterialTypeName(type)</option> }
+                                </InputSelect>
+                            </div>
+                            <div class="kp-col-12 col-sm-6">
+                                <label for="personal-edit-year" class="kp-label">@L["PersonalKnowledgeOrganization:Year"]</label>
+                                <InputNumber id="personal-edit-year" class="kp-input" min="1" max="9999" @bind-Value="OrganizationForm.MaterialYear" disabled="@IsBusy" />
+                            </div>
+                        </div>
+                        <label for="personal-edit-subject" class="kp-label">@L["PersonalKnowledgeOrganization:Subject"]</label>
+                        <InputText id="personal-edit-subject" class="kp-input kp-mb-3" list="personal-subject-options" maxlength="128" @bind-Value="OrganizationForm.SubjectName" disabled="@IsBusy" />
+                        <label for="personal-edit-tags" class="kp-label">@L["PersonalKnowledgeOrganization:Tags"]</label>
+                        <InputTextArea id="personal-edit-tags" class="kp-input kp-mb-1" rows="3" maxlength="1301" @bind-Value="OrganizationTagsText" disabled="@IsBusy" />
+                        <p class="kp-text-small kp-text-muted">@L["PersonalKnowledgeOrganization:TagsHelp"]</p>
+                        <p class="kp-text-small kp-text-muted">@L["PersonalKnowledgeOrganization:Updated", (SelectedItem.LastModificationTime ?? SelectedItem.CreationTime).ToLocalTime().ToString("yyyy-MM-dd HH:mm")]</p>
+                        <button type="submit" class="kp-button kp-button--primary-outline" disabled="@IsBusy">@L["PersonalKnowledgeOrganization:Save"]</button>
+                        <button type="button" class="kp-button kp-button--secondary ms-2" @onclick="ReloadOrganizationAsync" disabled="@IsBusy">@L["PersonalKnowledgeOrganization:Reload"]</button>
+                    </EditForm>
+                </div>
+            </div>
+            <div class="kp-card kp-mb-3">
+                <div class="kp-card__body">
+                    <h2 class="kp-heading-5">@L["PersonalKnowledge:NewVersion"]</h2>
+                    <p class="kp-text-small kp-text-muted">@L["PersonalKnowledge:VersionDescription"]</p>
+                    <EditForm Model="VersionForm" OnValidSubmit="SaveVersionAsync">
+                        <DataAnnotationsValidator />
+                        <Microsoft.AspNetCore.Components.Forms.ValidationSummary />
+                        <label for="personal-version-title" class="kp-label">@L["PersonalKnowledge:Title"]</label>
+                        <InputText id="personal-version-title" class="kp-input kp-mb-3" @bind-Value="VersionForm.Title" disabled="@IsBusy" />
+                        <label for="personal-version-content" class="kp-label">@L["PersonalKnowledge:Content"]</label>
+                        <InputTextArea id="personal-version-content" class="kp-input kp-mb-3" rows="8" @bind-Value="VersionForm.ContentText" disabled="@IsBusy" />
+                        <button type="submit" class="kp-button kp-button--primary" disabled="@IsBusy">@L["PersonalKnowledge:SaveVersion"]</button>
+                    </EditForm>
+                </div>
+            </div>
+            <div class="kp-card">
+                <div class="kp-card__body">
+                    <h2 class="kp-heading-5">@L["PersonalKnowledge:Versions"]</h2>
+                    @if (Versions.Count == 0)
+                    {
+                        <p class="kp-text-muted">@L["PersonalKnowledge:NoVersions"]</p>
+                    }
+                    @foreach (var version in Versions)
+                    {
+                        <div class="kp-border kp-rounded kp-p-3 kp-mb-3">
+                            <div class="kp-flex kp-flex-wrap kp-align-center kp-justify-between kp-gap-2">
+                                <h3 class="kp-heading-6 kp-mb-0">@L["PersonalKnowledge:VersionNumber", version.VersionNumber] · @version.Title</h3>
+                                @if (!NotebookMode && version.Status == KnowledgeVersionStatus.Draft)
+                                {
+                                    <button class="kp-button kp-button--sm kp-button--primary-outline" @onclick="() => PrepareAsync(version)" disabled="@(IsBusy || PendingFiles.ContainsKey(version.Id))">@L["PersonalKnowledge:Prepare"]</button>
+                                }
+                                @if (version.IsCurrentPublished)
+                                {
+                                    <span class="kp-badge kp-bg-primary">@L["PersonalKnowledge:Current"]</span>
+                                }
+                                @if (version.Status == KnowledgeVersionStatus.Published)
+                                {
+                                    <button class="kp-button kp-button--sm kp-button--secondary" @onclick="() => ShareVersionAsync(version)" disabled="@IsBusy">@L["SchoolKnowledge:ShareVersion"]</button>
+                                }
+                                @if (version.Status != KnowledgeVersionStatus.Archived)
+                                {
+                                    <button class="kp-button kp-button--sm kp-button--secondary" @onclick="() => ArchiveVersionAsync(version)" disabled="@IsBusy">@L["PersonalKnowledge:ArchiveVersion"]</button>
+                                }
+                            </div>
+                            <p class="kp-text-small kp-text-muted kp-mt-2 kp-mb-2">@GetVersionStatus(version)</p>
+                            @if (version.Status == KnowledgeVersionStatus.Archived)
+                            {
+                                <p class="kp-text-small kp-text-muted">@L["PersonalKnowledge:ArchivedDescription", version.ArchivedTime?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") ?? string.Empty]</p>
+                            }
+                            <pre class="kp-mb-0" style="white-space: pre-wrap; overflow-wrap: anywhere; font-family: inherit;">@version.ContentText</pre>
+                            @if (NotebookMode)
+                            {
+                                <EducationNotebookSources @key="(SelectedItem.Id, version.Id, NotebookSourceKind, NotebookRecipientId, NotebookComponentId)"
+                                    NoteItemId="SelectedItem.Id" NoteVersionId="version.Id" SourceKind="@NotebookSourceKind"
+                                    RecipientId="NotebookRecipientId" ComponentId="NotebookComponentId" Changed="NotebookSourcesChangedAsync" Disabled="IsBusy" />
+                            }
+                            <div class="border-top kp-mt-3 kp-pt-3">
+                                <h4 class="kp-heading-6">@L["PersonalKnowledge:Attachments"]</h4>
+                                <p class="kp-text-small kp-text-muted">@L["PersonalKnowledge:AttachmentDescription"]</p>
+                                @if (Attachments.TryGetValue(version.Id, out var attachments))
+                                {
+                                    @foreach (var attachment in attachments)
+                                    {
+                                        <div class="kp-flex kp-flex-wrap kp-justify-between kp-align-center kp-gap-2 kp-mb-2">
+                                            <span>@attachment.FileName · @Math.Ceiling(attachment.Size / 1024d) KB</span>
+                                            <div class="kp-flex kp-gap-2">
+                                                <button class="kp-button kp-button--sm kp-button--secondary" @onclick="() => DownloadAsync(version, attachment)" disabled="@IsBusy">@L["PersonalKnowledge:Download"]</button>
+                                                @if (version.Status == KnowledgeVersionStatus.Draft)
+                                                {
+                                                    <button class="kp-button kp-button--sm kp-button--danger-outline" @onclick="() => DeleteAttachmentAsync(version, attachment)" disabled="@IsBusy">@L["PersonalKnowledge:DeleteAttachment"]</button>
+                                                }
+                                            </div>
+                                        </div>
+                                    }
+                                }
+                                @if (version.Status == KnowledgeVersionStatus.Draft && UploadPolicy != null)
+                                {
+                                    <p class="kp-text-small kp-text-muted">@L["PersonalKnowledge:UploadLimits", Math.Ceiling(UploadPolicy.MaxFileBytes / 1024d / 1024d), UploadPolicy.MaxFilesPerVersion]</p>
+                                    <label class="kp-label" for="@($"personal-file-{version.Id}")">@L["PersonalKnowledge:SelectFile"]</label>
+                                    <InputFile id="@($"personal-file-{version.Id}")" class="kp-input kp-mb-2"
+                                               OnChange="args => SelectFile(version, args)" disabled="@IsBusy" />
+                                    @if (PendingFiles.TryGetValue(version.Id, out var pendingFile))
+                                    {
+                                        <p class="kp-text-small">@L["PersonalKnowledge:PendingFile", pendingFile.Name]</p>
+                                        <button class="kp-button kp-button--sm kp-button--primary-outline" @onclick="() => UploadAsync(version)" disabled="@IsBusy">@L["PersonalKnowledge:Upload"]</button>
+                                        <button class="kp-button kp-button--sm kp-button--secondary ms-2" @onclick="() => PendingFiles.Remove(version.Id)" disabled="@IsBusy">@L["PersonalKnowledge:ClearSelectedFile"]</button>
+                                    }
+                                }
+                                else if (version.Status != KnowledgeVersionStatus.Draft)
+                                {
+                                    <p class="kp-text-small kp-text-muted kp-mb-0">@L["PersonalKnowledge:FrozenAttachments"]</p>
+                                }
+                            </div>
+                        </div>
+                    }
+                    @if (LatestJob != null)
+                    {
+                        <div class="border-top kp-pt-3" role="status">
+                            <p class="kp-mb-2">@L["PersonalKnowledge:SearchStatus"]：@GetJobStatus(LatestJob.Status)</p>
+                            @if (LatestJob.Status == KnowledgeIndexJobStatus.Failed)
+                            {
+                                <p class="kp-text-small kp-text-muted">@LatestJob.FailureReason</p>
+                                <button class="kp-button kp-button--sm kp-button--primary-outline" @onclick="RetryAsync" disabled="@IsBusy">@L["PersonalKnowledge:Retry"]</button>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+        else
+        {
+            <div class="kp-card"><div class="kp-card__body kp-text-muted">@L["PersonalKnowledge:SelectItem"]</div></div>
+        }
+    </div>
+</div>
+
+@code {
+    private const int PageSize = 12;
+    private const int ExportPageSize = 5;
+    private KnowledgeLibraryDto? Library;
+    private PersonalKnowledgeUploadPolicyDto? UploadPolicy;
+    private readonly Dictionary<Guid, List<KnowledgeAttachmentDto>> Attachments = new();
+    private readonly Dictionary<Guid, IBrowserFile> PendingFiles = new();
+    private readonly List<KnowledgeItemDto> Items = new();
+    private readonly List<KnowledgeVersionDto> Versions = new();
+    private readonly List<PersonalKnowledgeExportDto> Exports = new();
+    private Guid? ExportRequestId;
+    private int ExportSkip;
+    private long ExportTotal;
+    private KnowledgeItemDto? SelectedItem;
+    private KnowledgeIndexJobDto? LatestJob;
+    private CreateKnowledgeItemDto CreateForm = new();
+    private PersonalKnowledgeOrganizationInput CreateOrganization = new();
+    private UpdatePersonalKnowledgeOrganizationInput OrganizationForm = new();
+    private PersonalKnowledgeOrganizationOptionsDto OrganizationOptions = new();
+    private string? CreateTagsText;
+    private string? OrganizationTagsText;
+    private PersonalMaterialType? TypeFilter;
+    private int? YearFilter;
+    private string? SubjectFilter;
+    private string? TagFilter;
+    private UpdateKnowledgeItemDto MetadataForm = new();
+    private CreateKnowledgeVersionDto VersionForm = new();
+    private string? Keyword;
+    private string? ErrorMessage;
+    private string? SuccessMessage;
+    private long TotalCount;
+    private int SkipCount;
+    private bool IsCreating;
+    private bool IsBusy;
+
+    [Parameter] public bool NotebookMode { get; set; }
+    [Parameter] public string? NotebookSourceKind { get; set; }
+    [Parameter] public Guid? NotebookRecipientId { get; set; }
+    [Parameter] public Guid? NotebookComponentId { get; set; }
+
+    private async Task NotebookSourcesChangedAsync()
+    {
+        if (SelectedItem == null) return;
+        var previous = SelectedItem; var dirty = IsOrganizationDirty;
+        SelectedItem = await ItemAppService.GetAsync(previous.Id);
+        SetOrganizationAfterOwnWrite(previous, dirty);
+    }
+
+    protected override Task OnInitializedAsync()
+    {
+        if (NotebookMode) TypeFilter = PersonalMaterialType.Note;
+        return RefreshAsync();
+    }
+
+    private Task RefreshAsync() => RunAsync(async () =>
+    {
+        Library = await LibraryAppService.GetMyLibraryAsync();
+        UploadPolicy = await LibraryAppService.GetUploadPolicyAsync();
+        OrganizationOptions = await LibraryAppService.GetOrganizationOptionsAsync();
+        await LoadListAsync();
+        await LoadExportsAsync();
+        if (SelectedItem != null)
+        {
+            await LoadVersionsAsync();
+        }
+    });
+
+    private async Task LoadListAsync()
+    {
+        var result = await LibraryAppService.GetMyItemsAsync(new GetPersonalKnowledgeItemListInput
+        {
+            Keyword = Keyword, MaterialType = TypeFilter, MaterialYear = YearFilter,
+            SubjectName = SubjectFilter, Tag = TagFilter, SkipCount = SkipCount, MaxResultCount = PageSize
+        });
+        Items.Clear();
+        Items.AddRange(result.Items);
+        TotalCount = result.TotalCount;
+    }
+
+    private async Task LoadExportsAsync()
+    {
+        var result = await ExportAppService.GetListAsync(new PagedResultRequestDto
+        {
+            SkipCount = ExportSkip, MaxResultCount = ExportPageSize
+        });
+        Exports.Clear();
+        Exports.AddRange(result.Items);
+        ExportTotal = result.TotalCount;
+        if (ExportRequestId.HasValue && Exports.Any(x => x.Id == ExportRequestId.Value))
+            ExportRequestId = null;
+    }
+
+    private async Task CreateExportAsync()
+    {
+        if (IsBusy || Library == null) return;
+        if (!ExportRequestId.HasValue && !await JSRuntime.InvokeAsync<bool>("confirm", L["PersonalKnowledge:ExportConfirm"].Value)) return;
+        await RunAsync(async () =>
+        {
+            ExportRequestId ??= Guid.NewGuid();
+            await ExportAppService.CreateAsync(new CreatePersonalKnowledgeExportDto { IdempotencyKey = ExportRequestId.Value });
+            ExportRequestId = null;
+            ExportSkip = 0;
+            await LoadExportsAsync();
+            SuccessMessage = L["PersonalKnowledge:ExportQueued"];
+        });
+    }
+
+    private Task RefreshExportsAsync() => RunAsync(LoadExportsAsync);
+    private Task PreviousExportsAsync() => RunAsync(async () => { ExportSkip = Math.Max(0, ExportSkip - ExportPageSize); await LoadExportsAsync(); });
+    private Task NextExportsAsync() => RunAsync(async () => { ExportSkip += ExportPageSize; await LoadExportsAsync(); });
+
+    private async Task RetryExportAsync(PersonalKnowledgeExportDto export)
+    {
+        if (IsBusy || !await JSRuntime.InvokeAsync<bool>("confirm", L["PersonalKnowledge:RetryExportConfirm"].Value)) return;
+        await RunAsync(async () =>
+        {
+            await ExportAppService.RetryAsync(export.Id);
+            await LoadExportsAsync();
+            SuccessMessage = L["PersonalKnowledge:ExportQueued"];
+        });
+    }
+
+    private Task DownloadExportAsync(PersonalKnowledgeExportDto export) => RunAsync(async () =>
+    {
+        using var content = await ExportAppService.DownloadAsync(export.Id);
+        await using var stream = content.GetStream();
+        using var streamReference = new DotNetStreamReference(stream);
+        await JSRuntime.InvokeVoidAsync("knowPulse.downloadFileFromStream", content.FileName, content.ContentType, streamReference);
+    });
+
+    private async Task CancelExportAsync(PersonalKnowledgeExportDto export)
+    {
+        if (IsBusy || !await JSRuntime.InvokeAsync<bool>("confirm", L["PersonalKnowledge:CancelExportConfirm"].Value)) return;
+        await RunAsync(async () =>
+        {
+            await ExportAppService.CancelAsync(export.Id);
+            await LoadExportsAsync();
+            SuccessMessage = L["PersonalKnowledge:ExportCancelled"];
+        });
+    }
+
+    private async Task LoadVersionsAsync()
+    {
+        if (SelectedItem == null) return;
+        var result = await ItemAppService.GetVersionsAsync(SelectedItem.Id);
+        Versions.Clear();
+        Versions.AddRange(result.Items);
+        Attachments.Clear();
+        foreach (var version in Versions)
+        {
+            var attachments = await ItemAppService.GetAttachmentsAsync(SelectedItem.Id, version.Id);
+            Attachments[version.Id] = attachments.Items.ToList();
+        }
+        var current = Versions.FirstOrDefault(x => x.IsCurrentPublished);
+        LatestJob = null;
+        if (current != null)
+        {
+            var jobs = await IndexJobAppService.GetListAsync(new GetKnowledgeIndexJobListInput
+            {
+                KnowledgeItemId = SelectedItem.Id, KnowledgeVersionId = current.Id,
+                Sorting = "CreationTime DESC", MaxResultCount = 1
+            });
+            LatestJob = jobs.Items.FirstOrDefault();
+        }
+    }
+
+    private async Task StartCreateAsync()
+    {
+        if (IsBusy || !await ConfirmLeaveAsync()) return;
+        IsCreating = true;
+        CreateForm = new();
+        CreateOrganization = new() { MaterialType = NotebookMode ? PersonalMaterialType.Note : PersonalMaterialType.Unspecified };
+        CreateTagsText = null;
+        PendingFiles.Clear();
+        ErrorMessage = null;
+        SuccessMessage = null;
+    }
+
+    private async Task SelectItemAsync(KnowledgeItemDto item)
+    {
+        if (IsBusy || !await ConfirmLeaveAsync()) return;
+        await RunAsync(async () =>
+        {
+            SelectedItem = await ItemAppService.GetAsync(item.Id);
+            PendingFiles.Clear();
+            IsCreating = false;
+            SetMetadataForm();
+            VersionForm = new() { Title = SelectedItem.Title };
+            await LoadVersionsAsync();
+        });
+    }
+
+    private void SetMetadataForm(bool resetOrganization = true)
+    {
+        MetadataForm = new UpdateKnowledgeItemDto
+        {
+            Title = SelectedItem!.Title, Summary = SelectedItem.Summary,
+            CategoryId = SelectedItem.CategoryId, IsActive = SelectedItem.IsActive
+        };
+        if (resetOrganization) SetOrganizationForm();
+    }
+
+    private void SetOrganizationForm()
+    {
+        OrganizationForm = new UpdatePersonalKnowledgeOrganizationInput
+        {
+            MaterialType = SelectedItem!.MaterialType, MaterialYear = SelectedItem.MaterialYear,
+            SubjectName = SelectedItem.SubjectName, CustomTags = SelectedItem.CustomTags.ToList(),
+            ConcurrencyStamp = SelectedItem.ConcurrencyStamp
+        };
+        OrganizationTagsText = string.Join("\n", SelectedItem.CustomTags);
+    }
+
+    private void SetOrganizationAfterOwnWrite(KnowledgeItemDto previous, bool wasDirty)
+    {
+        if (!wasDirty) { SetOrganizationForm(); return; }
+        // Rebase retained input only when the confirmed organization baseline is unchanged.
+        if (OrganizationForm.ConcurrencyStamp == previous.ConcurrencyStamp &&
+            previous.MaterialType == SelectedItem!.MaterialType && previous.MaterialYear == SelectedItem.MaterialYear &&
+            previous.SubjectName == SelectedItem.SubjectName && previous.CustomTags.SequenceEqual(SelectedItem.CustomTags))
+            OrganizationForm.ConcurrencyStamp = SelectedItem.ConcurrencyStamp;
+    }
+
+    private bool IsOrganizationDirty => SelectedItem != null &&
+        (OrganizationForm.MaterialType != SelectedItem.MaterialType || OrganizationForm.MaterialYear != SelectedItem.MaterialYear ||
+         OrganizationForm.SubjectName != SelectedItem.SubjectName || !ParseTags(OrganizationTagsText).SequenceEqual(SelectedItem.CustomTags));
+
+    private bool HasFilters => !string.IsNullOrWhiteSpace(Keyword) || TypeFilter.HasValue || YearFilter.HasValue ||
+        !string.IsNullOrWhiteSpace(SubjectFilter) || !string.IsNullOrWhiteSpace(TagFilter);
+
+    private static List<string> ParseTags(string? text) => (text ?? string.Empty).Split('\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+        .Distinct(StringComparer.Ordinal).ToList();
+
+    private string GetMaterialTypeName(PersonalMaterialType type) => L[$"PersonalKnowledgeOrganization:Type:{type}"];
+
+    private Task SaveOrganizationAsync() => RunAsync(async () =>
+    {
+        var metadataDirty = MetadataForm.Title != SelectedItem!.Title || MetadataForm.Summary != SelectedItem.Summary;
+        OrganizationForm.CustomTags = ParseTags(OrganizationTagsText);
+        SelectedItem = await LibraryAppService.UpdateOrganizationAsync(SelectedItem.Id, OrganizationForm);
+        SetOrganizationForm();
+        if (!metadataDirty) SetMetadataForm(resetOrganization: false);
+        await LoadListAsync();
+        OrganizationOptions = await LibraryAppService.GetOrganizationOptionsAsync();
+        SuccessMessage = L["PersonalKnowledgeOrganization:Saved"];
+    });
+
+    private async Task ReloadOrganizationAsync()
+    {
+        if (IsBusy || SelectedItem == null || (IsOrganizationDirty &&
+            !await JSRuntime.InvokeAsync<bool>("confirm", L["PersonalKnowledgeOrganization:ReloadConfirm"].Value))) return;
+        await RunAsync(async () =>
+        {
+            SelectedItem = await ItemAppService.GetAsync(SelectedItem!.Id);
+            SetOrganizationForm();
+        });
+    }
+
+    private Task CreateItemAsync() => RunAsync(async () =>
+    {
+        CreateForm.LibraryId = Library!.Id;
+        CreateOrganization.CustomTags = ParseTags(CreateTagsText);
+        CreateForm.Organization = CreateOrganization;
+        SelectedItem = await LibraryAppService.CreateItemAsync(CreateForm);
+        IsCreating = false;
+        SetMetadataForm();
+        VersionForm = new() { Title = SelectedItem.Title };
+        Versions.Clear();
+        Attachments.Clear();
+        PendingFiles.Clear();
+        LatestJob = null;
+        SkipCount = 0;
+        await LoadListAsync();
+        OrganizationOptions = await LibraryAppService.GetOrganizationOptionsAsync();
+        SuccessMessage = L["PersonalKnowledge:ItemSaved"];
+    });
+
+    private Task SaveMetadataAsync() => RunAsync(async () =>
+    {
+        var organizationDirty = IsOrganizationDirty;
+        var previous = SelectedItem!;
+        SelectedItem = await ItemAppService.UpdateAsync(SelectedItem!.Id, MetadataForm);
+        SetMetadataForm(resetOrganization: false);
+        SetOrganizationAfterOwnWrite(previous, organizationDirty);
+        await LoadListAsync();
+        SuccessMessage = L["PersonalKnowledge:Saved"];
+    });
+
+    private Task SaveVersionAsync() => RunAsync(async () =>
+    {
+        var organizationDirty = IsOrganizationDirty;
+        var previous = SelectedItem!;
+        await ItemAppService.CreateVersionAsync(SelectedItem!.Id, VersionForm);
+        SelectedItem = await ItemAppService.GetAsync(SelectedItem.Id);
+        SetOrganizationAfterOwnWrite(previous, organizationDirty);
+        VersionForm = new() { Title = SelectedItem.Title };
+        await LoadVersionsAsync();
+        SuccessMessage = L["PersonalKnowledge:VersionSaved"];
+    });
+
+    private Task PrepareAsync(KnowledgeVersionDto version) => RunAsync(async () =>
+    {
+        var organizationDirty = IsOrganizationDirty;
+        var previous = SelectedItem!;
+        await ItemAppService.PublishVersionAsync(SelectedItem!.Id, version.Id);
+        SelectedItem = await ItemAppService.GetAsync(SelectedItem.Id);
+        SetOrganizationAfterOwnWrite(previous, organizationDirty);
+        await LoadListAsync();
+        await LoadVersionsAsync();
+        SuccessMessage = L["PersonalKnowledge:PreparationQueued"];
+    });
+
+    private Task RetryAsync() => RunAsync(async () =>
+    {
+        await IndexJobAppService.RetryAsync(LatestJob!.Id);
+        await LoadVersionsAsync();
+        SuccessMessage = L["PersonalKnowledge:PreparationQueued"];
+    });
+
+    private async Task ShareVersionAsync(KnowledgeVersionDto version)
+    {
+        if (IsBusy || SelectedItem == null || !await ConfirmLeaveAsync()) return;
+        NavigationManager.NavigateTo($"/school-knowledge?itemId={SelectedItem.Id}&versionId={version.Id}");
+    }
+
+    private async Task ArchiveVersionAsync(KnowledgeVersionDto version)
+    {
+        if (IsBusy || SelectedItem == null ||
+            !await JSRuntime.InvokeAsync<bool>("confirm", L["PersonalKnowledge:ArchiveVersionConfirm", version.VersionNumber, version.Title].Value)) return;
+        await RunAsync(async () =>
+        {
+            var organizationDirty = IsOrganizationDirty;
+            var previous = SelectedItem!;
+            await ItemAppService.ArchiveVersionAsync(SelectedItem!.Id, version.Id);
+            PendingFiles.Remove(version.Id);
+            SelectedItem = await ItemAppService.GetAsync(SelectedItem.Id);
+            SetOrganizationAfterOwnWrite(previous, organizationDirty);
+            await LoadListAsync();
+            await LoadVersionsAsync();
+            SuccessMessage = L["PersonalKnowledge:VersionArchived"];
+        });
+    }
+
+    private void SelectFile(KnowledgeVersionDto version, InputFileChangeEventArgs args)
+    {
+        PendingFiles[version.Id] = args.File;
+        ErrorMessage = null;
+    }
+
+    private Task UploadAsync(KnowledgeVersionDto version) => RunAsync(async () =>
+    {
+        var file = PendingFiles[version.Id];
+        using var content = new RemoteStreamContent(file.OpenReadStream(UploadPolicy!.MaxFileBytes),
+            file.Name, file.ContentType, file.Size, disposeStream: true);
+        await ItemAppService.UploadAttachmentAsync(SelectedItem!.Id, version.Id, content);
+        PendingFiles.Remove(version.Id);
+        await LoadVersionsAsync();
+        SuccessMessage = L["PersonalKnowledge:AttachmentSaved"];
+    });
+
+    private Task DownloadAsync(KnowledgeVersionDto version, KnowledgeAttachmentDto attachment) => RunAsync(async () =>
+    {
+        using var content = await ItemAppService.DownloadAttachmentAsync(SelectedItem!.Id, version.Id, attachment.Id);
+        await using var stream = content.GetStream();
+        using var streamReference = new DotNetStreamReference(stream);
+        await JSRuntime.InvokeVoidAsync("knowPulse.downloadFileFromStream",
+            content.FileName ?? attachment.FileName, content.ContentType ?? attachment.ContentType, streamReference);
+    });
+
+    private async Task DeleteAttachmentAsync(KnowledgeVersionDto version, KnowledgeAttachmentDto attachment)
+    {
+        if (IsBusy || !await JSRuntime.InvokeAsync<bool>("confirm", L["PersonalKnowledge:DeleteAttachmentConfirm", attachment.FileName].Value)) return;
+        await RunAsync(async () =>
+        {
+            await ItemAppService.DeleteAttachmentAsync(SelectedItem!.Id, version.Id, attachment.Id);
+            await LoadVersionsAsync();
+            SuccessMessage = L["PersonalKnowledge:AttachmentDeleted"];
+        });
+    }
+
+    private async Task DeleteItemAsync()
+    {
+        if (IsBusy || SelectedItem == null || !await ConfirmLeaveAsync() ||
+            !await JSRuntime.InvokeAsync<bool>("confirm", L["PersonalKnowledge:DeleteItemConfirm", SelectedItem.Title].Value)) return;
+        await RunAsync(async () =>
+        {
+            await ItemAppService.DeleteAsync(SelectedItem!.Id);
+            SelectedItem = null;
+            Versions.Clear();
+            Attachments.Clear();
+            PendingFiles.Clear();
+            LatestJob = null;
+            SkipCount = 0;
+            await LoadListAsync();
+            SuccessMessage = L["PersonalKnowledge:ItemDeleted"];
+        });
+    }
+
+    private Task SearchAsync() => RunAsync(async () => { SkipCount = 0; await LoadListAsync(); });
+    private Task ClearFiltersAsync() => RunAsync(async () =>
+    {
+        Keyword = SubjectFilter = TagFilter = null;
+        TypeFilter = null;
+        YearFilter = null;
+        SkipCount = 0;
+        await LoadListAsync();
+    });
+    private Task PreviousAsync() => RunAsync(async () => { SkipCount = Math.Max(0, SkipCount - PageSize); await LoadListAsync(); });
+    private Task NextAsync() => RunAsync(async () => { SkipCount += PageSize; await LoadListAsync(); });
+
+    private async Task<bool> ConfirmLeaveAsync()
+    {
+        var hasChanges = IsCreating
+            ? !string.IsNullOrWhiteSpace(CreateForm.Title) || !string.IsNullOrWhiteSpace(CreateForm.Summary) ||
+                CreateOrganization.MaterialType != PersonalMaterialType.Unspecified || CreateOrganization.MaterialYear.HasValue ||
+                !string.IsNullOrWhiteSpace(CreateOrganization.SubjectName) || !string.IsNullOrWhiteSpace(CreateTagsText)
+            : SelectedItem != null && (MetadataForm.Title != SelectedItem.Title || MetadataForm.Summary != SelectedItem.Summary ||
+                !string.IsNullOrWhiteSpace(VersionForm.ContentText) || VersionForm.Title != SelectedItem.Title || IsOrganizationDirty);
+        return !(hasChanges || PendingFiles.Count != 0) || await JSRuntime.InvokeAsync<bool>("confirm", L["PersonalKnowledge:ConfirmLeave"].Value);
+    }
+
+    private async Task RunAsync(Func<Task> action)
+    {
+        if (IsBusy) return;
+        IsBusy = true;
+        ErrorMessage = null;
+        SuccessMessage = null;
+        try { await action(); }
+        catch (Exception exception) { ErrorMessage = GetUserFriendlyErrorMessage(exception); }
+        finally { IsBusy = false; }
+    }
+
+    private string GetVersionStatus(KnowledgeVersionDto version) => version.Status switch
+    {
+        KnowledgeVersionStatus.Draft => L["PersonalKnowledge:Draft"],
+        KnowledgeVersionStatus.Published => L["PersonalKnowledge:Prepared"],
+        KnowledgeVersionStatus.Withdrawn => L["PersonalKnowledge:Withdrawn"],
+        KnowledgeVersionStatus.Archived => L["PersonalKnowledge:Archived"],
+        _ => L["PersonalKnowledge:Inactive"]
+    };
+
+    private string GetExportStatus(PersonalKnowledgeExportStatus status) => status switch
+    {
+        PersonalKnowledgeExportStatus.Pending => L["PersonalKnowledge:ExportPending"],
+        PersonalKnowledgeExportStatus.Processing => L["PersonalKnowledge:ExportProcessing"],
+        PersonalKnowledgeExportStatus.Completed => L["PersonalKnowledge:ExportCompleted"],
+        PersonalKnowledgeExportStatus.Expired => L["PersonalKnowledge:ExportExpired"],
+        PersonalKnowledgeExportStatus.Cancelled => L["PersonalKnowledge:ExportCancelled"],
+        _ => L["PersonalKnowledge:ExportFailed"]
+    };
+
+    private string GetExportFailure(string? code) => code switch
+    {
+        PersonalKnowledgeExportErrorCodes.LimitExceeded => L[PersonalKnowledgeExportErrorCodes.LimitExceeded],
+        PersonalKnowledgeExportErrorCodes.SourceChanged => L[PersonalKnowledgeExportErrorCodes.SourceChanged],
+        PersonalKnowledgeExportErrorCodes.SourceUnavailable => L[PersonalKnowledgeExportErrorCodes.SourceUnavailable],
+        PersonalKnowledgeExportErrorCodes.AccountUnavailable => L[PersonalKnowledgeExportErrorCodes.AccountUnavailable],
+        PersonalKnowledgeExportErrorCodes.StorageFailed => L[PersonalKnowledgeExportErrorCodes.StorageFailed],
+        _ => L["PersonalKnowledge:ExportFailedDescription"]
+    };
+
+    private string GetJobStatus(KnowledgeIndexJobStatus status) => status switch
+    {
+        KnowledgeIndexJobStatus.Pending => L["PersonalKnowledge:SearchPending"],
+        KnowledgeIndexJobStatus.Processing => L["PersonalKnowledge:SearchProcessing"],
+        KnowledgeIndexJobStatus.Indexed => L["PersonalKnowledge:SearchReady"],
+        KnowledgeIndexJobStatus.Failed => L["PersonalKnowledge:SearchFailed"],
+        _ => L["PersonalKnowledge:SearchOutdated"]
+    };
+}
