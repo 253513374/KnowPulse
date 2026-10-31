@@ -450,7 +450,8 @@ services:
       DATABASE_URL: ${LITELLM_DATABASE_URL:?LITELLM_DATABASE_URL is required}
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:?LITELLM_MASTER_KEY is required}
       OPENAI_API_KEY: ${OPENAI_API_KEY:?OPENAI_API_KEY is required}
-      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:?DEEPSEEK_API_KEY is required}
+      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:?DASHSCOPE_API_KEY is required}
+      DASHSCOPE_API_BASE: ${DASHSCOPE_API_BASE:-https://dashscope.aliyuncs.com/compatible-mode/v1}
     ports:
       - "127.0.0.1:${KNOWPULSE_LITELLM_PORT:-4000}:4000"
     volumes:
@@ -466,7 +467,7 @@ networks:
     driver: bridge
 ```
 
-如果模型配置不使用 OpenAI 或 DeepSeek，应同步修改 `config.yaml` 和环境变量要求，不要注入无用供应商 key。
+模板的对话模型使用 OpenAI，向量模型使用千问。如果更换供应商，应同步修改 `config.yaml` 和环境变量要求，不要注入无用供应商 Key。
 
 ### 9.2 基础设施环境文件
 
@@ -493,7 +494,8 @@ LITELLM_IMAGE=ghcr.io/berriai/litellm:v1.106.3
 LITELLM_DATABASE_URL=postgresql://litellm_app:<URL_ENCODED_PASSWORD>@postgres:5432/LiteLLM
 LITELLM_MASTER_KEY=<GENERATE_STRONG_LITELLM_MASTER_KEY>
 OPENAI_API_KEY=<PRODUCTION_PROVIDER_KEY>
-DEEPSEEK_API_KEY=<PRODUCTION_PROVIDER_KEY>
+DASHSCOPE_API_KEY=<PRODUCTION_PROVIDER_KEY>
+DASHSCOPE_API_BASE=https://dashscope.aliyuncs.com/compatible-mode/v1
 KNOWPULSE_LITELLM_PORT=4000
 ```
 

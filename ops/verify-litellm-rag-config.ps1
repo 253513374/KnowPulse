@@ -20,7 +20,7 @@ $expectedEmbeddingModel = "knowpulse-embedding-default"
 $expectedFallbackModel = "knowpulse-embedding-fallback"
 $expectedChatModel = "knowpulse-chat-default"
 $expectedApiKeyVariable = "KNOWPULSE_LITELLM_API_KEY"
-$expectedDeepSeekApiKeyVariable = "DEEPSEEK_API_KEY"
+$expectedOpenAiApiKeyVariable = "OPENAI_API_KEY"
 
 # 该脚本分两层验证：
 # - 默认模式只做仓库静态检查，确保 appsettings、.env.example 和 LiteLLM 模板使用同一组 alias。
@@ -181,8 +181,13 @@ Test-TextContains $results "LiteLLM template uses DASHSCOPE_API_KEY" $configText
 Test-TextContains $results "LiteLLM template uses DashScope endpoint" $configText "api_base: os.environ/DASHSCOPE_API_BASE"
 Add-CheckResult $results "Both embedding aliases use Qwen v4" ([regex]::Matches($configText, 'model: openai/text-embedding-v4').Count -eq 2) "same vector model for default and fallback"
 Add-CheckResult $results "Both embedding aliases fix dimensions in request body" ([regex]::Matches($configText, 'extra_body:\s+dimensions: 1536').Count -eq 2) "1536 dimensions via extra_body"
-Test-TextContains $results "LiteLLM template routes chat to DeepSeek" $configText "model: deepseek/deepseek-chat"
-Test-TextContains $results "LiteLLM template uses DEEPSEEK_API_KEY" $configText "api_key: os.environ/$expectedDeepSeekApiKeyVariable"
+Test-TextContains $results "LiteLLM template routes chat to OpenAI GPT-6 Luna" $configText "model: openai/gpt-6-luna"
+Test-TextContains $results "LiteLLM template uses OPENAI_API_KEY" $configText "api_key: os.environ/$expectedOpenAiApiKeyVariable"
+Test-TextContains $results "LiteLLM chat permits temperature without reasoning" $configText "reasoning_effort: none"
+Test-TextContains $results "LiteLLM TLS uses the compatible ECDH curve" $configText "ssl_ecdh_curve: X25519"
+
+$composeText = Get-Content -LiteralPath (Join-Path $Root "docker-compose.yml") -Raw
+Test-TextContains $results "Docker Compose injects OpenAI key into LiteLLM" $composeText 'OPENAI_API_KEY: ${OPENAI_API_KEY:-}'
 
 $envExamplePath = Join-Path $Root ".env.example"
 $envExampleText = Get-Content -LiteralPath $envExamplePath -Raw
@@ -190,7 +195,7 @@ Test-TextContains $results ".env.example app LiteLLM API key" $envExampleText "$
 Test-TextContains $results ".env.example LiteLLM master key" $envExampleText "LITELLM_MASTER_KEY="
 Test-TextContains $results ".env.example Qwen model key" $envExampleText "DASHSCOPE_API_KEY="
 Test-TextContains $results ".env.example Qwen endpoint" $envExampleText "DASHSCOPE_API_BASE="
-Test-TextContains $results ".env.example DeepSeek model key" $envExampleText "$expectedDeepSeekApiKeyVariable="
+Test-TextContains $results ".env.example OpenAI model key" $envExampleText "$expectedOpenAiApiKeyVariable="
 
 if ($Live) {
     Invoke-LiteLlmLiveCheck $results

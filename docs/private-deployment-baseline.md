@@ -126,8 +126,9 @@ MVP-4 当前基线仍是模块化单体应用加独立基础设施：
 | `KNOWPULSE_LITELLM_PORT` | `4000` | 内网端口 |
 | `LITELLM_MASTER_KEY` | `sk-local-dev-only` | secret/env 注入 |
 | `KNOWPULSE_LITELLM_API_KEY` | `sk-local-dev-only` | API Host 使用的 app key，secret/env 注入 |
-| `OPENAI_API_KEY` | 空 | embedding alias 使用，secret/env 注入 |
-| `DEEPSEEK_API_KEY` | 空 | chat alias 使用，secret/env 注入 |
+| `OPENAI_API_KEY` | 空 | OpenAI chat alias 使用，secret/env 注入 |
+| `DASHSCOPE_API_KEY` | 空 | 千问 embedding alias 使用，secret/env 注入 |
+| `DASHSCOPE_API_BASE` | `https://dashscope.aliyuncs.com/compatible-mode/v1` | 与千问 Key 所属地域一致的兼容接口 |
 | `RagAI__LiteLlm__BaseUrl` | `http://localhost:4000` | 内网 endpoint |
 
 `deploy/litellm/config.example.yaml` 只能保存模型 alias 和 `os.environ/...` 引用，不保存真实供应商 key。

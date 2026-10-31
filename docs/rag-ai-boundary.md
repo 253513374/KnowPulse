@@ -80,8 +80,8 @@ MVP-1 问答生成使用 LiteLLM chat alias：
 | 项 | 值 | 说明 |
 | --- | --- | --- |
 | Chat model alias | `knowpulse-chat-default` | 应用只依赖稳定 alias |
-| 默认供应商映射 | `deepseek/deepseek-chat` | 在 `deploy/litellm/config.example.yaml` 中配置 |
-| Provider key | `DEEPSEEK_API_KEY` 环境变量 | 只放在本地 `.env` 或安全配置源，不写入 `.env.example` |
+| 默认供应商映射 | `openai/gpt-6-luna` | 在 `deploy/litellm/config.example.yaml` 中配置；`reasoning_effort: none` 保持现有 temperature 参数兼容 |
+| Provider key | `OPENAI_API_KEY` 环境变量 | 真实值只放在本地 `.env` 或安全配置源，`.env.example` 只保留空变量 |
 
 RAG 回答服务只能把 PostgreSQL 二次校验后的 chunk 传给 chat alias。无可访问上下文时必须拒答；模型不可用时降级为保守回答并记录 chat 阶段失败。
 

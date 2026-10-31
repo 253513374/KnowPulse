@@ -322,8 +322,12 @@ Pop-Location
 - 只提交 `.env.example`。
 - 不提交 `.env`、`appsettings.secrets.json`、真实模型密钥、真实对象存储密钥。
 - 仅做基础健康检查时可不填模型密钥；教学资料处理使用千问 `text-embedding-v4`，须在本地 `.env` 填写 `DASHSCOPE_API_KEY`。`DASHSCOPE_API_BASE` 默认北京地域的兼容接口；不同地域须使用对应密钥和地址。修改后执行 `docker compose up -d --no-deps litellm`，仅重启容器不能更新环境变量。
+- 对话和 AI 出题通过 `knowpulse-chat-default` 使用 OpenAI `gpt-6-luna`；在本地 `.env` 填写 `OPENAI_API_KEY`，网关固定 `reasoning_effort: none` 以兼容现有 temperature 参数。更新 Key、模型或 TLS 配置后执行 `docker compose up -d --no-deps --force-recreate litellm`，确保容器重新注入环境变量并加载挂载配置。
 - LiteLLM 的 MVP-1 应用访问 key 使用 `KNOWPULSE_LITELLM_API_KEY`，真实供应商 key 只放在本地 `.env` 或安全配置源。
+- 单独启动 .NET API Host 时，须把 `KNOWPULSE_LITELLM_API_KEY` 注入进程环境；仓库 `.env` 由 Docker Compose 读取，不会自动进入 .NET 进程。
 - Qdrant 在 MVP-0/MVP-1 都不保存业务事实数据；MVP-1 索引可由 PostgreSQL 和 MinIO 重建。
+
+本地 TUN 网络访问 OpenAI 时出现过 TLS EOF 和握手超时。LiteLLM 配置使用 `ssl_ecdh_curve: X25519` 改善协商兼容性，仍保留默认的证书校验。若继续出现超时，应检查 TUN 线路；不要关闭证书校验，也不要把 SOCKS 端口填入 HTTP 代理配置。
 
 ## 6. 数据持久化
 

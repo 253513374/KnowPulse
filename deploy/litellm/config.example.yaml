@@ -17,11 +17,14 @@ model_list:
         dimensions: 1536
   - model_name: knowpulse-chat-default
     litellm_params:
-      model: deepseek/deepseek-chat
-      api_key: os.environ/DEEPSEEK_API_KEY
+      model: openai/gpt-6-luna
+      api_key: os.environ/OPENAI_API_KEY
+      reasoning_effort: none
 
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY
 
 litellm_settings:
   drop_params: true
+  # 本地 TUN 线路的 TLS 协商兼容设置，保留证书校验。
+  ssl_ecdh_curve: X25519
