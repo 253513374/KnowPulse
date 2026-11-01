@@ -162,6 +162,24 @@ public class MaterialsRefreshTests
         await knowledge.Received(1).UpdateAsync(id, Arg.Is<UpdateKnowledgeItemDto>(x => x.CategoryId == categoryId && !x.IsActive));
     }
 
+    [Fact]
+    public async Task Should_Reset_Paging_And_Pass_The_Selected_Status_When_Filtering_Materials()
+    {
+        var management = Substitute.For<IKnowledgeManagementAppService>();
+        management.GetListAsync(Arg.Any<GetKnowledgeManagementListInput>()).Returns(new KnowledgeManagementListResultDto());
+        var page = Create(management, Substitute.For<IKnowledgeItemAppService>());
+        SetField(page, "_skip", 40);
+        SetField(page, "_keyword", "教材");
+
+        await InvokeAsync(page, "SetStatusAsync", KnowledgeManagementStatus.Ready);
+
+        Field<int>(page, "_skip").ShouldBe(0);
+        Field<KnowledgeManagementStatus?>(page, "_status").ShouldBe(KnowledgeManagementStatus.Ready);
+        await management.Received(1).GetListAsync(Arg.Is<GetKnowledgeManagementListInput>(input =>
+            input.Status == KnowledgeManagementStatus.Ready && input.SkipCount == 0 && input.Keyword == "教材" &&
+            input.OwnOnly && !input.SharedOnly));
+    }
+
     private static Materials Create(IKnowledgeManagementAppService management, IKnowledgeItemAppService knowledge)
     {
         var page = new Materials();

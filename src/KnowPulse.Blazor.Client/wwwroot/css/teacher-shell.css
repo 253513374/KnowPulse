@@ -1,0 +1,60 @@
+/* Retain ABP's authentication, dialog and notification hosts inside the existing layout. */
+body:has(.teacher-shell) #lpx-wrapper > .lpx-sidebar-container,
+body:has(.teacher-shell) #lpx-wrapper > .lpx-mobile-navbar-container,
+body:has(.teacher-shell) .lpx-content-container > .lpx-topbar-container,
+body:has(.teacher-shell) .lpx-content-container > footer { display: none !important; }
+body:has(.teacher-shell) .lpx-content-container,
+body:has(.teacher-shell) .lpx-content { width: 100%; max-width: none; min-height: 100dvh; margin: 0 !important; padding: 0 !important; }
+body:has(.teacher-shell) {
+    --kp-primary: #1366f0;
+    --kp-primary-soft: #eef4ff;
+    --kp-text: #18243b;
+    --kp-muted: #52627a;
+    --kp-border: #e5eaf2;
+    --kp-surface: #fff;
+    --kp-surface-subtle: #f6f8fc;
+    --mud-palette-primary: #1366f0;
+    --mud-palette-primary-text: #fff;
+    --mud-palette-secondary: #52627a;
+    --mud-palette-background: #f6f8fc;
+    --mud-palette-text-primary: #18243b;
+    --mud-palette-text-secondary: #52627a;
+    font-family: 'Noto Sans SC', 'Microsoft YaHei', sans-serif;
+}
+.teacher-shell { display: grid; grid-template-columns: 224px minmax(0, 1fr); min-height: 100dvh; background: var(--kp-surface-subtle); color: var(--kp-text); font: 14px/22px 'Noto Sans SC', 'Microsoft YaHei', sans-serif; }
+.teacher-shell a { text-decoration: none; }
+.teacher-shell :focus-visible { outline: 2px solid var(--kp-primary); outline-offset: 4px; }
+.teacher-skip-link { position: fixed; top: -80px; left: 240px; z-index: 2000; padding: 12px 24px; background: var(--kp-surface); }
+.teacher-skip-link:focus { top: 8px; }
+.teacher-sidebar { position: sticky; top: 0; display: flex; flex-direction: column; gap: 24px; height: 100dvh; padding: 24px; overflow-y: auto; background: var(--kp-surface); }
+.teacher-brand { display: flex; align-items: center; gap: 8px; flex-shrink: 0; color: var(--kp-text) !important; }
+.teacher-brand > span { display: grid; place-items: center; width: 40px; height: 40px; flex: 0 0 40px; }
+.teacher-brand img { display: block; }
+.teacher-brand strong { font-size: 18px; font-weight: 700; line-height: 28px; white-space: nowrap; }
+.teacher-sidebar-label { color: var(--kp-muted); font-size: 12px; line-height: 18px; overflow-wrap: anywhere; }
+.teacher-nav { display: flex; flex-direction: column; gap: 24px; }
+.teacher-nav-link { position: relative; display: flex; align-items: center; min-height: 48px; padding: 12px; border-radius: 8px; color: var(--kp-muted) !important; }
+.teacher-nav-link:hover { background: var(--kp-surface-subtle); }
+.teacher-nav-link.is-active { padding-left: 24px; color: #1253c5 !important; background: var(--kp-primary-soft); font-size: 16px; font-weight: 500; line-height: 24px; }
+.teacher-nav-link.is-active::before { position: absolute; top: 14px; left: 12px; width: 4px; height: 20px; border-radius: 4px; background: #1253c5; content: ''; }
+.teacher-sidebar-note { display: flex; flex-direction: column; gap: 8px; margin-top: auto; padding: 16px; border-radius: 12px; background: var(--kp-surface-subtle); }
+.teacher-sidebar-note strong { font-size: 13px; font-weight: 500; line-height: 20px; }
+.teacher-sidebar-note span { color: var(--kp-muted); font-size: 12px; line-height: 18px; }
+.teacher-stage { display: flex; flex-direction: column; height: 100dvh; min-width: 0; }
+.teacher-topbar { display: flex; align-items: center; gap: 16px; min-height: 72px; flex-shrink: 0; padding: 14px 24px; background: var(--kp-surface); }
+.teacher-topbar > span { color: var(--kp-muted); font-size: 13px; font-weight: 500; line-height: 20px; }
+.teacher-account-menu { margin-left: auto; }
+.teacher-account-menu .mud-button-root { min-height: 44px; padding: 10px 0 10px 16px; color: var(--kp-text); font: 500 16px/24px 'Noto Sans SC', 'Microsoft YaHei', sans-serif; text-transform: none; }
+.teacher-content { flex: 1; min-height: 0; min-width: 0; overflow: auto; outline: none; }
+.teacher-shell .teacher-page-header .teacher-workspace-label { display: none; }
+.teacher-shell .teacher-page-header > div:first-child { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.teacher-menu-toggle { display: none; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; padding: 8px; border: 1px solid var(--kp-border); border-radius: 8px; background: var(--kp-surface); color: var(--kp-text); }
+.teacher-menu-backdrop { position: fixed; inset: 0; z-index: 1299; border: 0; background: rgb(24 36 59 / 30%); }
+@media (max-width: 959px) {
+    .teacher-shell { grid-template-columns: minmax(0, 1fr); }
+    .teacher-sidebar { position: fixed; inset: 0 auto 0 0; width: 224px; z-index: 1300; visibility: hidden; transform: translateX(-100%); }
+    .teacher-sidebar.is-open { visibility: visible; transform: none; }
+    .teacher-menu-toggle { display: inline-flex; }
+    .teacher-topbar { padding-inline: 16px; }
+    .teacher-skip-link { left: 16px; }
+}

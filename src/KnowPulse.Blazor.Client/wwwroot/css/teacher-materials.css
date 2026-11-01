@@ -1,0 +1,130 @@
+.teacher-page.materials-page {
+    --kp-primary: #1366f0;
+    --kp-primary-soft: #eef4ff;
+    --kp-text: #18243b;
+    --kp-muted: #52627a;
+    --kp-border: #e5eaf2;
+    --kp-surface: #fff;
+    --kp-surface-subtle: #f6f8fc;
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+    min-width: 0;
+    min-height: calc(100vh - 72px);
+    padding: 32px;
+    color: var(--kp-text);
+    background: var(--kp-surface-subtle);
+    font-family: 'Noto Sans SC', 'Microsoft YaHei', sans-serif;
+    font-size: 14px;
+    line-height: 22px;
+}
+
+.materials-page .teacher-page-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 24px;
+    width: min(100%, 974px);
+    min-height: 68px;
+}
+
+.materials-page .teacher-page-header > div:first-child {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+}
+
+.materials-page .teacher-workspace-label { display: none; }
+.materials-page .teacher-page-header h1 { margin: 0; font-size: 26px; font-weight: 700; line-height: 38px; }
+.materials-page .teacher-page-header p { margin: 0; color: var(--kp-muted); font-size: 14px; line-height: 22px; }
+.materials-page .teacher-page-header > .teacher-actions { flex: 0 0 160px; padding: 4px; }
+.materials-page .materials-upload { width: 152px; }
+
+.materials-page .mud-button-root {
+    min-height: 44px;
+    border-radius: 8px;
+    font-family: inherit;
+    font-size: 16px;
+    font-weight: 500;
+    line-height: 24px;
+    text-transform: none;
+}
+
+.materials-page .mud-button-filled-primary { background: var(--kp-primary); box-shadow: none; }
+.materials-page .mud-button-filled-primary:hover { background: #0d59d9; box-shadow: none; }
+.materials-page .mud-button-root:focus-visible { outline: 2px solid var(--kp-primary); outline-offset: 3px; }
+
+.materials-page .materials-overview { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+.materials-page .materials-overview .teacher-metric { display: flex; flex-direction: column; gap: 8px; min-height: 98px; padding: 16px; border-radius: 12px; background: #fff; }
+.materials-page .materials-overview span { color: var(--kp-muted); font-size: 12px; line-height: 18px; }
+.materials-page .materials-overview strong { color: var(--kp-text); font-size: 30px; font-weight: 700; line-height: 40px; }
+
+.materials-page .materials-list {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    min-width: 0;
+    padding: 24px;
+    border: 1px solid var(--kp-border);
+    border-radius: 16px;
+    background: #fff;
+}
+
+.materials-page .materials-panel-title { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 28px; }
+.materials-page .materials-panel-title h2 { margin: 0; font-size: 18px; font-weight: 700; line-height: 28px; }
+.materials-page .materials-panel-title .materials-refresh { min-height: 44px; margin-block: -8px; padding: 0 8px; color: var(--kp-muted); font-size: 12px; line-height: 18px; }
+.materials-page .materials-refresh .mud-icon-root { width: 16px; height: 16px; }
+.materials-page .materials-list-description { margin: 0; color: var(--kp-muted); font-size: 12px; line-height: 18px; }
+
+.materials-page .materials-filters { display: flex; align-items: stretch; gap: 8px; min-height: 48px; overflow-x: auto; }
+.materials-page .materials-filter { position: relative; flex-shrink: 0; min-width: 0; min-height: 48px; padding: 0 12px; color: var(--kp-muted); font-size: 14px; font-weight: 400; line-height: 22px; }
+.materials-page .materials-filter:nth-child(1) { width: 96px; }
+.materials-page .materials-filter:nth-child(2) { width: 72px; }
+.materials-page .materials-filter:nth-child(n+3) { width: 82px; }
+.materials-page .materials-filter.is-active { padding-left: 24px; padding-right: 8px; color: var(--kp-primary); background: var(--kp-primary-soft); font-size: 16px; font-weight: 500; }
+.materials-page .materials-filter.is-active::before { position: absolute; top: 14px; left: 12px; width: 4px; height: 20px; border-radius: 2px; background: var(--kp-primary); content: ''; }
+
+.materials-page .materials-search-row { display: flex; align-items: flex-end; gap: 16px; width: min(100%, 976px); }
+.materials-page .materials-search { display: flex; flex: 1 1 720px; flex-direction: column; gap: 8px; min-width: 0; }
+.materials-page .materials-search label { color: var(--kp-text); font-size: 13px; font-weight: 500; line-height: 20px; }
+.materials-page .materials-search-input { margin: 0; }
+.materials-page .materials-generate-slot { flex: 0 0 240px; margin-bottom: 4px; padding: 4px; }
+.materials-page .materials-generate { width: 232px; }
+
+.materials-page .materials-table { margin-top: 10px; overflow: hidden; border-radius: 0; box-shadow: none; }
+.materials-page .materials-table .mud-table-container { overflow-x: auto; border: 1px solid var(--kp-border); border-top: 0; }
+.materials-page .materials-table table { width: 100%; min-width: 760px; table-layout: fixed; }
+.materials-page .materials-table .mud-table-head { background: var(--kp-surface-subtle); }
+.materials-page .materials-table .mud-table-head .mud-table-row { height: 52px; }
+.materials-page .materials-table .mud-table-body .mud-table-row { height: 72px; }
+.materials-page .materials-table .mud-table-cell { padding: 0 16px; border-color: var(--kp-border); color: var(--kp-text); font-family: inherit; font-size: 14px; line-height: 22px; overflow-wrap: anywhere; }
+.materials-page .materials-table .mud-table-head .mud-table-cell { background: var(--kp-surface-subtle); color: var(--kp-muted); font-size: 13px; font-weight: 400; line-height: 20px; }
+.materials-page .materials-table th:nth-child(1) { width: 33.2%; }
+.materials-page .materials-table th:nth-child(2) { width: 13.3%; }
+.materials-page .materials-table th:nth-child(3) { width: 21.3%; }
+.materials-page .materials-table th:nth-child(4) { width: 17.4%; }
+.materials-page .materials-table th:nth-child(5) { width: 14.8%; }
+.materials-page .materials-table .mud-table-body td:first-child:not([colspan]) { font-size: 16px; font-weight: 500; line-height: 24px; }
+.materials-page .materials-table .materials-row-action { justify-content: flex-start; min-width: 0; padding: 0; color: var(--kp-primary); font-size: 14px; font-weight: 400; line-height: 22px; text-align: left; }
+.materials-page .materials-list-note { margin: 0; color: var(--kp-muted); font-size: 14px; line-height: 22px; }
+
+@media (max-width: 1000px) {
+    .materials-page .materials-search-row { width: 100%; }
+    .materials-page .materials-generate-slot { flex-basis: 184px; }
+    .materials-page .materials-generate { width: 176px; }
+}
+
+@media (max-width: 760px) {
+    .teacher-page.materials-page { padding: 24px 16px; }
+    .materials-page .teacher-page-header { align-items: flex-start; flex-direction: column; gap: 16px; }
+    .materials-page .teacher-page-header > .teacher-actions { flex-basis: auto; padding: 0; }
+    .materials-page .materials-overview { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .materials-page .materials-list { padding: 16px; }
+    .materials-page .materials-filters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); overflow: visible; }
+    .materials-page .materials-filters .materials-filter { width: 100%; justify-content: flex-start; }
+    .materials-page .materials-search-row { align-items: stretch; flex-direction: column; gap: 12px; }
+    .materials-page .materials-search { flex-basis: auto; }
+    .materials-page .materials-generate-slot { flex-basis: auto; align-self: flex-start; margin: 0; padding: 0; }
+    .materials-page .materials-generate { width: auto; padding-right: 20px; padding-left: 20px; }
+}

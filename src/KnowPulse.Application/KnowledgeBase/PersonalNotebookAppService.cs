@@ -5,7 +5,6 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
-using KnowPulse.Education;
 using KnowPulse.Permissions;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Options;
@@ -15,6 +14,7 @@ using Volo.Abp.Authorization;
 using Volo.Abp.Data;
 using Volo.Abp.Domain.Entities;
 using Volo.Abp.Domain.Repositories;
+using Volo.Abp.Identity;
 using Volo.Abp.Uow;
 using Volo.Abp.Content;
 using Volo.Abp.Auditing;
@@ -31,7 +31,10 @@ public class PersonalNotebookAppService : KnowPulseAppService, IPersonalNotebook
     private async Task AccountAsync()
     {
         await CheckMvpPermissionAsync(KnowPulsePermissions.KnowledgeBase.PersonalLibrary);
-        await LazyServiceProvider.LazyGetRequiredService<EducationAssessmentAccessGuard>().CurrentAccountAsync();
+        if (!CurrentUser.IsAuthenticated || !CurrentUser.Id.HasValue) throw new AbpAuthorizationException();
+        using var tracking = Repo<IdentityUser>().DisableTracking();
+        var account = await Repo<IdentityUser>().FindAsync(CurrentUser.Id.Value);
+        if (account == null || !account.IsActive || account.TenantId != CurrentTenant.Id) throw new AbpAuthorizationException();
     }
     private async Task<KnowledgeItem> OwnAsync(Guid id, bool includeDeleted = false)
     {

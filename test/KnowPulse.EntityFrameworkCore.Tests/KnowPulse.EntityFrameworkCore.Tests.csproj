@@ -18,10 +18,6 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
-    <!-- Exercise the actual editor state against the API without loading a WASM host. -->
-    <Compile Include="..\..\src\KnowPulse.Blazor.Client\Pages\Education\EducationAssessmentLocalDrafts.cs" Link="Education\EducationAssessmentLocalDrafts.cs" />
-    <Compile Include="..\..\src\KnowPulse.Blazor.Client\Pages\Education\EducationCorrectionLocalState.cs" Link="Education\EducationCorrectionLocalState.cs" />
-    <Compile Include="..\..\src\KnowPulse.Blazor.Client\Pages\Education\EducationAssessmentSubmissionReview.cs" Link="Education\EducationAssessmentSubmissionReview.cs" />
   </ItemGroup>
 
 </Project>

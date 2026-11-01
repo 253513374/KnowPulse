@@ -1,64 +1,228 @@
-# RAG 管理方案 1：设计 QA
-
-## Comparison Target
-
-- Source visual truth: `C:\Users\q4528\.codex\generated_images\019f8460-52d4-7a53-97c3-924029fe5fcb\exec-a759226f-a021-42b3-bd4f-5a580d821fb4.png`
-- Final implementation screenshot: `C:\Users\q4528\.codex\visualizations\2026\07\21\019f8460-52d4-7a53-97c3-924029fe5fcb\rag-design-qa\04-answer-grounded-pass-2.png`
-- Model-management screenshot: `C:\Users\q4528\.codex\visualizations\2026\07\21\019f8460-52d4-7a53-97c3-924029fe5fcb\rag-design-qa\02-model-bindings.png`
-- Viewport: 1440 x 1024 desktop; additional checks at 768 x 900 and 390 x 844.
-- State: grounded answer with three citations for the direct visual comparison. The local knowledge base has no published test content, so the grounded comparison state is available only through a `DEBUG`-only preview query; the production route still calls the real RAG service.
-
-## Full-view Comparison Evidence
-
-- Pass 1 comparison: `C:\Users\q4528\.codex\visualizations\2026\07\21\019f8460-52d4-7a53-97c3-924029fe5fcb\rag-design-qa\comparison-pass-1-full.png`
-- Pass 2 comparison: `C:\Users\q4528\.codex\visualizations\2026\07\21\019f8460-52d4-7a53-97c3-924029fe5fcb\rag-design-qa\comparison-pass-2-full.png`
-- The final screen preserves the source hierarchy: page title and configuration action, three-part readiness strip, user question, grounded assistant answer, evidence status, inline citation rows, and bottom composer.
-- The final implementation fits the full desktop viewport without clipping persistent controls. The model-management surface uses the same visual language and separates usage bindings, the catalog, and health records into working sections.
-
-## Focused Region Comparison Evidence
-
-- Pass 1 focused comparison: `C:\Users\q4528\.codex\visualizations\2026\07\21\019f8460-52d4-7a53-97c3-924029fe5fcb\rag-design-qa\comparison-pass-1-focus.png`
-- Pass 2 focused comparison: `C:\Users\q4528\.codex\visualizations\2026\07\21\019f8460-52d4-7a53-97c3-924029fe5fcb\rag-design-qa\comparison-pass-2-focus.png`
-- The focused pass verified the answer line length, assistant branding, evidence rhythm, source metadata, source actions, composer controls, and spacing between the major regions.
-
-## Required Fidelity Surfaces
-
-- Fonts and typography: uses the existing KnowPulse/LeptonX sans-serif stack. Heading weight, 14-16 px body scale, answer line height, secondary metadata, and truncation hierarchy match the source intent. No actionable wrapping or truncation defects remain.
-- Spacing and layout rhythm: desktop content order, card radii, dividers, inner padding, citation-row rhythm, and composer placement match the source. The first pass was too tall; the second pass removes the viewport clipping.
-- Colors and visual tokens: reuses the existing blue primary and pink navigation accent, with green, amber, and red reserved for actual runtime states. The source shows green model states, while the implementation correctly shows `待检查` because the current local models have no health snapshot.
-- Image quality and asset fidelity: the existing KnowPulse logo asset is used for the assistant identity. Font Awesome supplies the standard interface icons. There are no generated placeholders, custom SVGs, CSS drawings, decorative raster assets, or emoji substitutes.
-- Copy and content: labels use the product language `RAG 管理`, `问答验证`, and `模型管理`; technical UUID, confidence, and Top K details are removed from the primary task. Recovery copy distinguishes missing evidence from a model-management action.
-
-## Interaction And Accessibility Evidence
-
-- Verified the empty question state, example-question fill, empty-submit validation, busy/disabled behavior in the implementation, real insufficient-evidence response, source recovery actions, model-section navigation, new-model editor, and model-form validation.
-- Verified semantic headings, form labels, validation messages, status regions, `aria-live`, disabled states, and keyboard-reachable native controls.
-- Browser console errors checked: none.
-- Responsive captures: `05-answer-tablet.png`, `06-answer-mobile.png`, and `07-model-mobile.png`. No horizontal overflow, clipped primary action, or overlapping content was found.
-- The local knowledge base currently has no published content, so a real successful grounded answer could not be produced without changing local business data. The real refusal path was verified against the running API; the `DEBUG`-only visual fixture is excluded from release builds.
-
-## Comparison History
-
-### Pass 1 — blocked
-
-- [P2] The composer extended below the 1440 x 1024 viewport, hiding part of the persistent input controls.
-- [P2] The assistant avatar used a generic icon instead of the real KnowPulse mark.
-- [P2] The grounded preview omitted `查看原文`, making the source list less actionable than the selected visual.
-
-Fixes made:
-
-- Reduced answer-region padding and citation-row height, and tightened the composer without reducing readability.
-- Replaced the generic assistant icon with the existing KnowPulse logo thumbnail.
-- Added non-production preview citation identifiers so the visual QA state includes the same source action as a real result.
-
-### Pass 2 — passed
-
-- Post-fix evidence: `comparison-pass-2-full.png` and `comparison-pass-2-focus.png`.
-- No actionable P0, P1, or P2 mismatches remain.
-- Expected differences: live health states remain `待检查` instead of the mock's `已就绪`; the attachment affordance was intentionally omitted because RAG question attachments are not a supported product behavior.
-
-## Follow-up Polish
-
-- [P3] A later iteration can add conditional Enter-to-send once the textarea keyboard behavior is implemented without breaking Shift+Enter multiline input.
+# 品牌登录、工作区与账户页面：实现验收
 
 final result: passed
+
+登录页验收日期：2026-10-31；教师工作区修复验收日期：2026-11-01。分支：`codex/mudblazor-leptonx-lite`。
+
+范围：品牌登录页、登录后默认入口、教师共用导航、“我的资料”首屏、全局输入控件样式、后台弹窗和账户管理页。本报告不代表整份 Figma 的所有业务详情页均已逐屏实现或验收。
+
+## 2026-11-01：后台弹窗与账户页补齐
+
+### 布局不同的原因与修复
+
+`44307` 是 Blazor WebAssembly 工作区，`44305/Account/Manage` 是独立认证主机的 Razor 页面。两者分别渲染并拥有各自布局文件；原账户页仍使用 ABP 的 Application 布局，因此出现黑色 Lepton 侧栏、英文品牌和旧输入样式。工作区的 `forms.css` 不会自动加载到认证主机。
+
+本轮仅为账户页添加物理 `Manage.cshtml`、局部 `_AccountManageLayout.cshtml` 和 `account-manage.css`。局部布局嵌入主题 Empty 布局，保留框架资源、原 `ManageModel`、动态个人资料组件、脚本、验证、原返回地址校验和授权约束；统一白色品牌侧栏、顶栏、表面、导航及账户输入样式。没有新增密码处理器、替换全局主题或改登录页。架构说明同步至 ADR 0054。
+
+账户页运行验收：正常输入及密码显隐按钮均为 44px；标签间隔 8px，白底、正常描边和聚焦状态一致。点击空密码表单提交，仅触发原有前端必填反馈；3 项输入边框和辅助文字均为 `rgb(180,35,24)`。5 项个人信息字段与两个标签页切换正常，未输入新密码或保存个人信息。返回工作区后仍为已登录 admin，遵循原首页路由；返回账户页后测试错误已清空。
+
+### 后台弹窗与表单检查
+
+检查了 22 组页面/状态，共保留 89 次单行控件读数（包括修复前后复测，非 89 个独立组件）。单行均为 44px，多行保留自身行数；原生表单和模型抽屉正常，无新增输入类型遗漏。
+
+| 检查范围 | 实际操作与结果 |
+| --- | --- |
+| 用户与角色 | 新用户、编辑 teacher.test 的用户信息/角色标签、新角色、编辑角色、用户权限、角色权限搜索；仅打开/切换/取消，不保存角色或权限。 |
+| 租户与功能 | 新租户的名称、管理员邮箱/密码字段；主机功能弹窗当前无可配置字段。无既有租户，未创建租户来解锁编辑/功能界面。 |
+| 邮件设置 | 4 个基本字段及关闭“使用默认凭据”后出现的域、用户名、密码；恢复原复选状态且未保存。发送测试邮件按钮只打开弹窗，检查发件人、收件人、主题与 5 行正文后取消，未发送邮件。 |
+| 模型与评测 | 新增模型抽屉、切换 Embedding 显示向量维度、模型用途与高级参数、Prompt 版本筛选、评测新增用例表单；未保存模型/用例或调用真实评测。 |
+| 组织与知识表单 | 部门、岗位、职级、人员归属、分类、标签的内联文本、数字、选择字段；均未保存。 |
+
+额外发现并修复：ABP 的 `mud-form gap-0` 让相邻外置标签输入组间距为 0，标签看起来更靠近上一项。浏览器间距断言修复前失败；共享规则补上 16px，并针对旧主题的重要 margin 规则提高优先级。规则明确排除 Boolean input，最终用户弹窗实测文字字段之间为 16px、复选框 margin-top 仍为 0，标签至输入框仍为 8px。
+
+390/320 下账户页与租户弹窗无横向溢出，44px 控件及密码按钮保持正常尺寸。另检查 390 下较长的新用户弹窗：外框高 780px，内容区 `overflow-y:auto`、可滚动，取消按钮底边 y=799，小于视口 844，操作按钮可达。已恢复正常视口，保留原 admin 身份和干净账户页。
+
+### 证据、验证与边界
+
+证据相对本仓库根目录，位于被 Git 忽略的 `artifacts/admin-dialogs/qa/`：
+
+- 用户提供的原账户截图与最终页面采用同一 1437 × 1244 尺寸、1×、无缩放比较：`17-account-before-after.jpg`；完整最终截图 `14-account-final.jpg`，首轮运行基线 `01-account-before.jpg`。
+- 租户间距修复前后为同一 1397 × 1184：`18-tenant-spacing-comparison.jpg`；角色、权限、租户、邮件、模型及最终用户弹窗另有 `02`–`08`、`15` 截图。
+- 账户错误、手机个人资料、320 错误分别为 `11-account-error.jpg`、`12-account-mobile-personal.jpg`、`13-account-320-errors.jpg`；手机长弹窗为 `16-user-mobile.jpg`。
+- `admin-controls-final.json`、`account-states.json` 保留不含密码值的控件读数。首轮弹窗动画中的暂态读数已在动画结束后复测替换，未将缩放动画判断为 CSS 高度错误。
+
+核对了字体层级、布局/间距、正常与错误颜色、真实文案及品牌原 SVG 加载；完整页面与手机截图未发现待修复的 P0/P1/P2。账户页采用与既有工作区相同的品牌规则，本轮没有创建新的 Figma 账户稿。静态独立复核确认原授权、动态组件、脚本和 section 转发保留。
+
+最终 Host 与 Web 构建均为 0 warning / 0 error；`ops/verify-brand-login.ps1` 22 项通过。匿名 GET `/Account/Manage` 返回 302 至 `/Account/Login`，未公开账户资料。最终浏览器没有新增 error；`git diff --check` 通过。原有 EF 默认值 sentinel/ABP IdentityClientConfiguration warning 不属于本轮样式修复范围。
+
+未实际更改密码、个人资料、角色、权限、租户、邮件或模型配置；未发送邮件。无租户记录时的租户编辑/功能、需要业务记录的版本/附件/审核处理态未全部打开，只做原组件与共享样式的源码核对；当前未启用的时区组件不计为实际页面缺失。本节最终结果：passed。
+
+## 2026-11-01：全局输入控件修复验收
+
+### 问题、来源与修复
+
+用户在 `/teacher/generate` 标记“搜索可用资料”：旧 Lepton 主题的重要规则覆盖了 MudBlazor 输入组件，导致灰底、标签下沉及内容区域错位。修复前浏览器断言实际失败：输入框顶边 y=371，标签底边 y=418.41，背景 `rgb(240,244,247)`。此前只有“我的资料”搜索框做了局部覆盖，因此其他表单仍然受影响。
+
+本轮读取 [Figma Input 组件及四种状态](https://www.figma.com/design/t3Oui0FU4YphtlOuPpo567?node-id=140-475)，在现有全局样式包加入 `forms.css`，同时移除资料页和管理页中重复的局部输入规则。复用既有 Mud 标签、验证、弹出层和原生业务输入，不引入依赖或业务逻辑。
+
+- 单行输入统一 44px、圆角 8px；标签 13/20、位于输入区上方且间隔 8px；正文 14/22。
+- 统一正常白底与完整描边、蓝色 2px 聚焦、红色错误边框和辅助文字、灰色禁用背景。
+- 同时覆盖 Mud Outlined、默认 Text 和 Filled 变体；保留 textarea 的行数/AutoGrow、数字按钮、密码等尾部图标空间。已有原生 `.kp-input` / `.kp-select` 共享颜色与状态。
+- 表格分页的紧凑选择器明确排除，用户管理页实测修复前后均为 38.02px；原生紧凑选择器保留自身尺寸。
+
+### 运行与视觉检查
+
+以下证据相对仓库根目录，保存在被 Git 忽略的 `artifacts/input-controls/qa/`。页面使用真实教师/管理员测试身份及真实空数据，没有上传、创建用户或保存业务表单。
+
+| 检查 | 结果与证据 |
+| --- | --- |
+| 出题页修复前后，同一 1437 × 1244 视口 | `01-generate-before.jpg` / `10-generate-final.jpg`；同图比较 `15-generate-before-after.jpg`。5 个控件标签间隔均为 8px，单行 44px，多行 86px，正常背景均为白色。 |
+| Figma 组件与真实默认、聚焦、错误状态 | `input-source.png` / `14-input-source-comparison.png`。比较区域均为 288 × 72、1×、未缩放；真实业务标签与内容不同。完整错误辅助文字保留于 `state-error.jpg`。 |
+| 教师页面与编辑表单 | 检查题库搜索、学生搜索、任务搜索、任务创建、资料编辑、手工建题；`03-questions.jpg`、`04-students.jpg`、`05-task-builder.jpg`、`06-material-editor.jpg`、`07-question-editor.jpg` 及对应 `*-inputs.json`。单行 44px；3 行/8 行 Mud 文本区分别为 86/196px，原生多行按内容自然高度显示。 |
+| 后台默认 Text 变体 | 用户管理“新用户”空弹窗的 6 个字段均为白底 44px、标签间隔 8px、完整可见边框；`08-admin-dialog-before.jpg` / `09-admin-dialog-after.jpg`。仅打开并取消弹窗，未保存账号或修改角色。 |
+| 真实错误和禁用 | 主题字段输入后清空、Tab 离开触发既有 Required 验证，边框及辅助文字为 `rgb(180,35,24)`；学生/任务创建初始加载时实测原生 disabled，背景 `rgb(229,234,242)`。`disabled-final-inputs.json` 保留最终构建的禁用读数。 |
+| 数字、下拉、键盘与窄屏 | 实际验证数字 8→9→8、题型单选→多选→单选、Tab 与错误反馈；390/320 下单行仍为 44px、标签间隔 8px，页面宽度分别为 390/320，无水平溢出。`11-generate-mobile.jpg`、`12-generate-320.jpg`、`13-generate-mobile-form.jpg`。 |
+
+视觉检查同时核对字体层级、布局和间距、颜色语义、品牌资源以及实际业务文案。品牌标志复用原 SVG，没有新增图片或字体资源。组件比较保留真实空值、必填星号及既有验证文案；浏览器 JPEG 的细线颜色与字体抗锯齿有采集差异，不据此修改业务文字。
+
+迭代中发现后台使用默认 Text 变体，而非教师页面使用的 Outlined，已扩展共享修复。另在实际截图中发现旧主题隐藏了 Text 的伪元素边框，补上明确显示规则后重新构建，并同时检查可见边框、聚焦状态和分页尺寸；没有仅凭 computed border 值认定通过。截图裁切改为从完整视口按 DOM 位置提取，避免采集器局部截图的偏移。最终同图比较和手机截图未发现待修复的 P0/P1/P2。
+
+最终 `dotnet build src/KnowPulse.Blazor --no-restore -v minimal`：0 warning / 0 error；`git diff --check` 通过。本轮为共享 CSS 修复，未新增镜像实现的样式单元测试，也未重跑上一节范围的后端测试。已恢复正常视口和教师测试账号，保留本地 Web/API 运行。
+
+本轮未执行真实上传、AI 生成或业务表单保存；未逐一操作框架包中所有租户/设置弹窗，也未检查没有在项目中使用的输入组件类型。既有 Required 英文提示未在样式修复中更改。本节最终结果：passed。
+
+## 本地测试账号
+
+账号说明更新于 2026-11-01；以下列出本地管理员与教师测试账号，各自验证范围见下文。
+
+### 管理员账号
+
+| 项目 | 内容 |
+| --- | --- |
+| Web 登录入口 | `https://localhost:44307/` |
+| 用户名 | `admin` |
+| 密码 | `1q2w3E*` |
+| 身份 | 本地管理员 |
+| 用途 | 品牌登录页、登录失败、登录成功返回与退出验收 |
+
+从 Web 入口打开页面，自动跳转到认证服务器的品牌登录页；输入上述账号密码，点击“登录并进入空间”，预期返回 Web 并显示 `admin` 和已有工作区。
+
+账号来源为 ABP 默认开发种子，与 `ops/verify-mvp0-runtime.ps1` 的 `AdminUserName` / `AdminPassword` 默认参数一致。仅适用于本地开发环境；若数据库中已修改密码，以当前密码为准。管理员账号不能代替独立教师、学生账号的权限隔离测试。
+
+### 教师账号
+
+2026-11-01 核对当前本地数据库原先只有 `admin`，随后通过既有 Identity 用户管理 API 新增以下专用教师测试用户。
+
+| 项目 | 内容 |
+| --- | --- |
+| Web 登录入口 | `https://localhost:44307/` |
+| 用户名 | `teacher.test` |
+| 密码 | `Teacher.Test2026!` |
+| 显示名称 | 测试教师 |
+| 角色 | 仅 `teacher` |
+| 教师资料入口 | `/teacher/materials` |
+
+已通过真实认证接口验证账号密码可登录，读取当前身份确认角色仅为 `teacher`，具有 `KnowPulse.KnowledgeBase.Items` 权限；调用用户管理 API 返回 `403`。本次没有授予管理员角色或更改角色权限。
+
+在本轮真实浏览器中，已进一步验证此账号通过品牌表单完成 OIDC 登录并进入 `/teacher/materials`，显示“测试教师 · 教师账号”；账号菜单不包含平台管理后台入口。
+
+该账号仅用于当前本地开发库，尚未配置学校成员、任教或班级关系；涉及学校教学范围的用例需另行准备相应关系，不能仅凭教师角色通过。测试邮箱使用保留的 `.invalid` 域名，不能用于收取验证或找回邮件。请勿将此测试密码用于生产环境。
+
+## 2026-11-01：登录后工作区修复验收
+
+### 问题与修复范围
+
+用户截图中的 `/` 确实仍是旧五卡片首页。它使用框架默认 `MainLayout`，也没有 `teacher-page`，因此未触发已有教师区样式；管理员的全部菜单同时出现在旧侧栏。登录流程成功不能证明登录后的工作区已按设计落地，上一轮登录验收没有覆盖此差异。
+
+本轮保留原 OIDC 与页面授权，根入口按现有功能权限选择真实教师页面；教师路径使用独立的 `TeacherLayout`，共用原框架认证、通知与对话框宿主。“我的资料”复用现有服务、编辑、草稿、附件和重试逻辑，只调整首屏及筛选展示。管理员通过账号菜单进入独立管理后台，学校与教学工具、问答及账号帮助仍可到达。
+
+### 来源、截图与比较方式
+
+- 视觉来源：[Figma W02 · 我的资料](https://www.figma.com/design/t3Oui0FU4YphtlOuPpo567?node-id=184-467)，本轮读取高保真设计上下文和截图。
+- 原图：`artifacts/workspace-design/qa/materials-source.png`，1440 × 1000 像素。
+- 实现：`artifacts/workspace-design/qa/12-workspace-final.jpg`，CSS 视口和截图均为 1440 × 1000，DPR 1，中文、浅色、教师已登录。无浏览器外框，无密度缩放。
+- 完整同图比较：`artifacts/workspace-design/qa/12-workspace-final-comparison.png`，左 Figma、右浏览器，中间 32 像素。已实际打开比较。
+- 控件和导航局部同图证据：`05-controls-comparison.png`、`05-navigation-comparison.png`（同一目录）；当时登录为 admin。最终教师身份仅改变真实名称和可用账号菜单。
+- 源图含“陈老师”和 4 条示例资料，运行库的测试教师没有资料，因此显示真实姓名、0 概览与空列表，列表面板随内容变矮。这是明确的数据状态差异，不以硬编码示例数据伪造相同截图。
+
+### 发现与修正历史
+
+1. [P1] 错误默认页面及旧导航：`01-root-before-comparison.png` 显示旧五卡片；`02-materials-before-comparison.png` 显示 280px 旧菜单和额外品牌栏。改为按权限选路、224px 白导航、72px 顶栏及五项教师主导航。原浏览器检查实际失败：`legacyCards=5`、缺少 `teacher-shell`、侧栏为 `rgb(22,22,22)`；修复后同一断言通过。
+2. [P2] 输入与表头被主题覆盖：`03-materials-first-comparison.png` 中搜索框仍灰色，实际 input 盒高 60，表头单元格为白色。首轮增强普通 CSS 后，`04-materials-postfix-admin-comparison.png` 的表头恢复，但输入框仍未修好。通过浏览器匹配规则确认 Lepton 使用 important 背景/内边距，并且 Mud 输入采用 content-box；最终仅在此控件内覆盖这些规则并改为 border-box。`05-materials-final-comparison.png` 与最终 `12-workspace-final-comparison.png` 确认白底、44px 输入、`#75839b` 边框、`#f6f8fc` 表头。
+3. [P2] 窄屏筛选被裁切：`07-mobile-390.jpg`、`09-mobile-320.jpg` 显示第四个状态需要横向滚动。改为手机两列筛选，`10-mobile-320-final.jpg`、`11-mobile-390-final.jpg` 及 DOM 确认四个按钮完整显示、筛选组无横向溢出，整页宽度分别为 320/390。
+4. 移动抽屉增加打开后焦点、Escape 关闭和焦点返回，并在切回桌面断点时复位遮罩及 inert；`aria-expanded` 明确输出 `true`/`false`。实际操作确认扩屏后桌面可用。
+
+最终完整/局部比较及独立视觉复核未发现待修复的 P0/P1/P2。仅保留非选中筛选文字约 8–10px 偏移、细描边和字体抗锯齿差异等 P3，不继续扩改。
+
+### 五项视觉核对
+
+- 字体：浏览器实际字体为 Noto Sans SC Bold；标题 26/38、指标 30/40、正文 14/22、辅助文字 12/18，与来源一致。
+- 布局：1440 下侧栏 224、顶栏 72、主体边距 32、概览卡高 98，列表起点 y=318，筛选 y=421、搜索 y=485、表格 y=583；组件自然伸缩，没有整页缩放。
+- 颜色：主色 `#1366f0`、正文 `#18243b`、次级文字 `#52627a`、背景 `#f6f8fc`、白色表面和 `#e5eaf2` 边框均核对；搜索边框实际为 `rgb(117,131,155)`。
+- 图片：Figma 品牌 SVG 与现有 `images/teaching/brand-mark.svg` SHA256 完全一致，复用 32 × 32 原矢量，置于 40 × 40 品牌槽；文件非空、加载成功，无临时资源 URL。
+- 文案：教师主导航、隐私说明、标题、四项概览、筛选和表头来自设计；真实账户名称和空数据正常替换。刷新入口作为现有功能保留，点击区域至少 44px。
+
+### 交互、构建与边界
+
+- 真实教师账号通过品牌表单登录，自动进入“我的资料”；管理员也可查看教师区并从账号菜单进入独立管理后台。新退出入口完成原 OIDC 退出流程，返回品牌登录页，再以教师账号登录成功。
+- 状态选择更新 `aria-pressed`，搜索 Enter 可用，清空搜索及“全部资料”可恢复默认列表。上传按钮打开真实编辑表单，取消时原有草稿确认对话框仍工作；未新建资料或执行真实上传。
+- 390/320 下使用两列概览和筛选；表格在自身容器内滚动，整页无水平溢出。打开导航后焦点在侧栏、背景 inert，Escape 后焦点回到打开按钮；手机打开后扩到 1440 时遮罩消失、背景恢复交互。
+- 本轮 Blazor.Tests 78 项通过，包括导航权限/路由段边界，以及状态筛选重置分页、传递正确查询条件的回归用例；最终 Web/Client 构建 0 warning / 0 error。
+- 曾因测试构建更新 Client 启动文件，使旧 Web 静态清单过期，`dotnet.js` 返回 200/空内容；按“测试 → 最后构建 Web → 启动”重新同步后入口返回 129038 字节 JavaScript，浏览器恢复。该启动故障不算视觉 QA 迭代，也未通过改认证或 SDK 配置掩盖。
+- 修复后重新加载、导航及登录期间没有新增浏览器 error；仍有既有 `AbpMvcClient` IdentityClientConfiguration warning，未阻断本轮流程。
+- 未逐屏对齐其他教学详情、学校业务或整个管理后台；未执行真实 AI 出题、上传处理或学校任教数据变更。此前登录页的邮件/外部提供商/2FA 限制仍适用。
+
+工作区最终结果：passed。以下保留先前品牌登录页的验收证据与范围。
+
+## 品牌登录页：对比目标与证据
+
+视觉来源为已批准的 [Figma 桌面稿](https://www.figma.com/design/t3Oui0FU4YphtlOuPpo567?node-id=319-535)、[紧凑稿](https://www.figma.com/design/t3Oui0FU4YphtlOuPpo567?node-id=341-831)、[宽屏稿](https://www.figma.com/design/t3Oui0FU4YphtlOuPpo567?node-id=341-720) 与 [手机稿](https://www.figma.com/design/t3Oui0FU4YphtlOuPpo567?node-id=320-554)。本次已读取真实设计上下文及截图；品牌标志与图标使用 Figma 导出的本地 SVG。
+
+实现从 `https://localhost:44307/` 发起已有 OIDC code/PKCE 流程，实际登录界面位于 `https://localhost:44305/Account/Login`。比较状态统一为中文、浅色、未登录、空表单；截图不含浏览器外框。以下路径均相对本仓库根目录，证据保存在被 Git 忽略的 `artifacts/brand-login/qa/`。
+
+| CSS 视口 | 原图路径与像素尺寸 | 实现路径与像素尺寸 | 同图并排比较 |
+| --- | --- | --- | --- |
+| 1440 × 847 | `artifacts/brand-login/qa/1440-source.png`，1440 × 847 | `artifacts/brand-login/qa/1440-final.jpg`，1440 × 847 | `artifacts/brand-login/qa/1440-final-comparison.png` |
+| 1024 × 1237 | `artifacts/brand-login/qa/1024-source.png`，1024 × 1237 | `artifacts/brand-login/qa/1024-final.jpg`，1024 × 1237 | `artifacts/brand-login/qa/1024-final-comparison.png` |
+| 1920 × 1080 | `artifacts/brand-login/qa/1920-source.png`，1920 × 1080 | `artifacts/brand-login/qa/1920-final.jpg`，1920 × 1080 | `artifacts/brand-login/qa/1920-final-comparison.png` |
+| 390 × 891 | `artifacts/brand-login/qa/390-source.png`，390 × 891 | `artifacts/brand-login/qa/390-postfix.jpg`，390 × 891 | `artifacts/brand-login/qa/390-postfix-comparison.png` |
+
+所有来源为 1× 导出；浏览器 devicePixelRatio 为 1，没有缩放图片或使用整页 transform。并排图左侧是 Figma，右侧是浏览器，间隔 32 像素。手机最终对比启用移动视口模拟，避免桌面传统滚动条占去 15 像素造成假性换行。另单独检查桌面浏览器的窄窗口，可正常纵向滚动，无水平溢出。
+
+焦点区域证据：`login-card-final-comparison.png` 比较两边同一 512 × 506 登录区域，`brand-final-comparison.png` 比较同一 736 × 268 品牌区域。手机完整对比可直接阅读控件文字，未另放大。1920 浏览器 JPEG 有采集压缩，未把压缩差异判作运行时字体或 SVG 质量问题。
+
+## 发现、修正与复核历史
+
+1. 首轮桌面对比 `1440-initial-comparison.png`：发现 [P2] 仅手机使用的“帮助”误出现在桌面标识旁，原因是链接 display 覆盖隐藏规则。修正 `.brand-mobile-help` 规则顺序；`1440-final-comparison.png` 与 DOM 均确认桌面隐藏、手机保留。
+2. 同轮发现控件 font reset 特异性覆盖组件行高，卡片高度约 507.14，与 506 的目标有轻微偏差。改用 `.brand-page :where(button, input)`，复核卡片为 512 × 506，输入与按钮仍为 44 高；这是随首轮一并修正的轻微问题。
+3. 首轮手机对比 `390-final-comparison.png`：发现 [P2] 将桌面两行师生说明直接放在手机欢迎区域，卡片较目标高 22，且缺少卡片外的师生说明。修正手机单行副标题、卡片外说明与页脚文案，取消手机 main 底部重复留白。复核 `390-postfix-comparison.png`：卡片位置 (24,248)、尺寸 342 × 468，与原图一致；页面自然高度 891，无水平溢出。
+4. 后续完整并排和登录卡局部复核未发现待修复的 P0/P1/P2。独立复核者对 1440/1024 两张并排图也未提出阻断问题。
+
+## 五项视觉核对
+
+- 字体与排版：CDP 实际字体检查确认中文主标题使用系统 `Noto Sans SC` / `Noto-Sans-SC-Bold`。桌面 48/66、紧凑 36/50、手机 32/44，表单标题 26/38、正文 14/22、标签 13/20、辅助文字 12/18；标题断行与层级匹配。字体抗锯齿差异为可接受的渲染差异；未在产品中固定文字容器高度。
+- 布局与间距：1920 时内容宽 1312、左右边距 304，登录卡仍为 512；1440 内容边距 64。1024 登录卡居中宽 480、位于产品流程前；手机外边距 24、320 窄屏边距 16。圆角、1px 描边、24/16/8 间距及页脚流式布局已核对。
+- 颜色与语义：采用设计的 primary `#1366f0`、text `#18243b`、secondary `#52627a`、canvas `#f6f8fc`、surface `#fff`、subtle border `#e5eaf2`、control border `#75839b`；错误使用红色表面及可读文字，不只改变输入边框。
+- 图片与图标：品牌原 SVG 显示 36 × 36，book/ai/exam 显示 24 × 24，浏览器全部加载成功。无手绘替代、图片文字截图或临时 Figma 资源 URL。未引入依赖。
+- 文案与内容：桌面、紧凑、手机分别使用批准文案；师生共用账号入口且依已有权限进入工作区。产品流程与隐私说明保留。登录失败文案由真实 ABP 返回；网络失败为明确重试提示。
+
+原生 checkbox 的平台外观、半像素居中与字体抗锯齿属于可接受差异。密码“显示/隐藏”是保留实际可用功能的有意增补，不改变控件尺寸或文本含义。
+
+## 浏览器行为与响应式检查
+
+- 宽度 1920、1440、1024、768、390、320 均已实际渲染。无水平溢出；320 手机卡宽 288，错误反馈将高度从 468 自然撑至 530。证据：`768-final.jpg`、`320-postfix.jpg`、`320-auth-error.jpg`。
+- 720 × 424 额外检查 1440 桌面在 200% 缩放时相应 CSS 视口的重排，登录卡为 480、内容可纵向滚动。证据：`720-reflow.jpg`。此项不是操作系统文字缩放或浏览器原生缩放的完整兼容测试。
+- 空提交在用户名及密码旁显示必填提示，并聚焦第一个错误输入。Tab 可从用户名到密码，焦点轮廓为 2px solid；标签、autocomplete、密码显隐按钮、alert 与跳转登录链接均存在。
+- 真实不存在账号提交后显示“用户名或密码无效！”，焦点到反馈区域，按钮恢复可用。证据：`1440-auth-error.jpg`、`320-auth-error.jpg`。未创建账号、发邮件或重置密码。
+- 通过 CDP 暂时模拟断网，反馈为“暂时无法连接登录服务，请稍后重试。”，按钮为“重试登录”，两个输入仍有内容。恢复网络后点击重试，收到真实错误凭据响应；网络模拟已撤销。
+- 真实开发种子账号通过品牌表单完成服务端登录、OIDC 回调和 Web 客户端认证；保留原帮助页返回地址，随后访问 `/` 显示 admin 与已有工作区。证据：`oidc-workspace-success.jpg`。按用户要求，公开的本地开发默认凭据记录于“本地测试账号”；未将密码写入截图明文、日志或新配置，已退出测试账号。
+- 匿名帮助链接可达；退出后根入口再次显示品牌登录页。无 JavaScript 的原生表单失败路径及防伪令牌拒绝路径由 HTTP 检查通过。
+- 检查浏览器 warning/error 日志：未见新增登录脚本异常；已有 ABP `AbpMvcClient` 的 IdentityClientConfiguration warning，未阻断本次登录与返回。未为本次呈现变更扩展身份客户端配置。
+
+## 验证记录与范围
+
+- Host 与 Web/Client 构建成功，0 warning / 0 error。
+- Blazor 测试 48 通过；账号帮助链接与工作区契约定向应用测试 13 通过。
+- `node --test ops/tests/brand-login.test.cjs`：7 通过，覆盖必填、断网重试、重复提交、成功跳转、安全协议/URL、密码显隐。
+- `pwsh -NoProfile -File ops/verify-brand-login.ps1`：22 项通过，覆盖 GET、全部资源、防伪、原生/AJAX 错误及凭据不回显。
+- `git diff --check` 通过。未引入依赖、数据库迁移或账号权限变更。
+
+未测试生产域名、真实外部身份提供商、验证邮件投递、跨浏览器/操作系统文字放大。ABP OSS 当前 2FA handler 既有未实现，本次不增加或宣称 2FA 支持。部署时须配置实际 `App:ClientUrl`；字体按系统 Noto Sans SC / Microsoft YaHei 回退，未新增字体分发资源。
+
+## 完成清单
+
+- [x] 对比真实 Figma 与浏览器同尺寸页面及关键局部。
+- [x] 修复两轮 P2，保留修正前后证据。
+- [x] 验证宽屏、紧凑、手机及窄屏错误状态。
+- [x] 验证原认证流程、失败重试、匿名帮助及退出回到登录。
+- [x] 恢复网络与视口模拟，保留运行中的本地预览。

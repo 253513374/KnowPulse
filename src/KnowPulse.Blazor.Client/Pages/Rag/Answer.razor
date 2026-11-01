@@ -2,9 +2,7 @@
 @page "/teacher/answer"
 @attribute [Authorize(KnowPulsePermissions.Rag.Answer)]
 @inherits KnowPulseComponentBase
-@using KnowPulse.Education
 @inject IRagAnswerService RagAnswerService
-@inject IEducationSchoolAppService SchoolAppService
 @inject IAiModelCatalogAppService AiModelCatalogAppService
 @inject IPermissionChecker PermissionChecker
 @inject NavigationManager Navigation
@@ -150,11 +148,7 @@
                                             }
                                         </div>
                                         <p>@citation.Quote</p>
-                                        @if (citation.SchoolKnowledgeShareId.HasValue)
-                                        {
-                                            <a href="/school-knowledge?shareId=@citation.SchoolKnowledgeShareId">@L["KnowledgeScope:ReadSharedVersion"] <i class="fa fa-external-link-alt" aria-hidden="true"></i></a>
-                                        }
-                                        else if (citation.KnowledgeItemId != Guid.Empty)
+                                        @if (!citation.SchoolKnowledgeShareId.HasValue && citation.KnowledgeItemId != Guid.Empty)
                                         {
                                             <a href="/teacher/materials/@citation.KnowledgeItemId?version=@citation.KnowledgeVersionId">查看原文 <i class="fa fa-external-link-alt" aria-hidden="true"></i></a>
                                         }
@@ -188,25 +182,10 @@
         <EditForm Model="@FormModel" OnValidSubmit="@AskAsync">
             <DataAnnotationsValidator />
             <label for="rag-knowledge-scope">@L["KnowledgeScope:Label"]</label>
-            <select id="rag-knowledge-scope" class="kp-select kp-mb-2" disabled="@IsBusy" @bind="FormModel.Scope" @bind:after="ScopeChanged">
+            <select id="rag-knowledge-scope" class="kp-select kp-mb-2" disabled="@IsBusy" @bind="FormModel.Scope">
                 <option value="@KnowledgeSearchScope.AllAccessible">@L["KnowledgeScope:AllAccessible"]</option>
                 <option value="@KnowledgeSearchScope.PersonalLibrary">@L["KnowledgeScope:PersonalLibrary"]</option>
-                <option value="@KnowledgeSearchScope.SchoolShared">@L["KnowledgeScope:SchoolShared"]</option>
             </select>
-            @if (FormModel.Scope != KnowledgeSearchScope.PersonalLibrary)
-            {
-                <label for="rag-school-source">@L["KnowledgeScope:SchoolLabel"]</label>
-                <select id="rag-school-source" class="kp-select kp-mb-2" disabled="@(IsBusy || IsSchoolLoading)" @bind="FormModel.SchoolIdText">
-                    <option value="">@L["KnowledgeScope:AllSchools"]</option>
-                    @foreach (var school in TeacherSchools)
-                    {
-                        <option value="@school.Id">@school.Name</option>
-                    }
-                </select>
-                <p class="kp-text-small kp-text-muted">@L["KnowledgeScope:SchoolHint"]</p>
-                @if (SchoolLoadError != null) { <p class="kp-text-small kp-text-danger" role="alert">@SchoolLoadError</p> }
-                <button type="button" class="kp-button kp-button--sm kp-button--secondary kp-mb-2" @onclick="LoadTeacherSchoolsAsync" disabled="@(IsBusy || IsSchoolLoading)">@L["KnowledgeScope:RefreshSchools"]</button>
-            }
             <label class="visually-hidden" for="rag-question">输入需要验证的问题</label>
             <textarea id="rag-question"
                       class="kp-input rag-composer-input"
@@ -255,13 +234,8 @@
     private bool CanViewModels { get; set; }
     private bool IsBusy { get; set; }
     private string? ErrorMessage { get; set; }
-    private readonly List<MySchoolDto> TeacherSchools = [];
-    private bool IsSchoolLoading;
-    private string? SchoolLoadError;
-
     protected override async Task OnInitializedAsync()
     {
-        await LoadTeacherSchoolsAsync();
         CanViewModels = !IsTeacherRoute && await PermissionChecker.IsGrantedAsync(KnowPulsePermissions.AiModels.View);
         if (CanViewModels)
         {
@@ -290,24 +264,6 @@
         return Task.CompletedTask;
     }
 
-    private async Task LoadTeacherSchoolsAsync()
-    {
-        IsSchoolLoading = true;
-        try
-        {
-            var schools = await SchoolAppService.GetMySchoolsAsync();
-            TeacherSchools.Clear();
-            TeacherSchools.AddRange(schools.Items.Where(x => x.Roles.Contains(SchoolMemberRole.Teacher)));
-            SchoolLoadError = null;
-        }
-        catch (Exception exception) { SchoolLoadError = GetUserFriendlyErrorMessage(exception); }
-        finally { IsSchoolLoading = false; }
-    }
-    private void ScopeChanged()
-    {
-        if (FormModel.Scope == KnowledgeSearchScope.PersonalLibrary) FormModel.SchoolIdText = null;
-    }
-
     private async Task AskAsync()
     {
         SubmittedQuestion = FormModel.Question.Trim();
@@ -320,7 +276,6 @@
             {
                 Question = SubmittedQuestion,
                 Scope = FormModel.Scope,
-                SchoolId = FormModel.Scope != KnowledgeSearchScope.PersonalLibrary && Guid.TryParse(FormModel.SchoolIdText, out var schoolId) ? schoolId : null,
                 TopK = FormModel.TopK
             });
         });
@@ -413,7 +368,6 @@
     {
         [EnumDataType(typeof(KnowledgeSearchScope))]
         public KnowledgeSearchScope Scope { get; set; }
-        public string? SchoolIdText { get; set; }
 
         [Required(ErrorMessage = "请输入需要验证的问题。")]
         [StringLength(1024, ErrorMessage = "问题长度不能超过 1024 个字符。")]

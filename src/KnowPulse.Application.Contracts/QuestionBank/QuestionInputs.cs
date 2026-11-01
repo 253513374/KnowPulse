@@ -161,14 +161,6 @@ public class SaveQuestionDraftDto
     public List<CreateUpdateQuestionSourceDto> Sources { get; set; } = new();
 }
 
-public class ConfirmQuestionCurriculumDto
-{
-    [Required] public EducationCurriculumScopeDto Scope { get; set; } = new();
-    [Required, StringLength(40)] public string ConcurrencyStamp { get; set; } = string.Empty;
-    [Range(0.01, 1000)] public decimal Score { get; set; } = 1;
-    public List<QuestionCurriculumPointWeight> PointWeights { get; set; } = [];
-}
-
 /// <summary>
 /// 兼容现有题目创建接口的输入。
 /// <see cref="CreationSource"/> 仅用于旧客户端兼容，服务端创建人工草稿时不会采用调用方传入值。

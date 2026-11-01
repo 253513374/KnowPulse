@@ -11,9 +11,9 @@
 
 <PageTitle>@(_shared ? "共享资料" : "我的资料") · 知脉空间</PageTitle>
 <NavigationLock OnBeforeInternalNavigation="ConfirmNavigationAsync" ConfirmExternalNavigation="HasUnsavedContent" />
-<main class="teacher-page" data-teacher-section="@(_shared ? "shared" : "materials")">
+<main class="teacher-page materials-page" data-teacher-section="@(_shared ? "shared" : "materials")">
     <TeacherPageHeader Title="@(_shared ? "共享资料" : "我的资料")" Description="@(_shared ? "这里展示你已获准读取并用于出题的资料。" : "你的个人出题资料，默认仅自己可见。")">
-        <Actions>@if (!_shared) { <MudButton OnClick="NewMaterial" Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_busy || _editing)">添加资料</MudButton> }<MudButton OnClick="LoadAsync" Disabled="_busy">刷新</MudButton></Actions>
+        <Actions>@if (!_shared) { <MudButton Class="materials-upload" OnClick="NewMaterial" Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_busy || _editing)">上传资料</MudButton> }</Actions>
     </TeacherPageHeader>
     @if (_error is not null) { <MudAlert Severity="Severity.Error" role="alert">@_error</MudAlert> }
     @if (_success is not null) { <MudAlert Severity="Severity.Success" role="status">@_success</MudAlert> }
@@ -32,29 +32,38 @@
             <div class="teacher-actions"><MudButton OnClick="SaveAsync" Color="Color.Primary" Variant="Variant.Filled" Disabled="_busy">@(_busy ? "正在保存…" : "保存并处理")</MudButton><MudButton OnClick="CancelEditAsync" Disabled="_busy">取消</MudButton></div>
         </MudPaper>
     }
-    <div class="teacher-metrics">
+    <section class="teacher-metrics materials-overview" aria-label="资料概览">
         <div class="teacher-metric"><span>全部资料</span><strong>@_overview.TotalCount</strong></div>
         <div class="teacher-metric"><span>可用于出题</span><strong>@_overview.ReadyCount</strong></div>
         <div class="teacher-metric"><span>处理中</span><strong>@_overview.PublishingCount</strong></div>
-        <div class="teacher-metric"><span>需要关注</span><strong>@_overview.NeedsAttentionCount</strong></div>
-    </div>
-    <MudPaper Class="teacher-panel" Elevation="0">
-        <h2>资料列表</h2><p class="teacher-muted">资料处理状态与共享状态分别显示。</p>
-        <div class="teacher-toolbar">
-            <MudTextField T="string" Immediate="true" Label="搜索资料" Placeholder="输入标题或关键词" @bind-Value="_keyword" Variant="Variant.Outlined" Disabled="_busy" />
-            <MudSelect T="KnowledgeManagementStatus?" Label="处理状态" @bind-Value="_status" Variant="Variant.Outlined" Disabled="_busy"><MudSelectItem T="KnowledgeManagementStatus?" Value="@((KnowledgeManagementStatus?)null)">全部资料</MudSelectItem><MudSelectItem T="KnowledgeManagementStatus?" Value="@((KnowledgeManagementStatus?)KnowledgeManagementStatus.Ready)">可用</MudSelectItem><MudSelectItem T="KnowledgeManagementStatus?" Value="@((KnowledgeManagementStatus?)KnowledgeManagementStatus.Publishing)">处理中</MudSelectItem><MudSelectItem T="KnowledgeManagementStatus?" Value="@((KnowledgeManagementStatus?)KnowledgeManagementStatus.NeedsAttention)">需重试</MudSelectItem></MudSelect>
-            <MudButton OnClick="SearchAsync" Variant="Variant.Outlined" Disabled="_busy">搜索</MudButton>
-            <MudButton Href="/teacher/generate" Color="Color.Primary" Variant="Variant.Filled">选择资料出题</MudButton>
+        <div class="teacher-metric"><span>需要重试</span><strong>@_overview.NeedsAttentionCount</strong></div>
+    </section>
+    <MudPaper Class="teacher-panel materials-list" Elevation="0">
+        <div class="materials-panel-title"><h2>资料列表</h2><MudButton Class="materials-refresh" OnClick="LoadAsync" Disabled="_busy" StartIcon="@Icons.Material.Filled.Refresh">刷新</MudButton></div>
+        <p class="materials-list-description">选择可用资料，即可开始出题。</p>
+        <div class="materials-filters" role="group" aria-label="资料处理状态">
+            @foreach (var filter in new[] { (Label: "全部资料", Value: (KnowledgeManagementStatus?)null), (Label: "可用", Value: (KnowledgeManagementStatus?)KnowledgeManagementStatus.Ready), (Label: "处理中", Value: (KnowledgeManagementStatus?)KnowledgeManagementStatus.Publishing), (Label: "需重试", Value: (KnowledgeManagementStatus?)KnowledgeManagementStatus.NeedsAttention) })
+            {
+                <MudButton Class="@($"materials-filter{(_status == filter.Value ? " is-active" : string.Empty)}")" aria-pressed="@(_status == filter.Value ? "true" : "false")" OnClick="() => SetStatusAsync(filter.Value)" Disabled="_busy">@filter.Label</MudButton>
+            }
         </div>
-        <MudTable T="KnowledgeManagementListItemDto" Items="_items" Loading="_busy" Hover="true" Elevation="0">
+        <div class="materials-search-row">
+            <div class="materials-search">
+                <label for="teacher-material-search">搜索资料</label>
+                <MudTextField T="string" Class="materials-search-input" InputId="teacher-material-search" Immediate="true" Placeholder="输入标题或关键词" @bind-Value="_keyword" Variant="Variant.Outlined" OnKeyDown="SearchOnEnterAsync" Disabled="_busy" />
+            </div>
+            <div class="materials-generate-slot"><MudButton Class="materials-generate" Href="/teacher/generate" Color="Color.Primary" Variant="Variant.Filled">选择资料出题</MudButton></div>
+        </div>
+        <MudTable T="KnowledgeManagementListItemDto" Class="materials-table" Items="_items" Loading="_busy" Hover="true" Elevation="0" Breakpoint="Breakpoint.None">
             <HeaderContent><MudTh>资料名称</MudTh><MudTh>处理状态</MudTh><MudTh>可见范围</MudTh><MudTh>更新时间</MudTh><MudTh>操作</MudTh></HeaderContent>
             <RowTemplate>
                 <MudTd>@context.Title</MudTd><MudTd>@StatusText(context.Status)</MudTd><MudTd>@(_shared ? "已获授权" : context.EnabledPermissionScopeCount > 1 ? "已向指定教师共享" : "仅自己")</MudTd><MudTd>@TeacherTime.Format(context.UpdatedTime)</MudTd>
-                <MudTd><MudButton Color="Color.Primary" OnClick="() => OpenAsync(context.Id)" Disabled="_busy">查看详情</MudButton></MudTd>
+                <MudTd><MudButton Class="materials-row-action" Color="Color.Primary" OnClick="() => OpenAsync(context.Id)" Disabled="_busy">@(context.Status == KnowledgeManagementStatus.Publishing ? "查看进度" : context.Status == KnowledgeManagementStatus.NeedsAttention ? "查看原因" : "查看详情")</MudButton></MudTd>
             </RowTemplate>
             <NoRecordsContent><MudText>@(_error is null ? "暂无符合条件的资料。" : "列表未能加载，请重试。")</MudText></NoRecordsContent>
         </MudTable>
         <MvpPager SkipCount="_skip" TotalCount="_total" IsBusy="_busy" OnSkipCountChanged="PageAsync" />
+        <p class="materials-list-note">资料处理状态与共享状态分别显示；个人出题不需要先共享资料。</p>
     </MudPaper>
     @if (_detail is not null)
     {
@@ -115,6 +124,8 @@
     }
     protected override async Task OnParametersSetAsync() { _shared = Navigation.ToBaseRelativePath(Navigation.Uri).StartsWith("teacher/shared", StringComparison.OrdinalIgnoreCase); _detail = null; await PageAsync(0); }
     private Task SearchAsync() => PageAsync(0);
+    private Task SetStatusAsync(KnowledgeManagementStatus? status) { _status = status; return SearchAsync(); }
+    private Task SearchOnEnterAsync(KeyboardEventArgs args) => args.Key == "Enter" && !_busy ? SearchAsync() : Task.CompletedTask;
     private async Task PageAsync(int skip) { _skip = skip; await LoadAsync(); }
     private async Task LoadAsync()
     {

@@ -27,7 +27,6 @@ namespace KnowPulse.EntityFrameworkCore.Applications;
 public class PersonalKnowledgeArchiveTests : KnowPulseEntityFrameworkCoreTestBase
 {
     private readonly IKnowledgeItemAppService _items;
-    private readonly IKnowledgeSchoolSharingAppService _sharing;
     private readonly IQuestionWorkflowAppService _workflow;
     private readonly IExamAppService _exams;
     private readonly TestKnowledgeVectorStore _vectors;
@@ -36,7 +35,6 @@ public class PersonalKnowledgeArchiveTests : KnowPulseEntityFrameworkCoreTestBas
     public PersonalKnowledgeArchiveTests()
     {
         _items = GetRequiredService<IKnowledgeItemAppService>();
-        _sharing = GetRequiredService<IKnowledgeSchoolSharingAppService>();
         _workflow = GetRequiredService<IQuestionWorkflowAppService>();
         _exams = GetRequiredService<IExamAppService>();
         _vectors = GetRequiredService<TestKnowledgeVectorStore>();
@@ -57,11 +55,29 @@ public class PersonalKnowledgeArchiveTests : KnowPulseEntityFrameworkCoreTestBas
         ExamAttemptDto attempt;
         using (ChangeUser(fixture.Reader))
         {
-            question = await _workflow.CreateManualDraftAsync(Draft(fixture));
+            var draft = Draft(fixture);
+            draft.Sources.Clear();
+            draft.Sources.Add(new CreateUpdateQuestionSourceDto { ManualSourceDescription = "历史教学资料" });
+            question = await _workflow.CreateManualDraftAsync(draft);
+            await WithUnitOfWorkAsync(async () =>
+            {
+                var historical = await Repo<Question>().GetAsync(question.Id);
+                historical.RestrictToPersonalOwner(fixture.Reader);
+                await Repo<Question>().UpdateAsync(historical, autoSave: true);
+            });
             await _workflow.SubmitAsync(question.Id);
             await GetRequiredService<IQuestionAppService>().ApproveAsync(question.Id, new ReviewQuestionDto());
             plan = await _exams.CreatePlanAsync(Plan(question.Id, fixture.Student));
         }
+        await WithUnitOfWorkAsync(async () =>
+        {
+            // 历史题目的来源事实直接播种，不重新开放已退役的学校创建流程。
+            await Repo<QuestionSource>().DeleteAsync(x => x.QuestionId == question.Id, autoSave: true);
+            var source = new QuestionSource(Guid.NewGuid(), null, question.Id, fixture.ItemId, fixture.VersionId,
+                fixture.Chunk.Id, "历史教学资料", null, null, null);
+            source.SetCurriculumReferences("[]", "[]", fixture.ShareId);
+            await Repo<QuestionSource>().InsertAsync(source, autoSave: true);
+        });
         using (ChangeUser(fixture.Student))
         {
             attempt = await _exams.StartAttemptAsync(plan.Id);
@@ -117,7 +133,6 @@ public class PersonalKnowledgeArchiveTests : KnowPulseEntityFrameworkCoreTestBas
             (await Should.ThrowAsync<BusinessException>(() => _items.DeleteAttachmentAsync(fixture.ItemId, fixture.VersionId, fixture.AttachmentId)))
                 .Code.ShouldBe(KnowPulseDomainErrorCodes.PersonalKnowledgeAttachmentRequiresDraft);
             await Should.ThrowAsync<AbpAuthorizationException>(() => _workflow.CreateManualDraftAsync(Draft(fixture)));
-            (await _sharing.GetMySharesAsync(new GetSchoolKnowledgeShareListInput())).Items.Single().Id.ShouldBe(fixture.ShareId);
         }
 
         await WithUnitOfWorkAsync(async () =>
@@ -129,6 +144,7 @@ public class PersonalKnowledgeArchiveTests : KnowPulseEntityFrameworkCoreTestBas
             archivedChunks.ShouldNotBeEmpty();
             archivedChunks.ShouldAllBe(x => !x.IsActive && !x.IsPublishedSnapshot);
             (await Repo<KnowledgeAttachment>().GetAsync(fixture.AttachmentId)).IsDeleted.ShouldBeFalse();
+            (await Repo<SchoolKnowledgeShare>().GetAsync(fixture.ShareId)).IsDeleted.ShouldBeFalse();
             (await Repo<Question>().GetAsync(question.Id)).IsDeleted.ShouldBeFalse();
             (await Repo<ExamAttempt>().GetAsync(attempt.Id)).Status.ShouldBe(ExamAttemptStatus.Scored);
             (await Repo<ExamPaper>().GetAsync(plan.PaperId)).PersonalOwnerUserId.ShouldBe(fixture.Reader);
@@ -157,23 +173,17 @@ public class PersonalKnowledgeArchiveTests : KnowPulseEntityFrameworkCoreTestBas
         });
         using (ChangeUser(fixture.Reader))
         {
-            (await _sharing.GetSchoolSharesAsync(fixture.SchoolId, new GetSchoolKnowledgeShareListInput())).Items.ShouldBeEmpty();
-            await Should.ThrowAsync<AbpAuthorizationException>(() => _sharing.GetDetailAsync(fixture.ShareId));
-            await Should.ThrowAsync<AbpAuthorizationException>(() => _sharing.DownloadAttachmentAsync(fixture.ShareId, fixture.AttachmentId));
             await Should.ThrowAsync<AbpAuthorizationException>(() => _workflow.CreateManualDraftAsync(Draft(fixture)));
             await Should.ThrowAsync<AbpAuthorizationException>(() => _exams.CreatePlanAsync(Plan(question.Id, fixture.Student)));
             (await GetRequiredService<IKnowledgeRetriever>().SearchAsync(new RagSearchRequest
             {
                 Query = "教学积累", Scope = KnowledgeSearchScope.SchoolShared, SchoolId = fixture.SchoolId
             })).ShouldBeEmpty();
-            var generation = await GetRequiredService<IAiQuestionGenerationAppService>().CreateAsync(new CreateAiQuestionGenerationTaskDto
-            {
-                KnowledgeScope = "教学积累", Scope = KnowledgeSearchScope.SchoolShared, SchoolId = fixture.SchoolId
-            });
-            generation.Status.ShouldBe(AiQuestionGenerationTaskStatus.Pending);
-            await GetRequiredService<AiQuestionGenerationProcessor>().ProcessAsync(generation.Id);
-            generation = await GetRequiredService<IAiQuestionGenerationAppService>().GetAsync(generation.Id);
-            generation.Status.ShouldBe(AiQuestionGenerationTaskStatus.Failed);
+            (await Should.ThrowAsync<BusinessException>(() => GetRequiredService<IAiQuestionGenerationAppService>()
+                .CreateAsync(new CreateAiQuestionGenerationTaskDto
+                {
+                    KnowledgeScope = "教学积累", Scope = KnowledgeSearchScope.SchoolShared, SchoolId = fixture.SchoolId
+                }))).Code.ShouldBe("KnowPulse:Education:SchoolWorkflowRetired");
             _chat.CallCount.ShouldBe(0);
             (await _exams.GetPlanAsync(plan.Id)).Paper!.Questions.Single().SourceSnapshot.ShouldBe("历史教学资料");
             (await _exams.GradeAttemptAsync(attempt.Id)).ObtainedScore.ShouldBe(10);
@@ -221,12 +231,9 @@ public class PersonalKnowledgeArchiveTests : KnowPulseEntityFrameworkCoreTestBas
         var attachment = await UploadAsync(item.Id, version.Id);
         await _items.PublishVersionAsync(item.Id, version.Id);
         (await GetRequiredService<IKnowledgeIngestionPipeline>().IngestAsync(version.Id)).Succeeded.ShouldBeTrue();
-        var share = await _sharing.ShareVersionAsync(new CreateSchoolKnowledgeShareDto
-        {
-            IdempotencyKey = Guid.NewGuid(), KnowledgeItemId = item.Id, KnowledgeVersionId = version.Id, SchoolId = schoolId,
-            Uses = SchoolKnowledgeShareUses.Read | SchoolKnowledgeShareUses.Retrieve |
-                SchoolKnowledgeShareUses.GenerateQuestions | SchoolKnowledgeShareUses.Download
-        });
+        var share = await SeedHistoricalSchoolShareAsync(item.Id, version.Id, schoolId,
+            SchoolKnowledgeShareUses.Read | SchoolKnowledgeShareUses.Retrieve |
+                SchoolKnowledgeShareUses.GenerateQuestions | SchoolKnowledgeShareUses.Download);
         var chunk = await WithUnitOfWorkAsync(async () => (await Repo<KnowledgeChunk>()
             .GetListAsync(x => x.KnowledgeVersionId == version.Id && x.IsActive)).First());
         return new Fixture(owner, reader, student, schoolId, item.Id, version.Id, attachment.Id, share.Id, chunk);

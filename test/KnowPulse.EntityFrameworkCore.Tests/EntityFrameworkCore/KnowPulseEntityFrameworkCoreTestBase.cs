@@ -16,4 +16,23 @@ public abstract class KnowPulseEntityFrameworkCoreTestBase : KnowPulseTestBase<K
                 input.Title, input.CategoryId, input.Summary), autoSave: true));
         return await GetRequiredService<IKnowledgeItemAppService>().GetAsync(item.Id);
     }
+
+    protected Task<SchoolKnowledgeShare> SeedHistoricalSchoolShareAsync(Guid itemId, Guid versionId,
+        Guid schoolId, SchoolKnowledgeShareUses uses, string? summary = null) => WithUnitOfWorkAsync(async () =>
+    {
+        var item = await GetRequiredService<IRepository<KnowledgeItem, Guid>>().GetAsync(itemId);
+        var version = await GetRequiredService<IRepository<KnowledgeVersion, Guid>>().GetAsync(versionId);
+        return await GetRequiredService<IRepository<SchoolKnowledgeShare, Guid>>().InsertAsync(
+            new SchoolKnowledgeShare(Guid.NewGuid(), item.TenantId, item.OwnerUserId!.Value,
+                item.LibraryId!.Value, item.Id, version.Id, schoolId, version.Title, summary ?? item.Summary,
+                uses, DateTime.UtcNow), autoSave: true);
+    });
+
+    protected Task RevokeHistoricalSchoolShareAsync(Guid shareId) => WithUnitOfWorkAsync(async () =>
+    {
+        var shares = GetRequiredService<IRepository<SchoolKnowledgeShare, Guid>>();
+        var share = await shares.GetAsync(shareId);
+        share.Revoke(DateTime.UtcNow);
+        await shares.UpdateAsync(share, autoSave: true);
+    });
 }

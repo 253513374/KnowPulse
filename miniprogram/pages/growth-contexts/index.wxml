@@ -1,8 +1,0 @@
-<view class="page">
-  <view class="hero"><text class="title">我的学科成长</text><text class="muted">只纳入老师已向本人开放的正式成绩。按学校、班级、学科、教材和教学关系分别查看，不合成为跨学科能力总分。</text></view>
-  <view wx:if="{{error}}" class="error" aria-role="alert">{{error}}</view><text wx:if="{{busy}}" class="muted">正在核对本人学校身份和已开放成绩…</text>
-  <view class="card" wx:for="{{rows}}" wx:key="id"><text class="heading">{{item.subject}} · {{item.book}}</text><text>{{item.school}} · {{item.term}} · {{item.className}}</text><text class="muted">{{item.teacher}} · 当前最长计算窗口 {{item.maximumWindowDays}} 天</text><button bindtap="open" data-id="{{item.id}}" disabled="{{busy}}">查看该学科成绩与证据</button></view>
-  <view wx:if="{{!busy &amp;&amp; total === 0}}" class="card"><text>当前没有可查看的已开放成绩范围。</text><text class="muted">尚未发布、未到开放时间或已结束的学校关系不会提供成长结果；这不表示零分或没有能力。</text></view>
-  <view class="card"><text>共 {{total}} 个范围，每页最多 20 个</text><view class="pager"><button bindtap="paginate" data-direction="-1" disabled="{{busy || offset === 0}}">上一页</button><button bindtap="paginate" data-direction="1" disabled="{{busy || offset + 20 >= total}}">下一页</button></view></view>
-  <button bindtap="load" disabled="{{busy}}">刷新本人范围</button><button bindtap="login">返回登录</button>
-</view>

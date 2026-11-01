@@ -119,7 +119,7 @@ public class KnowledgeSourceAccessGuard : KnowPulseAppService
             var uses = requireUsable
                 ? SchoolKnowledgeShareUses.Read | SchoolKnowledgeShareUses.Retrieve | SchoolKnowledgeShareUses.GenerateQuestions
                 : SchoolKnowledgeShareUses.Read;
-            var shares = await LazyServiceProvider.LazyGetRequiredService<KnowledgeSchoolSharingAppService>()
+            var shares = await LazyServiceProvider.LazyGetRequiredService<SchoolKnowledgeSourceAccessGuard>()
                 .GetAvailableSharesQueryAsync(uses);
             var share = await AsyncExecuter.FirstOrDefaultAsync(shares.Where(x =>
                 x.KnowledgeItemId == item.Id && x.KnowledgeVersionId == version.Id &&
@@ -214,7 +214,7 @@ public class KnowledgeSourceAccessGuard : KnowPulseAppService
             (item.OwnerUserId != CurrentUser.Id || requireUsable && (version == null || !version.IsCurrentPublished || item.CurrentPublishedVersionId != version.Id)))
         {
             var uses = requireUsable ? SchoolKnowledgeShareUses.Read | SchoolKnowledgeShareUses.Retrieve | SchoolKnowledgeShareUses.GenerateQuestions : SchoolKnowledgeShareUses.Read;
-            var shares = await LazyServiceProvider.LazyGetRequiredService<KnowledgeSchoolSharingAppService>()
+            var shares = await LazyServiceProvider.LazyGetRequiredService<SchoolKnowledgeSourceAccessGuard>()
                 .GetAvailableSharesQueryAsync(uses);
             var requiredVersionId = version?.Id;
             var allowed = await AsyncExecuter.FirstOrDefaultAsync(shares.Where(x => x.KnowledgeItemId == item.Id &&

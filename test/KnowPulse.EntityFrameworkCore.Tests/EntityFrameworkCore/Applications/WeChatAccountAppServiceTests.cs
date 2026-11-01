@@ -3,7 +3,6 @@ using System.Linq;
 using System.Security.Claims;
 using System.Text.Json;
 using System.Threading.Tasks;
-using KnowPulse.Education;
 using KnowPulse.KnowledgeBase;
 using KnowPulse.WeChat;
 using Microsoft.Extensions.Options;
@@ -58,7 +57,6 @@ public class WeChatAccountAppServiceTests : KnowPulseEntityFrameworkCoreTestBase
         (await WithUnitOfWorkAsync(() => GetRequiredService<IRepository<KnowledgeLibrary, Guid>>().CountAsync())).ShouldBe(libraryCount);
         using (Actor(owner))
         {
-            (await GetRequiredService<IEducationSchoolAppService>().GetMyWorkspaceAsync()).Workspaces.ShouldBeEmpty();
             var rows = await _accounts.GetMyBindingsAsync(new()); rows.TotalCount.ShouldBe(1); rows.Items.Single().BoundAtUtc.ShouldBe(receipt.BoundAtUtc);
             var json = JsonSerializer.Serialize(rows); json.ShouldNotContain(code.BindingCode); json.ShouldNotContain("Hash"); json.ShouldNotContain("AppSecret");
         }

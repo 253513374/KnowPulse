@@ -1,0 +1,91 @@
+/* Keep the existing Mud labels, validation and popup hosts; override Lepton's important input rules. */
+body.kp-app .mud-input-control-input-container:not(.mud-table-pagination *):has(> .mud-input) {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    min-width: 0;
+}
+body.kp-app .mud-input-control-input-container:not(.mud-table-pagination *) > label.mud-input-label-inputcontrol {
+    position: static;
+    order: -1;
+    transform: none !important;
+    max-width: 100% !important;
+    width: fit-content;
+    margin: 0 0 8px;
+    padding: 0 !important;
+    color: #18243b !important;
+    font: 500 13px/20px 'Noto Sans SC', 'Microsoft YaHei', sans-serif !important;
+    white-space: normal;
+    overflow: visible;
+    pointer-events: auto;
+}
+body.kp-app .mud-input:not(.mud-table-pagination *) {
+    min-height: 44px !important;
+    margin-top: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    border-radius: 8px !important;
+    background: #fff !important;
+    color: #18243b !important;
+    font: 14px/22px 'Noto Sans SC', 'Microsoft YaHei', sans-serif;
+}
+body.kp-app .mud-input:not(.mud-table-pagination *):not(:has(> textarea)) { height: 44px; }
+body.kp-app .mud-input:not(.mud-table-pagination *) > .mud-input-slot {
+    box-sizing: border-box;
+    min-width: 0;
+    padding-block: 10px !important;
+    color: inherit !important;
+    font: inherit;
+}
+body.kp-app .mud-input:not(.mud-table-pagination *) > .mud-input-slot:not(textarea) { height: 44px; }
+body.kp-app .mud-input:not(.mud-table-pagination *):not(.mud-input-adorned-start) > .mud-input-slot { padding-inline-start: 12px !important; }
+body.kp-app .mud-input:not(.mud-table-pagination *):not(.mud-input-adorned-end) > .mud-input-slot { padding-inline-end: 12px !important; }
+body.kp-app .mud-input:not(.mud-table-pagination *) > .mud-input-slot::placeholder { color: #52627a; opacity: 1; }
+body.kp-app .mud-input:not(.mud-table-pagination *) > .mud-input-slot:focus-visible { outline: none; }
+body.kp-app .mud-input.mud-input-outlined > .mud-input-outlined-border { border: 1px solid #75839b !important; border-radius: 8px !important; }
+body.kp-app .mud-input.mud-input-outlined > .mud-input-outlined-border > legend { display: none; }
+body.kp-app .mud-input.mud-input-outlined:focus-within > .mud-input-outlined-border { border-color: #1366f0 !important; border-width: 2px !important; }
+body.kp-app .mud-input.mud-input-outlined.mud-input-error > .mud-input-outlined-border { border-color: #b42318 !important; }
+/* Text and Filled variants use an underline pseudo-element instead of an outlined fieldset. */
+body.kp-app .mud-input:not(.mud-table-pagination *):is(.mud-input-text, .mud-input-filled)::before {
+    content: '';
+    display: block !important;
+    box-sizing: border-box;
+    position: absolute;
+    inset: 0;
+    border: 1px solid #75839b !important;
+    border-radius: 8px;
+    pointer-events: none;
+}
+body.kp-app .mud-input:not(.mud-table-pagination *):is(.mud-input-text, .mud-input-filled)::after { display: none; }
+body.kp-app .mud-input:not(.mud-table-pagination *):is(.mud-input-text, .mud-input-filled):focus-within::before { border-color: #1366f0 !important; border-width: 2px !important; }
+body.kp-app .mud-input:not(.mud-table-pagination *):is(.mud-input-text, .mud-input-filled).mud-input-error::before { border-color: #b42318 !important; }
+body.kp-app .mud-input-control-helper-container { margin-top: 8px; padding-inline: 0; }
+body.kp-app .mud-input-control-helper-container .mud-input-helper-text { font: 12px/18px 'Noto Sans SC', 'Microsoft YaHei', sans-serif; }
+body.kp-app .mud-input-control-helper-container .mud-input-error { color: #b42318 !important; }
+body.kp-app .mud-dialog .mud-input-control + .mud-input-control:not(.mud-input-control-boolean-input) { margin-top: 16px !important; }
+body.kp-app .mud-input:not(.mud-table-pagination *):is(.mud-disabled, .mud-input-disabled),
+body.kp-app .mud-input:not(.mud-table-pagination *):has(> .mud-input-slot:disabled) {
+    background: #e5eaf2 !important;
+    color: #75839b !important;
+}
+
+/* Rows and AutoGrow retain ownership of multiline height. */
+body.kp-app .mud-input:not(.mud-table-pagination *):has(> textarea) { height: auto; align-items: stretch !important; }
+body.kp-app .mud-input:not(.mud-table-pagination *) > textarea.mud-input-slot { height: auto; margin: 0; mask-image: none; }
+
+/* Reserve the existing end adornments and keep the numeric spinner inside its 44px field. */
+body.kp-app .mud-input-number-control.mud-input-showspin .mud-input > .mud-input-slot { padding-inline-end: 32px !important; }
+body.kp-app .mud-input .mud-input-numeric-spin { height: 44px; }
+body.kp-app .mud-input .mud-input-numeric-spin .mud-button-root { min-height: 0; height: 22px; min-width: 24px; padding: 0; border-radius: 0; }
+body.kp-app .mud-input .mud-input-numeric-spin .mud-icon-root { width: 18px; height: 18px; }
+
+body.kp-app .teacher-toolbar:has(.mud-input-control),
+body.kp-app .admin-toolbar:has(.mud-input-control) { align-items: flex-end; }
+
+/* Native business fields already use external labels; share the same palette and states. */
+body.kp-app :is(.kp-input, .kp-select) { border-color: #75839b; background: #fff; color: #18243b; }
+body.kp-app :is(.kp-input, .kp-select):focus-visible { border-color: #1366f0; outline: 2px solid #1366f0; outline-offset: 2px; }
+body.kp-app :is(.kp-input, .kp-select).invalid { border-color: #b42318; }
+body.kp-app :is(.kp-input, .kp-select):disabled { background: #e5eaf2; color: #75839b; }
+body.kp-app .validation-message { color: #b42318; }

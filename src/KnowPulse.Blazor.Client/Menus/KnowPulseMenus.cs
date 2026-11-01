@@ -1,25 +1,12 @@
-﻿namespace KnowPulse.Blazor.Client.Menus;
+namespace KnowPulse.Blazor.Client.Menus;
 
 /// <summary>
 /// Blazor 菜单名称常量，集中维护组织、知识库和 RAG 页面在 ABP 菜单系统中的唯一标识。
 /// </summary>
 public class KnowPulseMenus
 {
-    public const string EducationWorkspace = Prefix + ".Education.Workspace";
     public const string WeChatBindings = Prefix + ".Account.WeChatBindings";
-    public const string EducationCorrections = Prefix + ".Education.Corrections";
-    public const string EducationMyCorrections = Prefix + ".Education.MyCorrections";
-    public const string EducationLearningWorkload = Prefix + ".Education.LearningWorkload";
-    public const string EducationNotebook = Prefix + ".Education.Notebook";
-    public const string EducationPractice = Prefix + ".Education.Practice";
     private const string Prefix = "KnowPulse";
-    public const string EducationLearningReports = Prefix + ".EducationLearningReports";
-    public const string EducationStudentGrowth = Prefix + ".EducationStudentGrowth";
-    public const string EducationTeachingPlans = Prefix + ".EducationTeachingPlans";
-    public const string EducationMyTeachingPlans = Prefix + ".EducationMyTeachingPlans";
-    public const string EducationStudyTasks = Prefix + ".EducationStudyTasks";
-    public const string EducationMyStudyTasks = Prefix + ".EducationMyStudyTasks";
-    public const string EducationAnalysisRules = Prefix + ".EducationAnalysisRules";
 
     /// <summary>
     /// 首页菜单项名称。
@@ -58,16 +45,7 @@ public class KnowPulseMenus
 
     public const string PersonalKnowledgeLibrary = Prefix + ".PersonalKnowledgeLibrary";
 
-    public const string SchoolKnowledge = Prefix + ".SchoolKnowledge";
 
-    public const string EducationSchools = Prefix + ".EducationSchools";
-    public const string EducationCurriculum = Prefix + ".EducationCurriculum";
-    public const string EducationPreparations = Prefix + ".EducationPreparations";
-    public const string EducationPapers = Prefix + ".EducationPapers";
-    public const string EducationAssessmentTasks = Prefix + ".EducationAssessmentTasks";
-    public const string EducationAssessmentResults = Prefix + ".EducationAssessmentResults";
-    public const string EducationFeedback = Prefix + ".EducationFeedback";
-    public const string EducationMyFeedback = Prefix + ".EducationMyFeedback";
 
     /// <summary>
     /// 知识上传引导页面菜单项名称。

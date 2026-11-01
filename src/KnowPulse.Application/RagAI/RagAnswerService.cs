@@ -65,6 +65,8 @@ public class RagAnswerService : KnowPulseAppService, IRagAnswerService
         CancellationToken cancellationToken = default)
     {
         await CheckMvpPermissionAsync(KnowPulsePermissions.Rag.Answer);
+        if (request.Scope == KnowledgeSearchScope.SchoolShared || request.SchoolId.HasValue)
+            throw new Volo.Abp.BusinessException("KnowPulse:Education:SchoolWorkflowRetired");
         var stopwatch = Stopwatch.StartNew();
         var topK = request.TopK <= 0 ? MaxContextChunks : Math.Min(request.TopK, MaxContextChunks);
         var modelSelection = await _modelResolver.ResolveAsync(AiModelUsage.RagAnswerChat, cancellationToken);

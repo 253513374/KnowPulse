@@ -1,9 +1,6 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.Linq;
-using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Volo.Abp;
@@ -202,72 +199,11 @@ public partial class QuestionAppService : KnowPulseAppService, IQuestionAppServi
     public virtual async Task<QuestionDto> CreateManualDraftAsync(SaveQuestionDraftDto input)
     {
         await CheckMvpPermissionAsync(KnowPulsePermissions.QuestionBank.Questions);
-        var operationId = input.CurriculumScope == null ? null : input.OperationId;
-        if (input.CurriculumScope != null && (!operationId.HasValue || operationId == Guid.Empty))
-            throw new Volo.Abp.BusinessException(EducationErrorCodes.InvalidIdentifier);
-        var requestHash = operationId.HasValue ? GetManualCreateRequestHash(input) : null;
-        try
-        {
-            using var uow = Uow.Begin(requiresNew: true, isTransactional: true);
-            if (operationId.HasValue)
-            {
-                var previous = await _questionRepository.FindAsync(operationId.Value);
-                if (previous != null)
-                {
-                    EnsureSameManualCreate(previous, requestHash!);
-                    return await CompleteQuestionAsync(uow, previous);
-                }
-            }
-            var result = await CreateDraftAsync(input, QuestionCreationSource.Manual, operationId: operationId, createRequestHash: requestHash);
-            return await CompleteQuestionAsync(uow, await _questionRepository.GetAsync(result.Id));
-        }
-        catch (Exception error) when (operationId.HasValue && error is not Volo.Abp.Authorization.AbpAuthorizationException &&
-            error is not Volo.Abp.BusinessException && error is not OperationCanceledException)
-        {
-            using var recovery = Uow.Begin(requiresNew: true, isTransactional: false);
-            var winner = await _questionRepository.FindAsync(operationId.Value);
-            if (winner == null) throw;
-            EnsureSameManualCreate(winner, requestHash!);
-            return await CompleteQuestionAsync(recovery, winner);
-        }
-    }
-
-    private void EnsureSameManualCreate(Question question, string requestHash)
-    {
-        if (!CurrentUser.IsAuthenticated || question.TenantId != CurrentTenant.Id || question.PersonalOwnerUserId != CurrentUser.Id)
-            throw new Volo.Abp.Authorization.AbpAuthorizationException();
-        if (question.GetProperty<string?>("EducationManualCreateRequestHash") != requestHash)
-            throw new Volo.Abp.BusinessException("KnowPulse:Education:QuestionCreateOperationConflict");
-    }
-
-    private static string GetManualCreateRequestHash(SaveQuestionDraftDto input)
-    {
-        var normalized = new
-        {
-            input.Type, input.Difficulty, input.Title, input.Stem, input.ApplicablePositionId, input.SecurityLevel,
-            Tags = NormalizeTags(input.Tags), Analysis = TrimToNull(input.Analysis),
-            Options = input.Options.Where(x => !string.IsNullOrWhiteSpace(x.OptionKey) && !string.IsNullOrWhiteSpace(x.Content))
-                .Select((x, i) => new { Key = x.OptionKey.Trim(), Content = x.Content.Trim(), Order = x.DisplayOrder == 0 ? i + 1 : x.DisplayOrder }).ToArray(),
-            Answers = input.Answers.Where(x => !string.IsNullOrWhiteSpace(x.Value))
-                .Select((x, i) => new { Value = x.Value.Trim(), Order = x.DisplayOrder == 0 ? i + 1 : x.DisplayOrder }).ToArray(),
-            KnowledgePointNames = NormalizeKnowledgePoints(input.KnowledgePointNames).OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToArray(),
-            Sources = input.Sources.Where(HasSourceValue).Select(x => new
-            {
-                x.KnowledgeItemId, x.KnowledgeVersionId, x.ChunkId, x.SchoolKnowledgeShareId,
-                BindingIds = x.CurriculumBindingIds.OrderBy(id => id).ToArray(), MappingIds = x.TextbookKnowledgePointMappingIds.OrderBy(id => id).ToArray(),
-                SourceTitle = x.KnowledgeItemId.HasValue || x.KnowledgeVersionId.HasValue || x.ChunkId.HasValue ? null : TrimToNull(x.SourceTitle),
-                SourceExcerpt = TrimToNull(x.SourceExcerpt), SourceHash = TrimToNull(x.SourceHash), ManualSourceDescription = TrimToNull(x.ManualSourceDescription)
-            }).ToArray(),
-            input.CurriculumScope!.TeacherTextbookSelectionId,
-            MappingIds = input.CurriculumScope.TextbookKnowledgePointMappingIds.OrderBy(x => x).ToArray(),
-            Score = input.CurriculumScore.ToString("G29", CultureInfo.InvariantCulture),
-            ScoringDefinition = input.ScoringDefinition?.ToCanonicalJson(),
-            PointWeights = input.CurriculumPointWeights.OrderBy(x => x.TextbookKnowledgePointMappingId).Select(x => new
-            {
-                x.TextbookKnowledgePointMappingId, Weight = x.Weight.ToString("G29", CultureInfo.InvariantCulture), Score = x.Score.ToString("G29", CultureInfo.InvariantCulture)
-            }).ToArray()
-        };
-        return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(normalized, JsonOptions))));
+        if (input.CurriculumScope != null || input.Sources.Any(source => source.SchoolKnowledgeShareId.HasValue))
+            throw new Volo.Abp.BusinessException("KnowPulse:Education:SchoolWorkflowRetired");
+        using var uow = Uow.Begin(requiresNew: true, isTransactional: true);
+        var result = await CreateDraftAsync(input, QuestionCreationSource.Manual);
+        return await CompleteQuestionAsync(uow, await _questionRepository.GetAsync(result.Id));
     }
 
     /// <inheritdoc />
@@ -279,6 +215,9 @@ public partial class QuestionAppService : KnowPulseAppService, IQuestionAppServi
 
         var candidate = await _candidateRepository.GetAsync(candidateId);
         var task = await SourceAccess.EnsureCandidateAsync(candidate);
+        AiQuestionGenerationAppService.EnsureCurrentTeachingTask(task);
+        if (candidate.CurriculumSnapshotJson != null)
+            throw new Volo.Abp.BusinessException("KnowPulse:Education:SchoolWorkflowRetired");
         if (candidate.LinkedQuestionId.HasValue)
         {
             throw new Volo.Abp.BusinessException(KnowPulseDomainErrorCodes.AiQuestionCandidateAlreadySubmitted);
@@ -296,17 +235,6 @@ public partial class QuestionAppService : KnowPulseAppService, IQuestionAppServi
             throw new Volo.Abp.BusinessException(KnowPulseDomainErrorCodes.AiQuestionCandidateCitationRequired);
         }
 
-        var curriculum = candidate.CurriculumSnapshotJson == null ? null : Deserialize<EducationCurriculumSnapshot>(candidate.CurriculumSnapshotJson);
-        if (curriculum != null)
-        {
-            if (!candidate.HasValidatedCurriculumMapping) throw new Volo.Abp.BusinessException(KnowPulseDomainErrorCodes.AiQuestionCandidateNotReady);
-            await CurriculumAccess.ValidateForUseAsync(curriculum);
-            foreach (var citation in citations.OrderBy(x => x.KnowledgeVersionId).ThenBy(x => x.ChunkId))
-                await LazyServiceProvider.LazyGetRequiredService<EducationMaterialScope>().ValidateSourceAsync(curriculum,
-                    citation.KnowledgeItemId, citation.KnowledgeVersionId, citation.ChunkId,
-                    Deserialize<List<Guid>>(citation.CurriculumBindingIdsJson), Deserialize<List<Guid>>(citation.TextbookKnowledgePointMappingIdsJson), citation.SchoolKnowledgeShareId, forUpdate: true);
-        }
-
         var input = new SaveQuestionDraftDto
         {
             Type = candidate.Type,
@@ -318,8 +246,6 @@ public partial class QuestionAppService : KnowPulseAppService, IQuestionAppServi
             Tags = candidate.Tags,
             Analysis = candidate.Analysis,
             ScoringDefinition = candidate.ScoringDefinitionJson == null ? null : QuestionScoringDefinition.Parse(candidate.ScoringDefinitionJson),
-            CurriculumScope = curriculum == null ? null : ScopeOf(curriculum),
-            CurriculumScore = candidate.Score,
             Options = Deserialize<List<AiQuestionOptionDto>>(candidate.OptionsJson)
                 .Select(x => new CreateUpdateQuestionOptionDto
                 {
@@ -348,8 +274,7 @@ public partial class QuestionAppService : KnowPulseAppService, IQuestionAppServi
             }).ToList()
         };
 
-        var question = await CreateDraftAsync(input, QuestionCreationSource.AiGenerated, task.PersonalOwnerUserId, curriculum,
-            Deserialize<List<Guid>>(candidate.CurriculumMappingIdsJson));
+        var question = await CreateDraftAsync(input, QuestionCreationSource.AiGenerated, task.PersonalOwnerUserId);
         if (candidate.HighestSimilarQuestionId.HasValue && candidate.HighestSimilarityScore.HasValue &&
             await SourceAccess.CanReadQuestionAsync(candidate.HighestSimilarQuestionId.Value))
         {
@@ -374,52 +299,14 @@ public partial class QuestionAppService : KnowPulseAppService, IQuestionAppServi
     public virtual async Task<QuestionDto> SaveDraftAsync(Guid id, SaveQuestionDraftDto input)
     {
         await CheckMvpPermissionAsync(KnowPulsePermissions.QuestionBank.Questions);
+        if (input.CurriculumScope != null || input.Sources.Any(source => source.SchoolKnowledgeShareId.HasValue))
+            throw new Volo.Abp.BusinessException("KnowPulse:Education:SchoolWorkflowRetired");
         using var uow = Uow.Begin(requiresNew: true, isTransactional: true);
 
         var question = await GetAccessibleQuestionAsync(id);
-        if (question.CurriculumSnapshotJson != null && string.IsNullOrWhiteSpace(input.ConcurrencyStamp))
-            throw new AbpDbConcurrencyException();
+        EnsureCurrentTeachingQuestion(question);
         if (!string.IsNullOrWhiteSpace(input.ConcurrencyStamp) && question.ConcurrencyStamp != input.ConcurrencyStamp)
             throw new AbpDbConcurrencyException();
-        var contentChanged = question.CurriculumSnapshotJson != null && await DefinitionChangedAsync(question, input);
-        if (input.CurriculumScope != null)
-        {
-            if (question.PersonalOwnerUserId != CurrentUser.Id) throw new Volo.Abp.Authorization.AbpAuthorizationException();
-            var snapshot = await CurriculumAccess.ResolveAsync(input.CurriculumScope);
-            var original = question.CurriculumSnapshotJson == null ? null : Deserialize<EducationCurriculumSnapshot>(question.CurriculumSnapshotJson);
-            var references = Deserialize<List<EducationCurriculumSourceReference>>(question.CurriculumSourceReferencesJson);
-            var scopeChanged = original == null || original.TeacherUserId != snapshot.TeacherUserId || original.SchoolId != snapshot.SchoolId ||
-                original.TeachingAssignmentId != snapshot.TeachingAssignmentId || original.TeacherTextbookSelectionId != snapshot.TeacherTextbookSelectionId ||
-                original.TextbookVersionId != snapshot.TextbookVersionId || original.EducationSubjectId != snapshot.EducationSubjectId || original.Grade != snapshot.Grade ||
-                !original.Mappings.Select(x => x.MappingId).ToHashSet().SetEquals(snapshot.Mappings.Select(x => x.MappingId)) || question.CurriculumScore != input.CurriculumScore;
-            var newSource = input.Sources.Any(source => (source.KnowledgeItemId.HasValue || source.KnowledgeVersionId.HasValue || source.ChunkId.HasValue) &&
-                !references.Any(old => old.KnowledgeItemId == source.KnowledgeItemId && old.KnowledgeVersionId == source.KnowledgeVersionId && old.ChunkId == source.ChunkId));
-            if (scopeChanged || newSource)
-            {
-                await SetCurriculumDraftAsync(question, input, snapshot, Deserialize<List<Guid>>(question.CurriculumSuggestedMappingIdsJson));
-                contentChanged = true;
-            }
-        }
-        else if (question.CurriculumSnapshotJson != null && input.Sources.Any(source => (source.KnowledgeItemId.HasValue || source.KnowledgeVersionId.HasValue || source.ChunkId.HasValue) &&
-            !Deserialize<List<EducationCurriculumSourceReference>>(question.CurriculumSourceReferencesJson).Any(old => old.KnowledgeItemId == source.KnowledgeItemId &&
-                old.KnowledgeVersionId == source.KnowledgeVersionId && old.ChunkId == source.ChunkId)))
-        {
-            await SetCurriculumDraftAsync(question, input, Deserialize<EducationCurriculumSnapshot>(question.CurriculumSnapshotJson),
-                Deserialize<List<Guid>>(question.CurriculumSuggestedMappingIdsJson));
-            contentChanged = true;
-        }
-        if (question.CurriculumSnapshotJson != null && input.CurriculumPointWeights.Count > 0)
-        {
-            var originalWeights = Deserialize<List<QuestionCurriculumPointWeight>>(question.CurriculumPointWeightsJson);
-            var weightsChanged = !originalWeights.Select(x => (x.TextbookKnowledgePointMappingId, x.Weight, x.Score)).OrderBy(x => x.TextbookKnowledgePointMappingId)
-                .SequenceEqual(input.CurriculumPointWeights.Select(x => (x.TextbookKnowledgePointMappingId, x.Weight, x.Score)).OrderBy(x => x.TextbookKnowledgePointMappingId));
-            if (weightsChanged)
-            {
-                Question.ValidatePointWeights(Deserialize<EducationCurriculumSnapshot>(question.CurriculumSnapshotJson), input.CurriculumPointWeights, question.CurriculumScore!.Value);
-                question.SetCurriculumPointWeightsDraft(JsonSerializer.Serialize(input.CurriculumPointWeights, JsonOptions));
-                contentChanged = true;
-            }
-        }
         var sourceOwner = await GetInputSourceOwnerAsync(input);
         if (sourceOwner.HasValue)
         {
@@ -438,30 +325,8 @@ public partial class QuestionAppService : KnowPulseAppService, IQuestionAppServi
         question.SetScoringDefinitionDraft(input.ScoringDefinition);
 
         await ReplaceDetailsAsync(id, input);
-        if (contentChanged) question.InvalidateCurriculumConfirmation();
         await _questionRepository.UpdateAsync(question, autoSave: true);
 
-        return await CompleteQuestionAsync(uow, question);
-    }
-
-    public virtual async Task<QuestionDto> ConfirmCurriculumAsync(Guid id, ConfirmQuestionCurriculumDto input)
-    {
-        await CheckMvpPermissionAsync(KnowPulsePermissions.QuestionBank.Questions);
-        using var uow = Uow.Begin(requiresNew: true, isTransactional: true);
-        var question = await GetAccessibleQuestionAsync(id);
-        if (question.PersonalOwnerUserId != CurrentUser.Id || question.CurriculumSnapshotJson == null)
-            throw new Volo.Abp.Authorization.AbpAuthorizationException();
-        if (question.ConcurrencyStamp != input.ConcurrencyStamp) throw new Volo.Abp.Data.AbpDbConcurrencyException();
-        var snapshot = await CurriculumAccess.ResolveAsync(input.Scope);
-        var original = Deserialize<EducationCurriculumSnapshot>(question.CurriculumSnapshotJson);
-        if (original.TextbookVersionId != snapshot.TextbookVersionId || original.TeacherTextbookSelectionId != snapshot.TeacherTextbookSelectionId ||
-            !original.Mappings.Select(x => x.MappingId).ToHashSet().SetEquals(snapshot.Mappings.Select(x => x.MappingId)))
-            throw new Volo.Abp.BusinessException(EducationCurriculumErrorCodes.ReferenceMismatch);
-        question.EnsureDefinitionIsValid(await GetOptionsAsync(id), await GetAnswersAsync(id), input.Score, input.PointWeights);
-        Question.ValidatePointWeights(original, input.PointWeights, input.Score);
-        await QuestionCurriculum.EnsureAsync(question, requireConfirmed: false, forUpdate: true);
-        question.ConfirmCurriculum(JsonSerializer.Serialize(input.PointWeights, JsonOptions), input.Score, CurrentUser.Id!.Value, DateTime.UtcNow);
-        await _questionRepository.UpdateManyAsync([question], autoSave: true);
         return await CompleteQuestionAsync(uow, question);
     }
 
@@ -471,6 +336,7 @@ public partial class QuestionAppService : KnowPulseAppService, IQuestionAppServi
         await CheckMvpPermissionAsync(KnowPulsePermissions.QuestionBank.Questions);
         using var uow = Uow.Begin(requiresNew: true, isTransactional: true);
         var question = await GetAccessibleQuestionAsync(id);
+        EnsureCurrentTeachingQuestion(question);
         await QuestionCurriculum.EnsureAsync(question, forUpdate: true);
         await SourceAccess.EnsureQuestionAsync(question, requireUsableSources: true, forUpdate: true);
         var options = await GetOptionsAsync(id);
@@ -489,6 +355,7 @@ public partial class QuestionAppService : KnowPulseAppService, IQuestionAppServi
     {
         await CheckMvpPermissionAsync(KnowPulsePermissions.QuestionBank.Questions);
         var question = await GetAccessibleQuestionAsync(id);
+        EnsureCurrentTeachingQuestion(question);
         var fromStatus = question.Status;
         QuestionReviewAction reviewAction;
         string comment;
@@ -517,18 +384,14 @@ public partial class QuestionAppService : KnowPulseAppService, IQuestionAppServi
     private async Task<QuestionDto> CreateDraftAsync(
         SaveQuestionDraftDto input,
         QuestionCreationSource creationSource,
-        Guid? personalOwnerUserId = null, EducationCurriculumSnapshot? curriculum = null, List<Guid>? suggestedMappings = null,
-        Guid? operationId = null, string? createRequestHash = null)
+        Guid? personalOwnerUserId = null)
     {
+        if (input.CurriculumScope != null || input.Sources.Any(source => source.SchoolKnowledgeShareId.HasValue))
+            throw new Volo.Abp.BusinessException("KnowPulse:Education:SchoolWorkflowRetired");
         var sourceOwner = await GetInputSourceOwnerAsync(input);
-        if (input.CurriculumScope != null)
-        {
-            curriculum ??= await CurriculumAccess.ResolveAsync(input.CurriculumScope);
-            personalOwnerUserId = CurrentUser.Id ?? throw new Volo.Abp.Authorization.AbpAuthorizationException();
-        }
         personalOwnerUserId ??= sourceOwner;
         var question = new Question(
-            operationId ?? GuidGenerator.Create(),
+            GuidGenerator.Create(),
             CurrentTenant.Id,
             input.Type,
             input.Difficulty,
@@ -545,9 +408,7 @@ public partial class QuestionAppService : KnowPulseAppService, IQuestionAppServi
             SourceAccess.EnsurePersonalOwner(personalOwnerUserId, CurrentTenant.Id);
             question.RestrictToPersonalOwner(personalOwnerUserId.Value);
         }
-        if (curriculum != null) await SetCurriculumDraftAsync(question, input, curriculum, suggestedMappings ?? []);
         question.SetScoringDefinitionDraft(input.ScoringDefinition);
-        if (createRequestHash != null) question.SetProperty("EducationManualCreateRequestHash", createRequestHash);
 
         await _questionRepository.InsertAsync(question, autoSave: true);
         await ReplaceDetailsAsync(question.Id, input);
@@ -576,7 +437,7 @@ public partial class QuestionAppService : KnowPulseAppService, IQuestionAppServi
     public virtual async Task DeleteAsync(Guid id)
     {
         await CheckMvpPermissionAsync(KnowPulsePermissions.QuestionBank.Questions);
-        await GetAccessibleQuestionAsync(id);
+        EnsureCurrentTeachingQuestion(await GetAccessibleQuestionAsync(id));
         await _questionRepository.DeleteAsync(id);
     }
 
@@ -584,6 +445,7 @@ public partial class QuestionAppService : KnowPulseAppService, IQuestionAppServi
     {
         await CheckMvpPermissionAsync(KnowPulsePermissions.QuestionBank.Questions);
         var question = await GetAccessibleQuestionAsync(id);
+        EnsureCurrentTeachingQuestion(question);
         if (question.CurriculumSnapshotJson != null || question.ScoringDefinitionJson != null)
         {
             throw new UserFriendlyException("这道题包含教材范围或结构化评分规则，请在高级题库的题目复核页面完成审核，生成正式评分版本。");
@@ -603,6 +465,12 @@ public partial class QuestionAppService : KnowPulseAppService, IQuestionAppServi
         await _questionRepository.UpdateAsync(question, autoSave: true);
         await AddReviewAsync(question, QuestionReviewAction.Approved, before, question.Status, "教师本人确认");
         return await MapToDtoAsync(question);
+    }
+
+    private static void EnsureCurrentTeachingQuestion(Question question)
+    {
+        if (question.CurriculumSnapshotJson != null)
+            throw new Volo.Abp.BusinessException("KnowPulse:Education:SchoolWorkflowRetired");
     }
 
     private async Task<Question> GetOwnedQuestionAsync(Guid id)
@@ -1086,16 +954,11 @@ public partial class QuestionAppService : KnowPulseAppService, IQuestionAppServi
             var metadata = await SourceAccess.EnsureSourceMetadataAsync(
                 source.KnowledgeItemId, source.KnowledgeVersionId, source.ChunkId, requireUsable: true,
                 forUpdate: true, schoolKnowledgeShareId: source.SchoolKnowledgeShareId);
+            if (metadata.IsShared) throw new Volo.Abp.BusinessException("KnowPulse:Education:SchoolWorkflowRetired");
             var item = metadata.Item;
             if (item?.OwnerUserId != null)
             {
-                // 借用学校共享资料创建的题目归创建者；资料作者的私人修订不进入来源标题。
                 owner = CurrentUser.Id;
-                if (metadata.IsShared) source.SchoolKnowledgeShareId = metadata.SchoolKnowledgeShareId;
-                if (metadata.IsShared && (input.CurriculumScope == null || !source.SchoolKnowledgeShareId.HasValue))
-                {
-                    source.SourceTitle = metadata.Title;
-                }
             }
         }
 
@@ -1145,63 +1008,6 @@ public partial class QuestionAppService : KnowPulseAppService, IQuestionAppServi
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
     }
-
-    private async Task SetCurriculumDraftAsync(Question question, SaveQuestionDraftDto input, EducationCurriculumSnapshot snapshot, List<Guid> suggestedMappings)
-    {
-        await CurriculumAccess.ValidateForUseAsync(snapshot);
-        var references = Deserialize<List<EducationCurriculumSourceReference>>(question.CurriculumSourceReferencesJson);
-        foreach (var original in references.OrderBy(x => x.KnowledgeVersionId).ThenBy(x => x.ChunkId))
-            await LazyServiceProvider.LazyGetRequiredService<EducationMaterialScope>().ValidateSourceAsync(snapshot,
-                original.KnowledgeItemId, original.KnowledgeVersionId, original.ChunkId, original.CurriculumBindingIds,
-                original.TextbookKnowledgePointMappingIds, original.SchoolKnowledgeShareId, forUpdate: true);
-        foreach (var source in input.Sources.Where(x => x.KnowledgeItemId.HasValue || x.KnowledgeVersionId.HasValue || x.ChunkId.HasValue))
-        {
-            if (references.Any(old => old.KnowledgeItemId == source.KnowledgeItemId && old.KnowledgeVersionId == source.KnowledgeVersionId && old.ChunkId == source.ChunkId)) continue;
-            if (!source.KnowledgeItemId.HasValue || !source.KnowledgeVersionId.HasValue || !source.ChunkId.HasValue)
-                throw new Volo.Abp.BusinessException("KnowPulse:Education:CurriculumSourceRequired");
-            await LazyServiceProvider.LazyGetRequiredService<EducationMaterialScope>().ValidateSourceAsync(snapshot,
-                source.KnowledgeItemId.Value, source.KnowledgeVersionId.Value, source.ChunkId.Value,
-                source.CurriculumBindingIds, source.TextbookKnowledgePointMappingIds, source.SchoolKnowledgeShareId, forUpdate: true);
-            if (source.SchoolKnowledgeShareId.HasValue)
-            {
-                var share = await LazyServiceProvider.LazyGetRequiredService<IRepository<SchoolKnowledgeShare, Guid>>().GetAsync(source.SchoolKnowledgeShareId.Value);
-                source.SourceTitle = share.Title;
-            }
-            references.Add(new EducationCurriculumSourceReference
-            {
-                KnowledgeItemId = source.KnowledgeItemId.Value, KnowledgeVersionId = source.KnowledgeVersionId.Value, ChunkId = source.ChunkId.Value,
-                SchoolKnowledgeShareId = source.SchoolKnowledgeShareId, CurriculumBindingIds = source.CurriculumBindingIds.ToList(),
-                TextbookKnowledgePointMappingIds = source.TextbookKnowledgePointMappingIds.ToList()
-            });
-        }
-        if (suggestedMappings.Any(id => !snapshot.Mappings.Any(x => x.MappingId == id)))
-            throw new Volo.Abp.BusinessException(EducationCurriculumErrorCodes.ReferenceMismatch);
-        question.SetCurriculumDraft(JsonSerializer.Serialize(snapshot, JsonOptions), JsonSerializer.Serialize(suggestedMappings, JsonOptions),
-            JsonSerializer.Serialize(references, JsonOptions), input.CurriculumScore);
-        if (input.CurriculumPointWeights.Count > 0)
-        {
-            Question.ValidatePointWeights(snapshot, input.CurriculumPointWeights, input.CurriculumScore);
-            question.SetCurriculumPointWeightsDraft(JsonSerializer.Serialize(input.CurriculumPointWeights, JsonOptions));
-        }
-    }
-
-    private async Task<bool> DefinitionChangedAsync(Question question, SaveQuestionDraftDto input)
-    {
-        var current = await MapToDtoAsync(question);
-        var options = input.Options.Where(x => !string.IsNullOrWhiteSpace(x.OptionKey) && !string.IsNullOrWhiteSpace(x.Content))
-            .Select((x, i) => new { Key = x.OptionKey.Trim(), Content = x.Content.Trim(), Order = x.DisplayOrder == 0 ? i + 1 : x.DisplayOrder }).OrderBy(x => x.Order).ToList();
-        var answers = input.Answers.Where(x => !string.IsNullOrWhiteSpace(x.Value))
-            .Select((x, i) => new { Value = x.Value.Trim(), Order = x.DisplayOrder == 0 ? i + 1 : x.DisplayOrder }).OrderBy(x => x.Order).ToList();
-        return current.Type != input.Type || current.Difficulty != input.Difficulty || current.Title != input.Title || current.Stem != input.Stem ||
-            current.ApplicablePositionId != input.ApplicablePositionId || current.SecurityLevel != input.SecurityLevel || current.Tags != NormalizeTags(input.Tags) ||
-            current.Analysis != TrimToNull(input.Analysis) || question.ScoringDefinitionJson != input.ScoringDefinition?.ToCanonicalJson() ||
-            JsonSerializer.Serialize(current.Options.Select(x => new { Key = x.OptionKey, x.Content, Order = x.DisplayOrder }), JsonOptions) != JsonSerializer.Serialize(options, JsonOptions) ||
-            JsonSerializer.Serialize(current.Answers.Select(x => new { x.Value, Order = x.DisplayOrder }), JsonOptions) != JsonSerializer.Serialize(answers, JsonOptions) ||
-            !current.KnowledgePoints.Select(x => x.Name).ToHashSet(StringComparer.OrdinalIgnoreCase).SetEquals(NormalizeKnowledgePoints(input.KnowledgePointNames));
-    }
-
-    private static EducationCurriculumScopeDto ScopeOf(EducationCurriculumSnapshot snapshot) => new()
-    { TeacherTextbookSelectionId = snapshot.TeacherTextbookSelectionId, TextbookKnowledgePointMappingIds = snapshot.Mappings.Select(x => x.MappingId).ToList() };
 
     private static string? NormalizeTags(string? tags)
     {

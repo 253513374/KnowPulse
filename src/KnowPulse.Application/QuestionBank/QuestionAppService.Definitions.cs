@@ -48,6 +48,7 @@ public partial class QuestionAppService
                 }
             }
             var question = await GetAccessibleQuestionAsync(id);
+            EnsureCurrentTeachingQuestion(question);
             var structured = question.CurriculumSnapshotJson != null || question.ScoringDefinitionJson != null;
             if (structured && !input.OperationId.HasValue)
                 throw new BusinessException(EducationErrorCodes.InvalidIdentifier);

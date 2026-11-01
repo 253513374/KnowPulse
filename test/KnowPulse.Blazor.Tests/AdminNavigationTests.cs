@@ -1,7 +1,9 @@
 using System.Linq;
+using System.Reflection;
 using System.Threading.Tasks;
 using KnowPulse.Blazor.Client.Components;
 using KnowPulse.Permissions;
+using Microsoft.AspNetCore.Authorization;
 using NSubstitute;
 using Shouldly;
 using Volo.Abp.Authorization.Permissions;
@@ -11,6 +13,15 @@ namespace KnowPulse.Blazor;
 
 public class AdminNavigationTests
 {
+    [Fact]
+    public void Should_Require_Sign_In_For_The_Workspace_And_Keep_Account_Help_Public()
+    {
+        typeof(global::KnowPulse.Blazor.Client.Pages.Index)
+            .GetCustomAttributes<AuthorizeAttribute>().ShouldNotBeEmpty();
+        typeof(global::KnowPulse.Blazor.Client.Pages.Account.AccountAssistance)
+            .GetCustomAttributes<AllowAnonymousAttribute>().ShouldNotBeEmpty();
+    }
+
     [Theory]
     [InlineData("/exam/management/new?from=old", "/teacher/tasks/new?from=old")]
     [InlineData("/exam/management/new/?from=old", "/teacher/tasks/new?from=old")]

@@ -1,6 +1,5 @@
 using System.Collections.Generic;
 using System.Threading.Tasks;
-using KnowPulse.Education;
 using KnowPulse.HttpApi.KnowledgeBase;
 using KnowPulse.KnowledgeBase;
 using Microsoft.AspNetCore.Http;
@@ -21,7 +20,7 @@ public class KnowledgeResponseCacheTests
     [InlineData("items")]
     [InlineData("management")]
     [InlineData("export")]
-    [InlineData("notebook-source")]
+    [InlineData("notebook")]
     [InlineData("unrelated")]
     public async Task Private_Knowledge_Response_Should_Disallow_Caching_For_All_Owner_Content_Services(string service)
     {
@@ -31,7 +30,7 @@ public class KnowledgeResponseCacheTests
             "items" => Substitute.For<IKnowledgeItemAppService>(),
             "management" => Substitute.For<IKnowledgeManagementAppService>(),
             "export" => Substitute.For<IKnowledgePersonalExportAppService>(),
-            "notebook-source" => Substitute.For<IEducationNotebookSourceAppService>(),
+            "notebook" => Substitute.For<IPersonalNotebookAppService>(),
             _ => new object()
         };
         var http = new DefaultHttpContext(); http.Response.Headers.CacheControl = "original";

@@ -1,0 +1,12 @@
+@page "/workspace"
+@attribute [Authorize]
+@inherits KnowPulseComponentBase
+
+<PageTitle>工作区 · 知脉空间</PageTitle>
+<main class="kp-page">
+    <KpStatePanel Kind="KpStateKind.Empty" Title="当前账号暂无可用的教师或管理功能" Description="教师功能需由平台开通相应权限。学生请在微信小程序中加入教师名单、查看答题任务。">
+        <Actions>
+            <MudButton Href="/account/assistance" Variant="Variant.Outlined" Color="Color.Primary">账号与微信绑定帮助</MudButton>
+        </Actions>
+    </KpStatePanel>
+</main>

@@ -97,7 +97,6 @@ body:has(.admin-shell) {
 .admin-shell .mud-table { box-shadow: none; }
 .admin-shell .mud-typography, .admin-shell .mud-button-root, .admin-shell .mud-input { font-family: inherit; }
 .admin-shell .mud-button-root { min-height: 44px; border-radius: 8px; text-transform: none; }
-.admin-shell .mud-input-outlined-border { border-color: #7688a6; border-radius: 8px; }
 .admin-shell .kp-input, .admin-shell .kp-select { min-height: 44px; border-color: #7688a6; border-radius: 8px; }
 .admin-shell .kp-pager { padding: 16px 0 0; border: 0; }
 .admin-shell .kp-state-panel { border-radius: 16px; }

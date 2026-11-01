@@ -21,7 +21,7 @@ namespace KnowPulse.RagAI;
 [RemoteService(false)]
 public class KnowledgeRetriever : KnowPulseAppService, IKnowledgeRetriever
 {
-    private KnowledgeSchoolSharingAppService SchoolSharing => LazyServiceProvider.LazyGetRequiredService<KnowledgeSchoolSharingAppService>();
+    private SchoolKnowledgeSourceAccessGuard SchoolSharing => LazyServiceProvider.LazyGetRequiredService<SchoolKnowledgeSourceAccessGuard>();
     private EducationCurriculumAccessGuard CurriculumAccess => LazyServiceProvider.LazyGetRequiredService<EducationCurriculumAccessGuard>();
     private EducationMaterialScope MaterialScope => LazyServiceProvider.LazyGetRequiredService<EducationMaterialScope>();
     // 向量库只能做候选召回，TopK 过小会导致权限二次校验后没有足够结果；
@@ -432,7 +432,8 @@ public class KnowledgeRetriever : KnowPulseAppService, IKnowledgeRetriever
     private async Task<Dictionary<Guid, SchoolKnowledgeShare>> GetAvailableSharesAsync(RagSearchRequest request, CancellationToken cancellationToken,
         Guid? curriculumSchoolId = null)
     {
-        if (request.Scope == KnowledgeSearchScope.PersonalLibrary) return new();
+        if (request.Scope == KnowledgeSearchScope.PersonalLibrary ||
+            request.Scope != KnowledgeSearchScope.SchoolShared && !request.SchoolId.HasValue && !curriculumSchoolId.HasValue) return new();
         var uses = SchoolKnowledgeShareUses.Read | SchoolKnowledgeShareUses.Retrieve;
         if (request.ForQuestionGeneration) uses |= SchoolKnowledgeShareUses.GenerateQuestions;
         try

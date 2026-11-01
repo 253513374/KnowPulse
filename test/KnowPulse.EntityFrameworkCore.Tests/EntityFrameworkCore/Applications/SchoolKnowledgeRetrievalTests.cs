@@ -13,6 +13,7 @@ using KnowPulse.RagAI;
 using Microsoft.Extensions.Options;
 using NSubstitute;
 using Shouldly;
+using Volo.Abp;
 using Volo.Abp.Authorization;
 using Volo.Abp.Domain.Repositories;
 using Volo.Abp.Identity;
@@ -24,20 +25,17 @@ namespace KnowPulse.EntityFrameworkCore.Applications;
 [Collection(KnowPulseTestConsts.CollectionDefinitionName)]
 public class SchoolKnowledgeRetrievalTests : KnowPulseEntityFrameworkCoreTestBase
 {
-    private readonly IKnowledgeSchoolSharingAppService _sharing;
     private readonly IKnowledgeRetriever _retriever;
     private readonly TestKnowledgeVectorStore _vectors;
     private readonly TestRagChatClient _chat;
 
     public SchoolKnowledgeRetrievalTests()
     {
-        _sharing = GetRequiredService<IKnowledgeSchoolSharingAppService>();
         _retriever = GetRequiredService<IKnowledgeRetriever>();
         _vectors = GetRequiredService<TestKnowledgeVectorStore>();
         _chat = GetRequiredService<TestRagChatClient>();
         _vectors.Reset();
         _chat.Reset();
-        GetRequiredService<IOptions<AiQuestionGenerationWorkerOptions>>().Value.MaxAttempts = 1;
     }
 
     [Fact]
@@ -64,14 +62,6 @@ public class SchoolKnowledgeRetrievalTests : KnowPulseEntityFrameworkCoreTestBas
         result.Single().SchoolKnowledgeShareId.ShouldBe(fixture.ShareId);
         _vectors.SearchRequests.Single().PermissionFilter.AllowedSharedVersionIds.ShouldBe(new[] { fixture.Chunk.KnowledgeVersionId });
 
-        var answer = await GetRequiredService<IRagAnswerService>().AnswerAsync(new RagAnswerRequest
-        {
-            Question = "教材教学经验", Scope = KnowledgeSearchScope.SchoolShared, SchoolId = fixture.SchoolId
-        });
-        answer.Citations.Single().Title.ShouldBe("共享V1标题");
-        answer.Citations.Single().SchoolKnowledgeShareId.ShouldBe(fixture.ShareId);
-        _chat.Requests.Single().UserPrompt.ShouldContain("共享V1正文");
-        _chat.Requests.Single().UserPrompt.ShouldNotContain("PRIVATE-V2");
     }
 
     [Fact]
@@ -88,7 +78,8 @@ public class SchoolKnowledgeRetrievalTests : KnowPulseEntityFrameworkCoreTestBas
         var school = await _retriever.SearchAsync(Search(fixture));
         school.Select(x => x.ChunkId).ShouldBe(new[] { fixture.Chunk.Id });
         var all = await _retriever.SearchAsync(new RagSearchRequest { Query = "资料" });
-        all.Select(x => x.ChunkId).ShouldBe(new[] { organization.Id, own.Id, fixture.Chunk.Id });
+        all.Select(x => x.ChunkId).ShouldBe(new[] { organization.Id, own.Id });
+        _vectors.SearchRequests.Last().PermissionFilter.AllowedSharedVersionIds.ShouldBeEmpty();
     }
 
     [Theory]
@@ -126,7 +117,7 @@ public class SchoolKnowledgeRetrievalTests : KnowPulseEntityFrameworkCoreTestBas
             (await _retriever.SearchAsync(new RagSearchRequest { Query = "共享经验" })).ShouldBeEmpty();
             await Should.ThrowAsync<AbpAuthorizationException>(() => _retriever.SearchAsync(Search(fixture)));
         }
-        using (ChangeUser(fixture.Owner)) await _sharing.RevokeAsync(fixture.ShareId);
+        using (ChangeUser(fixture.Owner)) await RevokeHistoricalSchoolShareAsync(fixture.ShareId);
         using (ChangeUser(fixture.Reader))
         {
             (await _retriever.SearchAsync(Search(fixture))).ShouldBeEmpty();
@@ -140,119 +131,74 @@ public class SchoolKnowledgeRetrievalTests : KnowPulseEntityFrameworkCoreTestBas
     [Theory]
     [InlineData(SchoolKnowledgeShareUses.Read, false)]
     [InlineData(SchoolKnowledgeShareUses.Read | SchoolKnowledgeShareUses.Retrieve, true)]
-    public async Task Retrieve_And_Generate_Uses_Should_Be_Independent_And_AI_Must_Enforce_Generation(SchoolKnowledgeShareUses uses, bool canRetrieve)
+    public async Task Internal_Retrieval_Should_Respect_Uses_While_Public_Generation_Rejects_School_Scope(SchoolKnowledgeShareUses uses, bool canRetrieve)
     {
         var fixture = await CreateFixtureAsync(uses);
         _vectors.SearchResults.Add(Hit(fixture.Chunk));
         using var reader = ChangeUser(fixture.Reader);
         (await _retriever.SearchAsync(Search(fixture))).Count.ShouldBe(canRetrieve ? 1 : 0);
-        var generation = await GetRequiredService<IAiQuestionGenerationAppService>().CreateAsync(new CreateAiQuestionGenerationTaskDto
-        {
-            KnowledgeScope = "共享教材经验", Scope = KnowledgeSearchScope.SchoolShared, SchoolId = fixture.SchoolId
-        });
-        generation = await ProcessAsync(generation.Id);
-        generation.Status.ShouldBe(AiQuestionGenerationTaskStatus.Failed);
-        generation.CallLogs.Last().Status.ShouldBe(RagCallStatus.NoContext);
-        _chat.CallCount.ShouldBe(0);
-        _vectors.SearchRequests.Last().PermissionFilter.AllowedSharedVersionIds.ShouldBeEmpty();
-    }
-
-    [Fact]
-    public async Task Allowed_Generation_And_Retry_Should_Keep_School_Scope_And_Respect_Revocation()
-    {
-        var fixture = await CreateFixtureAsync(SchoolKnowledgeShareUses.Read | SchoolKnowledgeShareUses.Retrieve | SchoolKnowledgeShareUses.GenerateQuestions);
-        _vectors.SearchResults.Add(Hit(fixture.Chunk));
-        _chat.ResponseContent = QuestionResponse(fixture.Chunk.Id);
-        AiQuestionGenerationTaskDto generation;
-        using (ChangeUser(fixture.Reader))
-        {
-            generation = await GetRequiredService<IAiQuestionGenerationAppService>().CreateAsync(new CreateAiQuestionGenerationTaskDto
+        (await Should.ThrowAsync<BusinessException>(() => GetRequiredService<IAiQuestionGenerationAppService>().CreateAsync(
+            new CreateAiQuestionGenerationTaskDto
             {
-                KnowledgeScope = "教学方法", Scope = KnowledgeSearchScope.SchoolShared, SchoolId = fixture.SchoolId
-            });
-            generation = await ProcessAsync(generation.Id);
-            generation.Scope.ShouldBe(KnowledgeSearchScope.SchoolShared);
-            generation.SchoolId.ShouldBe(fixture.SchoolId);
-            generation.GeneratedCount.ShouldBe(1);
-            _chat.CallCount.ShouldBe(1);
-            _chat.Requests.Single().UserPrompt.ShouldContain("共享V1标题");
-            generation.Candidates.Single().Citations.Single().SourceTitle.ShouldBe("共享V1标题");
-            (await GetRequiredService<IAiQuestionGenerationAppService>().RetryAsync(generation.Id)).GeneratedCount.ShouldBe(1);
-            _chat.CallCount.ShouldBe(1);
-            _chat.Reset();
-            _chat.ShouldFail = true;
-            var queued = await GetRequiredService<IAiQuestionGenerationAppService>().RegenerateAsync(generation.Id,
-                new RegenerateAiQuestionGenerationTaskDto { IdempotencyKey = Guid.NewGuid() });
-            queued.Status.ShouldBe(AiQuestionGenerationTaskStatus.Pending);
-            var failed = await ProcessAsync(generation.Id);
-            failed.Status.ShouldBe(AiQuestionGenerationTaskStatus.Failed);
-            failed.Scope.ShouldBe(KnowledgeSearchScope.SchoolShared);
-            failed.SchoolId.ShouldBe(fixture.SchoolId);
-            _chat.CallCount.ShouldBe(1);
-        }
-        using (ChangeUser(fixture.Owner)) await _sharing.RevokeAsync(fixture.ShareId);
-        _chat.Reset();
-        using (ChangeUser(fixture.Reader))
+                KnowledgeScope = "共享教材经验", Scope = KnowledgeSearchScope.SchoolShared, SchoolId = fixture.SchoolId
+            }))).Code.ShouldBe("KnowPulse:Education:SchoolWorkflowRetired");
+        _chat.CallCount.ShouldBe(0);
+    }
+
+    [Theory]
+    [InlineData("school")]
+    [InlineData("curriculum")]
+    public async Task New_Generation_Should_Reject_School_Or_Curriculum_Input(string scope)
+    {
+        var fixture = await CreateFixtureAsync();
+        using var reader = ChangeUser(fixture.Reader);
+        var input = new CreateAiQuestionGenerationTaskDto { KnowledgeScope = "教学方法", IdempotencyKey = Guid.NewGuid() };
+        if (scope == "school") input.SchoolId = fixture.SchoolId;
+        else input.CurriculumScope = new EducationCurriculumScopeDto
         {
-            // Older successful candidates remain in history. Withdrawing their source prevents
-            // reopening that task and exposing its citations; a new task still checks the chosen scope.
-            await Should.ThrowAsync<AbpAuthorizationException>(() => GetRequiredService<IAiQuestionGenerationAppService>().RetryAsync(generation.Id));
-            await Should.ThrowAsync<AbpAuthorizationException>(() => GetRequiredService<IAiQuestionGenerationAppService>().RegenerateAsync(generation.Id,
-                new RegenerateAiQuestionGenerationTaskDto { IdempotencyKey = Guid.NewGuid() }));
-            var retried = await GetRequiredService<IAiQuestionGenerationAppService>().CreateAsync(new CreateAiQuestionGenerationTaskDto
-                { KnowledgeScope = "教学方法", Scope = KnowledgeSearchScope.SchoolShared, SchoolId = fixture.SchoolId });
-            retried.Status.ShouldBe(AiQuestionGenerationTaskStatus.Pending);
-            retried = await ProcessAsync(retried.Id);
-            retried.Status.ShouldBe(AiQuestionGenerationTaskStatus.Failed);
-            retried.Scope.ShouldBe(KnowledgeSearchScope.SchoolShared);
-            retried.SchoolId.ShouldBe(fixture.SchoolId);
-            _chat.CallCount.ShouldBe(0);
-            _vectors.SearchRequests.Last().PermissionFilter.Scope.ShouldBe(KnowledgeSearchScope.SchoolShared);
-        }
+            TeacherTextbookSelectionId = Guid.NewGuid(), TextbookKnowledgePointMappingIds = [Guid.NewGuid()]
+        };
+        (await Should.ThrowAsync<BusinessException>(() => GetRequiredService<IAiQuestionGenerationAppService>().CreateAsync(input)))
+            .Code.ShouldBe("KnowPulse:Education:SchoolWorkflowRetired");
+        _chat.CallCount.ShouldBe(0);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Public_Question_Answering_Should_Reject_Explicit_School_Scopes(bool explicitSchool)
+    {
+        var request = new RagAnswerRequest
+        {
+            Question = "教材教学经验", Scope = explicitSchool ? KnowledgeSearchScope.AllAccessible : KnowledgeSearchScope.SchoolShared,
+            SchoolId = explicitSchool ? Guid.NewGuid() : null
+        };
+        (await Should.ThrowAsync<BusinessException>(() => GetRequiredService<IRagAnswerService>().AnswerAsync(request)))
+            .Code.ShouldBe("KnowPulse:Education:SchoolWorkflowRetired");
+        _chat.CallCount.ShouldBe(0);
     }
 
     [Fact]
-    public async Task New_Generation_Should_Default_To_Personal_Sources_And_Require_Explicit_Selection_For_School_Sources()
+    public async Task Historical_School_Task_Should_Reject_Retry_And_Regeneration_Without_Calling_Model()
     {
-        var fixture = await CreateFixtureAsync(SchoolKnowledgeShareUses.Read | SchoolKnowledgeShareUses.Retrieve | SchoolKnowledgeShareUses.GenerateQuestions);
-        _vectors.SearchResults.Add(Hit(fixture.Chunk));
-        _chat.ResponseContent = QuestionResponse(fixture.Chunk.Id);
+        var fixture = await CreateFixtureAsync();
         using var reader = ChangeUser(fixture.Reader);
         var generation = GetRequiredService<IAiQuestionGenerationAppService>();
-        var personalOnly = await generation.CreateAsync(new CreateAiQuestionGenerationTaskDto { KnowledgeScope = "教学方法" });
-        personalOnly = await ProcessAsync(personalOnly.Id);
-        personalOnly.Scope.ShouldBe(KnowledgeSearchScope.PersonalLibrary);
-        personalOnly.Status.ShouldBe(AiQuestionGenerationTaskStatus.Failed);
-        personalOnly.CallLogs.Single().Status.ShouldBe(RagCallStatus.NoContext);
-        _chat.CallCount.ShouldBe(0);
-        _vectors.SearchRequests.Single().PermissionFilter.Scope.ShouldBe(KnowledgeSearchScope.PersonalLibrary);
-        _vectors.SearchRequests.Single().PermissionFilter.AllowedSharedVersionIds.ShouldBeEmpty();
-
-        var selected = await generation.CreateAsync(new CreateAiQuestionGenerationTaskDto
-        {
-            KnowledgeScope = "教学方法", Scope = KnowledgeSearchScope.AllAccessible
-        });
-        selected = await ProcessAsync(selected.Id);
-        selected.GeneratedCount.ShouldBe(1);
-        selected.Scope.ShouldBe(KnowledgeSearchScope.AllAccessible);
-        _chat.CallCount.ShouldBe(1);
-        _chat.Requests.Single().UserPrompt.ShouldContain("共享V1正文");
-        selected.Candidates.Single().Citations.Single().KnowledgeVersionId.ShouldBe(fixture.Chunk.KnowledgeVersionId);
-
-        // 旧任务没有显式范围字段，再次生成仍沿用原有全部获准知识语义并保留已有候选。
+        var pending = await generation.CreateAsync(new CreateAiQuestionGenerationTaskDto { KnowledgeScope = "旧任务" });
         await WithUnitOfWorkAsync(async () =>
         {
-            var oldTask = await Repo<AiQuestionGenerationTask>().GetAsync(selected.Id);
-            oldTask.ExtraProperties.Remove("KnowledgeSearchScope");
-            await Repo<AiQuestionGenerationTask>().UpdateManyAsync(new[] { oldTask }, autoSave: true);
+            var task = await Repo<AiQuestionGenerationTask>().GetAsync(pending.Id);
+            task.ExtraProperties["KnowledgeSearchScope"] = KnowledgeSearchScope.SchoolShared.ToString();
+            await Repo<AiQuestionGenerationTask>().UpdateAsync(task, autoSave: true);
         });
-        await generation.RegenerateAsync(selected.Id, new RegenerateAiQuestionGenerationTaskDto { IdempotencyKey = Guid.NewGuid() });
-        var legacyRetry = await ProcessAsync(selected.Id);
-        legacyRetry.Scope.ShouldBe(KnowledgeSearchScope.AllAccessible);
-        legacyRetry.GeneratedCount.ShouldBe(1);
-        legacyRetry.Candidates.Count.ShouldBe(2);
-        _chat.CallCount.ShouldBe(2);
-        _vectors.SearchRequests.Last().PermissionFilter.Scope.ShouldBe(KnowledgeSearchScope.AllAccessible);
+        (await Should.ThrowAsync<BusinessException>(() => generation.RetryAsync(pending.Id)))
+            .Code.ShouldBe("KnowPulse:Education:SchoolWorkflowRetired");
+        (await Should.ThrowAsync<BusinessException>(() => generation.RegenerateAsync(pending.Id,
+            new RegenerateAiQuestionGenerationTaskDto { IdempotencyKey = Guid.NewGuid() })))
+            .Code.ShouldBe("KnowPulse:Education:SchoolWorkflowRetired");
+        await GetRequiredService<AiQuestionGenerationProcessor>().ProcessAsync(pending.Id);
+        (await generation.GetAsync(pending.Id)).Status.ShouldBe(AiQuestionGenerationTaskStatus.Failed);
+        _chat.CallCount.ShouldBe(0);
     }
 
     [Fact]
@@ -263,7 +209,7 @@ public class SchoolKnowledgeRetrievalTests : KnowPulseEntityFrameworkCoreTestBas
         vectors.SearchAsync(Arg.Any<KnowledgeVectorSearchRequest>(), Arg.Any<CancellationToken>()).Returns(async call =>
         {
             call.Arg<KnowledgeVectorSearchRequest>().PermissionFilter.AllowedSharedVersionIds.ShouldContain(fixture.Chunk.KnowledgeVersionId);
-            using (ChangeUser(fixture.Owner)) await _sharing.RevokeAsync(fixture.ShareId);
+            using (ChangeUser(fixture.Owner)) await RevokeHistoricalSchoolShareAsync(fixture.ShareId);
             return (IReadOnlyList<VectorSearchHit>)new[] { Hit(fixture.Chunk) };
         });
         var retriever = new KnowledgeRetriever(GetRequiredService<IKnowledgeEmbeddingClient>(), vectors,
@@ -325,12 +271,8 @@ public class SchoolKnowledgeRetrievalTests : KnowPulseEntityFrameworkCoreTestBas
                 readerPeriod < 0 ? DateTime.UtcNow.AddDays(-1) : null), autoSave: true);
         });
         var chunk = await CreateIndexedSourceAsync(owner, "共享V1标题", "共享V1正文");
-        SchoolKnowledgeShareDto share;
-        using (ChangeUser(owner)) share = await _sharing.ShareVersionAsync(new CreateSchoolKnowledgeShareDto
-        {
-            IdempotencyKey = Guid.NewGuid(), KnowledgeItemId = chunk.KnowledgeItemId, KnowledgeVersionId = chunk.KnowledgeVersionId,
-            SchoolId = school, Uses = uses, SharedSummary = "共享摘要"
-        });
+        var share = await SeedHistoricalSchoolShareAsync(chunk.KnowledgeItemId, chunk.KnowledgeVersionId,
+            school, uses, "共享摘要");
         return new Fixture(owner, reader, school, chunk.KnowledgeItemId, share.Id, chunk);
     }
 
@@ -359,12 +301,6 @@ public class SchoolKnowledgeRetrievalTests : KnowPulseEntityFrameworkCoreTestBas
 
     private IRepository<T, Guid> Repo<T>() where T : class, Volo.Abp.Domain.Entities.IEntity<Guid> => GetRequiredService<IRepository<T, Guid>>();
 
-    private async Task<AiQuestionGenerationTaskDto> ProcessAsync(Guid id)
-    {
-        await GetRequiredService<AiQuestionGenerationProcessor>().ProcessAsync(id);
-        return await GetRequiredService<IAiQuestionGenerationAppService>().GetAsync(id);
-    }
-
     private IDisposable ChangeUser(Guid userId) => GetRequiredService<ICurrentPrincipalAccessor>().Change(new ClaimsPrincipal(new ClaimsIdentity(new[]
     {
         new Claim(AbpClaimTypes.UserId, userId.ToString()), new Claim(AbpClaimTypes.UserName, $"retrieval-{userId:N}"),
@@ -381,10 +317,6 @@ public class SchoolKnowledgeRetrievalTests : KnowPulseEntityFrameworkCoreTestBas
         ChunkId = chunk.Id, KnowledgeItemId = chunk.KnowledgeItemId, KnowledgeVersionId = chunk.KnowledgeVersionId,
         Content = "Untrusted vector content", Score = 0.9
     };
-
-    private static string QuestionResponse(Guid chunkId) => $$"""
-        {"questions":[{"type":"SingleChoice","difficulty":"Normal","title":"教学题","stem":"请选择正确方法","options":[{"optionKey":"A","content":"方法一"},{"optionKey":"B","content":"方法二"}],"answers":["A"],"analysis":"依据共享教材","knowledgePoints":["教学方法"],"citations":[{"chunkId":"{{chunkId:D}}"}]}]}
-        """;
 
     private sealed record Fixture(Guid Owner, Guid Reader, Guid SchoolId, Guid ItemId, Guid ShareId, KnowledgeChunk Chunk);
 }

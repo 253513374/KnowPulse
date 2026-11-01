@@ -67,14 +67,6 @@ public class PersonalNotebookContractTests
     [InlineData("GetAttachmentsAsync", "GET", "api/app/personal-notebook/{id}/attachments/{versionId}")]
     public void Native_Routes_Should_Match_Actual_ABP_Conventions(string name, string verb, string expected)
         => Route(typeof(PersonalNotebookAppService), "PersonalNotebook", name, verb).ShouldBe(expected);
-    [Theory]
-    [InlineData("PreviewSourceAsync", "POST", "api/app/education-notebook-source/preview-source")]
-    [InlineData("GetSourcesAsync", "GET", "api/app/education-notebook-source/{id}/sources/{noteVersionId}")]
-    [InlineData("GetSourceOperationAsync", "GET", "api/app/education-notebook-source/{id}/source-operation/{operationId}")]
-    [InlineData("AddSourceAsync", "POST", "api/app/education-notebook-source/{id}/source")]
-    [InlineData("RemoveSourceAsync", "POST", "api/app/education-notebook-source/{id}/remove-source/{sourceId}")]
-    public void Source_Routes_Should_Match_Actual_ABP_Conventions(string name, string verb, string expected)
-        => Route(typeof(EducationNotebookSourceAppService), "EducationNotebookSource", name, verb).ShouldBe(expected);
     private static string Route(Type type, string controller, string name, string verb)
     {
         var method = type.GetMethod(name)!; var builder = new ConventionalRouteBuilder(Options.Create(new AbpConventionalControllerOptions()));

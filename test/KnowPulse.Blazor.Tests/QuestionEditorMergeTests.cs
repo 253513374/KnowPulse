@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Threading.Tasks;
 using KnowPulse.Blazor.Client.Pages.QuestionBank;
 using KnowPulse.QuestionBank;
+using KnowPulse.Education;
 using Microsoft.AspNetCore.Components;
 using NSubstitute;
 using Shouldly;
@@ -12,18 +13,6 @@ namespace KnowPulse.Blazor;
 
 public class QuestionEditorMergeTests
 {
-    [Theory]
-    [InlineData("teacher/questions/new", false)]
-    [InlineData("question-bank/questions/new", true)]
-    public async Task Should_Keep_The_Teacher_Default_And_The_Curriculum_Entry(string route, bool curriculum)
-    {
-        var page = Create(route);
-
-        await InvokeAsync(page, "OnParametersSetAsync");
-
-        Field<bool>(page, "IsCurriculumQuestion").ShouldBe(curriculum);
-    }
-
     [Fact]
     public async Task Should_Retry_Confirmation_Using_The_Saved_Teacher_Draft_Without_Creating_It_Again()
     {
@@ -48,6 +37,22 @@ public class QuestionEditorMergeTests
         await workflow.Received(2).ConfirmAsync(saved.Id);
         Field<QuestionDto>(page, "SavedQuestion").Id.ShouldBe(saved.Id);
         Property<string>(page, "ErrorMessage").ShouldContain("确认失败");
+    }
+
+    [Fact]
+    public async Task Should_Keep_Historical_School_Questions_Read_Only()
+    {
+        var page = Create("teacher/questions/new");
+        var workflow = Substitute.For<IQuestionWorkflowAppService>();
+        SetProperty(page, "QuestionWorkflow", workflow);
+        var saved = new QuestionDto { Id = Guid.NewGuid(), Curriculum = new EducationCurriculumSnapshot() };
+        typeof(QuestionEditor).GetField("SavedQuestion", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(page, saved);
+
+        await InvokeAsync(page, "SaveAsync");
+
+        Property<string>(page, "ErrorMessage").ShouldContain("已停止编辑");
+        await workflow.DidNotReceive().SaveDraftAsync(Arg.Any<Guid>(), Arg.Any<SaveQuestionDraftDto>());
+        await workflow.DidNotReceive().ConfirmAsync(Arg.Any<Guid>());
     }
 
     private static QuestionEditor Create(string route)

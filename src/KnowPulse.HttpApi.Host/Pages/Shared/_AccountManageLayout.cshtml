@@ -1,0 +1,54 @@
+@using KnowPulse.AccountSupport
+@using Microsoft.Extensions.Configuration
+@using Volo.Abp.AspNetCore.Mvc.UI.Theming
+@using Volo.Abp.Users
+@addTagHelper *, Microsoft.AspNetCore.Mvc.TagHelpers
+@inject IThemeManager ThemeManager
+@inject IConfiguration Configuration
+@inject ICurrentUser CurrentUser
+@{
+    Layout = ThemeManager.CurrentTheme.GetEmptyLayout();
+    ViewBag.FluidLayout = true;
+    var helpUrl = AccountAssistanceLinks.GetAccountAssistanceUrl(Configuration["App:ClientUrl"]);
+    var workspaceUrl = helpUrl is null ? null : new Uri(new Uri(helpUrl), "../").AbsoluteUri;
+    var displayName = !string.IsNullOrWhiteSpace(CurrentUser.Name) ? CurrentUser.Name : CurrentUser.UserName;
+}
+@section styles {
+    @await RenderSectionAsync("styles", required: false)
+    <link rel="stylesheet" href="~/css/account-manage.css" asp-append-version="true" />
+}
+@section scripts {
+    @await RenderSectionAsync("scripts", required: false)
+}
+
+<div class="kp-account-page">
+    <a class="kp-account-skip" href="#kp-account-content">跳至主要内容</a>
+    <aside class="kp-account-sidebar" aria-label="账户导航">
+        <a class="kp-account-brand" href="@(workspaceUrl ?? Url.Page("/Account/Manage"))">
+            <img src="~/images/brand-login/brand-mark.svg" width="32" height="32" alt="" />
+            <strong>知脉空间</strong>
+        </a>
+        <span class="kp-account-sidebar-label">账号设置</span>
+        <nav class="kp-account-nav">
+            <a href="@Url.Page("/Account/Manage")" aria-current="page">我的账户</a>
+            @if (workspaceUrl is not null)
+            {
+                <a href="@workspaceUrl">返回工作区</a>
+            }
+            @if (helpUrl is not null)
+            {
+                <a href="@helpUrl">账号与微信绑定帮助</a>
+            }
+        </nav>
+        <p class="kp-account-sidebar-note">个人信息与密码<br />仅由当前账号本人管理</p>
+    </aside>
+    <div class="kp-account-stage">
+        <header class="kp-account-topbar">
+            <span>账号设置</span>
+            <strong>@displayName</strong>
+        </header>
+        <main id="kp-account-content" class="kp-account-content" tabindex="-1">
+            @RenderBody()
+        </main>
+    </div>
+</div>

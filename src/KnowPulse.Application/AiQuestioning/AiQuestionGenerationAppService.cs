@@ -351,11 +351,13 @@ public partial class AiQuestionGenerationAppService : KnowPulseAppService, IAiQu
     {
         await CheckMvpPermissionAsync(KnowPulsePermissions.QuestionBank.AiGeneration);
         Check.NotNull(input, nameof(input));
+        if (input.CurriculumScope != null || input.SchoolId.HasValue || input.Scope == KnowledgeSearchScope.SchoolShared)
+            throw new BusinessException("KnowPulse:Education:SchoolWorkflowRetired");
         Check.NotNullOrWhiteSpace(input.KnowledgeScope, nameof(input.KnowledgeScope), AiQuestionGenerationTask.MaxKnowledgeScopeLength);
         Check.NotNullOrWhiteSpace(input.Purpose, nameof(input.Purpose), 64);
         if (!Enum.IsDefined(input.Scope) || (input.Scope == KnowledgeSearchScope.PersonalLibrary && input.SchoolId.HasValue))
             throw new ArgumentException("The requested knowledge search scope is invalid.", nameof(input));
-        if (input.IdempotencyKey == Guid.Empty || (input.CurriculumScope != null && !input.IdempotencyKey.HasValue) ||
+        if (input.IdempotencyKey == Guid.Empty ||
             !Enum.IsDefined(input.Type) || !Enum.IsDefined(input.Difficulty))
             throw new ArgumentException("The generation input is invalid.", nameof(input));
 
@@ -377,11 +379,8 @@ public partial class AiQuestionGenerationAppService : KnowPulseAppService, IAiQu
                 throw new BusinessException("KnowPulse:AiGeneration:ConflictingOperation");
             return await MapTaskToDtoAsync(existing);
         }
-        var snapshot = input.CurriculumScope == null ? null : await CurriculumAccess.ResolveAsync(input.CurriculumScope);
-        if (snapshot != null && input.SchoolId.HasValue && snapshot.SchoolId != input.SchoolId)
-            throw new BusinessException(EducationCurriculumErrorCodes.ReferenceMismatch);
         var selectedIds = input.KnowledgeItemIds.Distinct().OrderBy(x => x).ToList();
-        if (selectedIds.Count == 0 && !IsLegacyAdministrator && input.Scope == KnowledgeSearchScope.AllAccessible && input.CurriculumScope == null)
+        if (selectedIds.Count == 0 && !IsLegacyAdministrator && input.Scope == KnowledgeSearchScope.AllAccessible)
             throw new UserFriendlyException("请先选择本次用于出题的资料。");
         await EnsureSourcesAvailableAsync(selectedIds);
 
@@ -411,9 +410,7 @@ public partial class AiQuestionGenerationAppService : KnowPulseAppService, IAiQu
 
         task.SetTeacherSource(CurrentUser.Id!.Value, JsonSerializer.Serialize(selectedIds));
         task.RestrictToPersonalOwner(CurrentUser.Id ?? throw new AbpAuthorizationException("An identified user is required."));
-        task.InitializeExecution(fingerprint,
-            input.CurriculumScope == null ? null : JsonSerializer.Serialize(input.CurriculumScope, JsonOptions),
-            snapshot == null ? null : JsonSerializer.Serialize(snapshot, JsonOptions), input.Score, input.Purpose);
+        task.InitializeExecution(fingerprint, null, null, input.Score, input.Purpose);
         // 复用聚合的持久化扩展属性，重试必须保留原检索范围；授权仍每次查数据库。
         task.ExtraProperties["KnowledgeSearchScope"] = (int)input.Scope;
         if (input.SchoolId.HasValue) task.ExtraProperties["KnowledgeSearchSchoolId"] = input.SchoolId.Value.ToString("D");
@@ -433,6 +430,7 @@ public partial class AiQuestionGenerationAppService : KnowPulseAppService, IAiQu
         var task = await _taskRepository.GetAsync(id);
         await SourceAccess.EnsureTaskAsync(task);
         if ((task.PersonalOwnerUserId ?? task.OwnerTeacherId) != CurrentUser.Id) throw new AbpAuthorizationException();
+        EnsureCurrentTeachingTask(task);
         if (task.Status == AiQuestionGenerationTaskStatus.Failed)
         {
             task.QueueRetry(DateTime.UtcNow, WorkerOptions.MaxAttempts);
@@ -447,6 +445,7 @@ public partial class AiQuestionGenerationAppService : KnowPulseAppService, IAiQu
         var task = await _taskRepository.GetAsync(id);
         await SourceAccess.EnsureTaskAsync(task);
         if ((task.PersonalOwnerUserId ?? task.OwnerTeacherId) != CurrentUser.Id) throw new AbpAuthorizationException();
+        EnsureCurrentTeachingTask(task);
         if (task.QueueRegeneration(input.IdempotencyKey, DateTime.UtcNow, WorkerOptions.MaxRegenerationOperations))
             await _taskRepository.UpdateAsync(task, autoSave: true);
         return await MapTaskToDtoAsync(task);
@@ -458,6 +457,7 @@ public partial class AiQuestionGenerationAppService : KnowPulseAppService, IAiQu
         var candidate = await _candidateRepository.GetAsync(id);
         var task = await SourceAccess.EnsureCandidateAsync(candidate);
         if ((task.PersonalOwnerUserId ?? task.OwnerTeacherId) != CurrentUser.Id) throw new AbpAuthorizationException();
+        EnsureCurrentTeachingTask(task);
         if (candidate.ContentRevision != input.ContentRevision) throw new AbpDbConcurrencyException();
         var citations = await GetCandidateCitationsAsync(id);
         var chunks = citations.Select(x => new RetrievedChunk
@@ -532,6 +532,7 @@ public partial class AiQuestionGenerationAppService : KnowPulseAppService, IAiQu
         IReadOnlyList<RetrievedChunk> chunks;
         try
         {
+            EnsureCurrentTeachingTask(task);
             var selectedIds = JsonSerializer.Deserialize<List<Guid>>(task.KnowledgeItemIdsJson) ?? [];
             await EnsureSourcesAvailableAsync(selectedIds);
             var snapshot = GetCurriculumSnapshot(task);
@@ -1267,6 +1268,13 @@ public partial class AiQuestionGenerationAppService : KnowPulseAppService, IAiQu
 
     private static EducationCurriculumSnapshot? GetCurriculumSnapshot(AiQuestionGenerationTask task) =>
         task.CurriculumSnapshotJson == null ? null : JsonSerializer.Deserialize<EducationCurriculumSnapshot>(task.CurriculumSnapshotJson, JsonOptions);
+
+    internal static void EnsureCurrentTeachingTask(AiQuestionGenerationTask task)
+    {
+        if (task.CurriculumScopeJson != null || task.CurriculumSnapshotJson != null ||
+            GetSearchScope(task) == KnowledgeSearchScope.SchoolShared || GetSearchSchoolId(task).HasValue)
+            throw new BusinessException("KnowPulse:Education:SchoolWorkflowRetired");
+    }
 
     private static KnowledgeSearchScope GetSearchScope(AiQuestionGenerationTask task)
     {

@@ -18,21 +18,6 @@ public class KnowPulsePermissionDefinitionProvider : PermissionDefinitionProvide
         var myGroup = context.AddGroup(KnowPulsePermissions.GroupName);
 
         // 根权限用于控制菜单分组，子权限用于控制具体页面和应用服务入口。
-        var education = myGroup.AddPermission(KnowPulse.Education.EducationPermissions.Default, L("Permission:Education"));
-        education.AddChild(KnowPulse.Education.EducationPermissions.SchoolCreate, L("Permission:Education.SchoolCreate"));
-        education.AddChild(KnowPulse.Education.EducationPermissions.SchoolManage, L("Permission:Education.SchoolManage"));
-        education.AddChild(KnowPulse.Education.EducationPermissions.CurriculumManage, L("Permission:Education.CurriculumManage"));
-        education.AddChild(KnowPulse.Education.EducationPermissions.AssessmentManage, L("Permission:Education.AssessmentManage"));
-        education.AddChild(KnowPulse.Education.EducationPermissions.AssessmentParticipate, L("Permission:Education.AssessmentParticipate"));
-        education.AddChild(KnowPulse.Education.EducationPermissions.FeedbackManage, L("Permission:Education.FeedbackManage"));
-        education.AddChild(KnowPulse.Education.EducationPermissions.AnalysisManage, L("Permission:Education.AnalysisManage"));
-        education.AddChild(KnowPulse.Education.EducationPermissions.TeachingPlanManage, L("Permission:Education.TeachingPlanManage"));
-        education.AddChild(KnowPulse.Education.EducationPermissions.TeachingPlanGenerate, L("Permission:Education.TeachingPlanGenerate"));
-        education.AddChild(KnowPulse.Education.EducationPermissions.TeachingPlanView, L("Permission:Education.TeachingPlanView"));
-        education.AddChild(KnowPulse.Education.EducationPermissions.LearningParticipate, L("Permission:Education.LearningParticipate"));
-        education.AddChild(KnowPulse.Education.EducationPermissions.LearningManage, L("Permission:Education.LearningManage"));
-        education.AddChild(KnowPulse.Education.EducationPermissions.FeedbackView, L("Permission:Education.FeedbackView"));
-
         var organization = myGroup.AddPermission(KnowPulsePermissions.Organization.Default, L("Permission:Organization"));
         organization.AddChild(KnowPulsePermissions.Organization.Departments, L("Permission:Organization.Departments"));
         organization.AddChild(KnowPulsePermissions.Organization.Positions, L("Permission:Organization.Positions"));

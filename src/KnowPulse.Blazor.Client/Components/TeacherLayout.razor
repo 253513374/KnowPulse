@@ -1,0 +1,124 @@
+@using System.Linq
+@using Volo.Abp.Users
+@using Microsoft.Extensions.Configuration
+@using Microsoft.AspNetCore.Components.WebAssembly.Authentication
+@using Volo.Abp.AspNetCore.Components.Web.MudBlazorLeptonXLiteTheme.Themes.MudBlazorLeptonXLite
+@layout MainLayout
+@inherits LayoutComponentBase
+@implements IDisposable
+@inject NavigationManager Navigation
+@inject IPermissionChecker PermissionChecker
+@inject ICurrentUser CurrentUser
+@inject IConfiguration Configuration
+
+<MudBreakpointProvider OnBreakpointChanged="OnBreakpointChanged" />
+<div class="teacher-shell">
+    <a class="teacher-skip-link" href="#teacher-content">跳至主要内容</a>
+    @if (_menuOpen)
+    {
+        <button class="teacher-menu-backdrop" aria-label="关闭教师导航" @onclick="CloseMenu"></button>
+    }
+    <aside id="teacher-sidebar" class="teacher-sidebar @(_menuOpen ? "is-open" : null)" aria-label="教师工作区导航" tabindex="-1" @ref="_sidebar" @onkeydown="OnMenuKeyDown">
+        <a class="teacher-brand" href="/">
+            <span><img src="/images/teaching/brand-mark.svg" width="32" height="32" alt="" /></span>
+            <strong>知脉空间</strong>
+        </a>
+        <span class="teacher-sidebar-label">教师工作区</span>
+        <nav class="teacher-nav">
+            @foreach (var item in _items)
+            {
+                var selected = CurrentSection == item.Url;
+                <a href="@item.Url" class="teacher-nav-link @(selected ? "is-active" : null)"
+                   aria-current="@(selected ? "page" : null)" @onclick="CloseMenu">@item.Title</a>
+            }
+        </nav>
+        <div class="teacher-sidebar-note">
+            <strong>资料属于你</strong>
+            <span>共享由你决定<br />学生仅接收指定任务</span>
+        </div>
+        <span class="teacher-sidebar-label">@DisplayName · @(_canManage ? "管理账号" : "教师账号")</span>
+    </aside>
+    <div class="teacher-stage" inert="@_menuOpen">
+        <header class="teacher-topbar">
+            <button class="teacher-menu-toggle" aria-label="打开教师导航" aria-controls="teacher-sidebar" aria-expanded="@_menuOpen.ToString().ToLowerInvariant()" @ref="_menuToggle" @onclick="OpenMenu">
+                <MudIcon Icon="@Icons.Material.Filled.Menu" />
+            </button>
+            <span>教师工作区</span>
+            <MudMenu Label="@DisplayName" Class="teacher-account-menu" AriaLabel="账号与工作区菜单">
+                @if (_canAsk)
+                {
+                    <MudMenuItem Href="/teacher/answer">资料问答</MudMenuItem>
+                }
+                @if (_canManage)
+                {
+                    <MudMenuItem Href="/admin">平台管理后台</MudMenuItem>
+                }
+                <MudMenuItem Href="/account/assistance">账号与微信绑定帮助</MudMenuItem>
+                <MudMenuItem Href="@AccountUrl">我的账户</MudMenuItem>
+                <MudMenuItem OnClick="LogOut">退出登录</MudMenuItem>
+            </MudMenu>
+        </header>
+        <div id="teacher-content" class="teacher-content" tabindex="-1">@Body</div>
+    </div>
+</div>
+
+@code {
+    private TeacherNavigationItem[] _items = [];
+    private bool _menuOpen;
+    private bool _focusMenu;
+    private bool _restoreFocus;
+    private ElementReference _sidebar;
+    private ElementReference _menuToggle;
+    private bool _canManage;
+    private bool _canAsk;
+    private string? CurrentSection => TeacherNavigation.GetSectionUrl(Navigation.ToBaseRelativePath(Navigation.Uri));
+    private string DisplayName => !string.IsNullOrWhiteSpace(CurrentUser.Name) ? CurrentUser.Name : !string.IsNullOrWhiteSpace(CurrentUser.UserName) ? CurrentUser.UserName : "当前用户";
+    private string AccountUrl => (Configuration["AuthServer:Authority"] ?? string.Empty).TrimEnd('/') + "/Account/Manage";
+
+    protected override async Task OnInitializedAsync()
+    {
+        Navigation.LocationChanged += OnLocationChanged;
+        var visible = await Task.WhenAll(TeacherNavigation.Items.Select(item => PermissionChecker.IsGrantedAsync(item.Permission)));
+        _items = TeacherNavigation.Items.Where((_, index) => visible[index]).ToArray();
+        _canManage = await AdminNavigation.CanEnterAsync(PermissionChecker);
+        _canAsk = await PermissionChecker.IsGrantedAsync(KnowPulsePermissions.Rag.Answer);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_focusMenu)
+        {
+            _focusMenu = false;
+            await _sidebar.FocusAsync();
+        }
+        else if (_restoreFocus)
+        {
+            _restoreFocus = false;
+            await _menuToggle.FocusAsync();
+        }
+    }
+
+    private void OpenMenu() { _menuOpen = true; _focusMenu = true; }
+    private void CloseMenu()
+    {
+        if (_menuOpen) { _menuOpen = false; _restoreFocus = true; }
+    }
+    private void LogOut() => Navigation.NavigateToLogout("authentication/logout");
+    private void OnMenuKeyDown(KeyboardEventArgs args)
+    {
+        if (args.Key == "Escape") CloseMenu();
+    }
+
+    private void OnBreakpointChanged(Breakpoint breakpoint)
+    {
+        if (breakpoint >= Breakpoint.Md) { _menuOpen = _focusMenu = _restoreFocus = false; }
+    }
+
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs args)
+    {
+        _menuOpen = false;
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose() => Navigation.LocationChanged -= OnLocationChanged;
+}

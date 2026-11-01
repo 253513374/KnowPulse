@@ -2,7 +2,6 @@
 using Volo.Abp.Mapperly;
 using KnowPulse.AiModelManagement;
 using KnowPulse.AiQuestioning;
-using KnowPulse.Education;
 using KnowPulse.WeChat;
 using KnowPulse.KnowledgeBase;
 using KnowPulse.RagAI;
@@ -43,8 +42,6 @@ public class KnowPulseApplicationModule : AbpModule
         context.Services.Configure<PersonalKnowledgeAttachmentOptions>(configuration.GetSection(PersonalKnowledgeAttachmentOptions.SectionName));
         context.Services.Configure<PersonalKnowledgeExportOptions>(configuration.GetSection(PersonalKnowledgeExportOptions.SectionName));
         context.Services.Configure<AiQuestionGenerationWorkerOptions>(configuration.GetSection(AiQuestionGenerationWorkerOptions.SectionName));
-        context.Services.Configure<EducationAssessmentResponseOptions>(configuration.GetSection(EducationAssessmentResponseOptions.SectionName));
-        context.Services.Configure<EducationTeachingPlanGenerationOptions>(configuration.GetSection(EducationTeachingPlanGenerationOptions.SectionName));
         context.Services.Configure<WeChatLoginOptions>(configuration.GetSection(WeChatLoginOptions.SectionName));
         context.Services.AddTransient<IWeChatLoginVerifier, WeChatLoginVerifier>();
         context.Services.AddTransient<IWeChatBindingExchange, WeChatBindingAuthenticationService>();

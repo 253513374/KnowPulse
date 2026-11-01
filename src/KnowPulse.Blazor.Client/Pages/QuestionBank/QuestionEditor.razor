@@ -4,20 +4,13 @@
 @page "/teacher/questions/{Id:guid}/edit"
 @attribute [Authorize(KnowPulsePermissions.QuestionBank.Questions)]
 @inherits KnowPulseComponentBase
-@using KnowPulse.Education
 @using System.Text.Json
-@using System.Security.Cryptography
-@using System.Text
 @inject IQuestionAppService QuestionAppService
 @inject IQuestionWorkflowAppService QuestionWorkflow
 @inject IDialogService TeacherDialogs
 @inject IPositionAppService PositionAppService
-@inject IEducationSchoolAppService SchoolAppService
-@inject IEducationCurriculumAppService CurriculumAppService
 @inject IPermissionChecker PermissionChecker
 @inject IJSRuntime JSRuntime
-@inject Volo.Abp.Users.ICurrentUser CurrentAccount
-@inject Volo.Abp.MultiTenancy.ICurrentTenant CurrentTenantContext
 @inject NavigationManager Navigation
 
 <PageTitle>@(EditorQuestionId.HasValue ? "编辑题目草稿" : "新建人工题")</PageTitle>
@@ -41,16 +34,10 @@
 {
     <div class="kp-alert kp-alert--error" role="alert">@ErrorMessage</div>
 }
-@if (SuccessMessage != null) { <div class="kp-alert kp-alert--success" role="status">@SuccessMessage</div> }
 @if (SavedQuestion != null)
 {
     <div class="kp-alert kp-alert--info kp-flex kp-flex-wrap kp-gap-2 kp-align-center kp-justify-between" role="status"><span>@L["EducationQuestion:SavedQuestion", SavedQuestion.Title]</span><div class="kp-flex kp-gap-2 kp-align-center"><a href="@($"{(IsTeacherWorkspace ? "/teacher/questions" : "/question-bank/questions")}/{SavedQuestion.Id}/edit")">@L["EducationQuestion:OpenSaved"]</a><button type="button" class="kp-button kp-button--sm kp-button--secondary" @onclick="ReloadSavedAsync" disabled="@IsBusy">@L["EducationQuestion:ReloadSaved"]</button></div></div>
 }
-@if (CreateOperation != null && !EditorQuestionId.HasValue)
-{
-    <div class="kp-alert kp-alert--info" role="status"><span>@L["EducationQuestion:RecoverHint"]</span><button type="button" class="kp-button kp-button--sm kp-button--primary-outline ms-2" @onclick="RecoverCreateAsync" disabled="@IsBusy">@L["EducationQuestion:Recover"]</button></div>
-}
-@if (StorageNotice != null) { <p class="kp-text-small kp-text-warning">@StorageNotice</p> }
 
 @if (IsLoading)
 {
@@ -61,7 +48,8 @@ else
     <EditForm EditContext="@(EditorContext!)" OnValidSubmit="SaveAsync">
         <DataAnnotationsValidator />
         <Microsoft.AspNetCore.Components.Forms.ValidationSummary />
-        <fieldset disabled="@(IsBusy || SavedQuestion?.Status == QuestionStatus.Archived)">
+        <fieldset disabled="@(IsBusy || SavedQuestion?.Status == QuestionStatus.Archived || SavedQuestion?.Curriculum != null)">
+        @if (SavedQuestion?.Curriculum != null) { <p class="kp-alert kp-alert--info">历史学校课程题目仅保留记录，已停止编辑。</p> }
 
         <div class="kp-grid kp-grid-gap-3">
             <div class="kp-col-xl-8">
@@ -85,7 +73,6 @@ else
                                     <option value="@QuestionType.MultipleChoice">多选</option>
                                     <option value="@QuestionType.TrueFalse">判断</option>
                                     <option value="@QuestionType.FillBlank">填空</option>
-                                    <option value="@QuestionType.Subjective" disabled="@(!IsCurriculumQuestion)">@L["QuestionType:Subjective"]</option>
                                 </select>
                             </div>
                             <div class="kp-col-md-4">
@@ -97,8 +84,7 @@ else
                                 </select>
                             </div>
                             <div class="kp-col-md-4">
-                                @if (!IsCurriculumQuestion)
-                                {
+
                                 <label class="kp-label" for="editor-position">适用岗位</label>
                                 <select id="editor-position" class="kp-select" @bind="FormModel.ApplicablePositionIdText">
                                     <option value="">不限岗位</option>
@@ -107,7 +93,7 @@ else
                                         <option value="@position.Id">@position.Name</option>
                                     }
                                 </select>
-                                }
+
                             </div>
                         </div>
 
@@ -165,7 +151,7 @@ else
                                     <button class="@(FormModel.TrueFalseAnswer == "false" ? "is-selected" : null)" type="button" @onclick="SelectFalse"><i class="fa-solid fa-xmark"></i><span>错误</span></button>
                                 </div>
                             }
-                            else if (!IsCurriculumQuestion && FormModel.Type == QuestionType.FillBlank)
+                            else if (FormModel.Type == QuestionType.FillBlank)
                             {
                                 <label class="kp-label" for="editor-answers">标准答案</label>
                                 <textarea id="editor-answers" class="kp-input" rows="3" @bind="FormModel.AnswerLines" @bind:event="oninput" placeholder="填写一个或多个可接受答案，每行一个"></textarea>
@@ -173,11 +159,6 @@ else
                             }
                         </div>
 
-                        @if (IsCurriculumQuestion && (FormModel.Type is QuestionType.MultipleChoice or QuestionType.FillBlank or QuestionType.Subjective || FormModel.ScoringDefinition != null))
-                        {
-                            @if (FormModel.Type == QuestionType.FillBlank && SavedQuestion?.Answers.Count > 0) { <p class="kp-text-small kp-text-warning">@L["EducationScoring:LegacyAnswerHint"] <span>@string.Join("；", SavedQuestion.Answers.OrderBy(x => x.DisplayOrder).Select(x => x.Value))</span></p> }
-                            <QuestionScoringEditor Type="FormModel.Type" Definition="FormModel.ScoringDefinition" DefinitionChanged="ScoringChanged" Mappings="RuleMappingLabels" Stem="FormModel.Stem" TotalScore="FormModel.CurriculumScore" />
-                        }
                         <div class="kp-mt-3">
                             <label class="kp-label" for="editor-analysis">答案解析</label>
                             <textarea id="editor-analysis" class="kp-input" rows="4" @bind="FormModel.Analysis" @bind:event="oninput" placeholder="说明为什么是这个答案，帮助学习者理解"></textarea>
@@ -187,68 +168,16 @@ else
             </div>
 
             <div class="kp-col-xl-4">
-                <div class="kp-card kp-mb-3 qb-editor-card"><div class="kp-card__body kp-p-4">
-                    <h2 class="kp-heading-6">@L["EducationQuestion:CurriculumHeading"]</h2>
-                    <label class="kp-label" for="editor-curriculum-mode">@L["EducationGeneration:Mode"]</label>
-                    <select id="editor-curriculum-mode" class="kp-select" @bind="IsCurriculumQuestion" disabled="@EditorQuestionId.HasValue">
-                        <option value="true">@L["EducationQuestion:CurriculumMode"]</option><option value="false">@L["EducationGeneration:EnterpriseMode"]</option>
-                    </select>
-                    @if (!IsCurriculumQuestion)
-                    {
-                        <p class="kp-text-small kp-text-muted kp-mt-2 kp-mb-0">@L[EditorQuestionId.HasValue ? "EducationQuestion:LegacyScopeHint" : "EducationGeneration:UnconfirmedHint"]</p>
-                    }
-                    else
-                    {
-                        @if (SavedQuestion?.Curriculum is { } frozen)
-                        {
-                            <p class="kp-text-small kp-mt-2">@SnapshotLabel(frozen)</p>
-                            <p class="kp-text-small kp-text-muted">@L["EducationQuestion:FrozenScopeHint"]</p>
-                            <ul class="kp-text-small">@foreach (var mapping in frozen.Mappings) { <li>@MappingLabel(mapping)</li> }</ul>
-                        }
-                        else
-                        {
-                            <label class="kp-label kp-mt-3" for="editor-selection">@L["EducationGeneration:Selection"]</label>
-                            <select id="editor-selection" class="kp-select" @bind="SelectionIdText" @bind:after="SelectionChangedAsync"><option value="">@L["EducationCurriculum:Choose"]</option>@foreach (var choice in CurriculumChoices) { <option value="@choice.Selection.Id">@SelectionLabel(choice)</option> }</select>
-                            @if (SelectedTextbook is { } book)
-                            {
-                                <p class="kp-text-small kp-text-muted kp-mt-2">@BookLabel(book)</p>
-                                <label class="kp-label" for="editor-chapter">@L["EducationGeneration:ChapterFilter"]</label>
-                                <select id="editor-chapter" class="kp-select" @bind="ChapterIdText"><option value="">@L["EducationGeneration:AllChapters"]</option>@foreach (var chapter in book.Chapters.OrderBy(x => x.DisplayOrder)) { <option value="@chapter.Id">@chapter.Code · @chapter.Title</option> }</select>
-                                <div class="qb-curriculum-mappings kp-mt-2" role="group" aria-label="@L["EducationGeneration:Mappings"]">
-                                    @foreach (var mapping in FilteredMappings) { <label class="kp-flex kp-gap-2 kp-align-start"><input type="checkbox" class="kp-check__input" checked="@SelectedMappingIds.Contains(mapping.Id)" @onchange="args => ToggleMapping(mapping.Id, args)" /><span>@TextbookMappingLabel(mapping)</span></label> }
-                                </div>
-                            }
-                        }
-                        <button type="button" class="kp-button kp-button--sm kp-button--secondary kp-mt-2" @onclick="RefreshCurriculumAsync">@L["EducationGeneration:RefreshSelections"]</button>
-                        @if (CurriculumError != null) { <p class="kp-text-small kp-text-danger kp-mt-2" role="alert">@CurriculumError</p> }
-                        @if (!HasCurrentCurriculumScope) { <p class="kp-text-small kp-text-warning kp-mt-2">@L["EducationQuestion:CurrentSelectionRequired"] <a href="/education/curriculum">@L["EducationGeneration:ManageSelections"]</a></p> }
-                        <label class="kp-label kp-mt-3" for="editor-curriculum-score">@L["EducationQuestion:TotalScore"]</label><InputNumber id="editor-curriculum-score" class="kp-input" step="0.01" @bind-Value="FormModel.CurriculumScore" />
-                        <p class="kp-text-small kp-text-muted kp-mt-2">@L["EducationQuestion:PointScoreHint"]</p>
-                        <div class="kp-flex kp-flex-column kp-gap-2">
-                            @foreach (var point in PointScores)
-                            {
-                                <label class="kp-text-small qb-point-score" @key="point.MappingId"><span>@point.Label</span><InputNumber class="kp-input" step="0.01" min="0" @bind-Value="point.Score" disabled="@UsesComponentAllocation" /></label>
-                            }
-                        </div>
-
-                        <p class="kp-text-small kp-mt-2">@L["EducationQuestion:AllocatedScore", PointScores.Sum(x => x.Score), FormModel.CurriculumScore]</p>
-                        @if (UsesComponentAllocation) { <p class="kp-text-small kp-text-muted">@L["EducationScoring:AllocationFromComponents"]</p> }
-                        @if (SavedQuestion is { CurriculumConfirmed: true } confirmed) { <p class="kp-text-small @(HasUnsavedChanges ? "kp-text-warning" : "kp-text-success")">@L["EducationQuestion:PreviouslyConfirmed", confirmed.CurriculumConfirmedAtUtc?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") ?? "—"] @if (HasUnsavedChanges) { <span>@L["EducationScoring:ChangesNeedConfirmation"]</span> }</p> }
-                        <p class="kp-text-small kp-text-muted kp-mb-0">@L["EducationQuestion:ContentChangeHint"]</p>
-                    }
-                </div></div>
                 <div class="kp-card kp-mb-3 qb-editor-card">
                     <div class="kp-card__body kp-p-4">
                         <div class="kp-text-primary kp-text-small kp-text-semibold kp-mb-1">STEP 2</div>
                         <h2 class="kp-heading-6">补充适用范围与依据</h2>
-                        @if (!IsCurriculumQuestion)
-                        {
+
                         <div class="kp-mt-3">
                             <label class="kp-label" for="editor-points">知识点</label>
                             <input id="editor-points" class="kp-input" @bind="FormModel.KnowledgePointText" @bind:event="oninput" placeholder="例如：信息安全、请假制度" />
                             <div class="kp-help">多个知识点用逗号分隔。</div>
                         </div>
-                        }
 
                         <div class="kp-mt-3">
                             <label class="kp-label" for="editor-tags">标签</label>
@@ -297,7 +226,7 @@ else
                             <li>已经设置标准答案</li>
                             <li>解析和来源足以支持审核</li>
                         </ul>
-                        @if (IsTeacherWorkspace && !IsCurriculumQuestion)
+                        @if (IsTeacherWorkspace)
                         {
                             <button class="kp-button kp-button--primary kp-full-width" type="submit" @onclick="() => _confirmAfterSave = true" disabled="@IsBusy">@(IsBusy ? "正在保存…" : "保存并确认")</button>
                             <button class="kp-button kp-button--secondary kp-full-width kp-mt-2" type="submit" @onclick="() => _confirmAfterSave = false" disabled="@IsBusy">仅保存草稿</button>
@@ -305,10 +234,10 @@ else
                         }
                         else
                         {
-                        <button class="kp-button kp-button--primary kp-full-width" type="submit" disabled="@IsBusy">@(IsBusy ? "正在保存…" : IsCurriculumQuestion ? L["EducationQuestion:SaveContent"].Value : "保存并返回草稿")</button>
-                        @if (IsCurriculumQuestion) { <button class="kp-button kp-button--primary-outline kp-full-width kp-mt-2" type="button" @onclick="SaveAndConfirmAsync" disabled="@(IsBusy || !HasCurrentCurriculumScope)">@L["EducationQuestion:SaveAndConfirm"]</button> }
+                        <button class="kp-button kp-button--primary kp-full-width" type="submit" disabled="@IsBusy">@(IsBusy ? "正在保存…" : "保存并返回草稿")</button>
+
                         <div class="kp-text-center kp-text-muted kp-text-small kp-mt-2">保存后由你主动提交审核</div>
-                        @if (IsCurriculumQuestion) { <p class="kp-text-small kp-text-muted kp-mt-2 kp-mb-0">@L["EducationQuestion:ConfirmHint"]</p> }
+
                         }
                     </div>
                 </div>
@@ -334,31 +263,9 @@ else
     private bool _confirmAfterSave = true;
     private bool RouteLoaded;
     private Guid? LoadedRouteId;
-    private bool IsCurriculumQuestion = true;
-    private string SelectionIdText = string.Empty, ChapterIdText = string.Empty;
-    private TextbookVersionDto? SelectedTextbook;
-    private readonly List<CurriculumChoice> CurriculumChoices = [];
-    private readonly HashSet<Guid> SelectedMappingIds = [];
-    private readonly List<PointScoreRow> PointScores = [];
-    private string? CurriculumError, SuccessMessage, StorageNotice;
-    private CreateOperationReceipt? CreateOperation;
     private string Baseline = string.Empty;
     private bool AllowNavigation;
-    private bool RequiresReload;
     private bool HasUnsavedChanges => !AllowNavigation && Baseline.Length > 0 && FormState() != Baseline;
-    private CurriculumChoice? SelectedChoice => CurriculumChoices.FirstOrDefault(x => x.Selection.Id.ToString() == SelectionIdText);
-    private bool HasCurrentCurriculumScope
-    {
-        get
-        {
-            var choice = SelectedChoice; var book = SelectedTextbook; var original = SavedQuestion?.Curriculum;
-            return choice != null && book is { Status: TextbookVersionStatus.Published } &&
-                SelectedMappingIds.Count > 0 && SelectedMappingIds.All(id => book.Mappings.Any(x => x.Id == id)) &&
-                (original == null || original.TextbookVersionId == book.Id && original.Mappings.Select(x => x.MappingId).ToHashSet().SetEquals(SelectedMappingIds));
-        }
-    }
-    private IEnumerable<TextbookKnowledgePointMappingDto> FilteredMappings => SelectedTextbook is { } book ? book.Mappings.Where(x => string.IsNullOrWhiteSpace(ChapterIdText) || x.ChapterId.ToString() == ChapterIdText)
-        .OrderBy(x => book.Chapters.FirstOrDefault(c => c.Id == x.ChapterId)?.DisplayOrder).ThenBy(x => x.KnowledgePointCode) : [];
     private bool IsLoading { get; set; }
     private bool IsBusy { get; set; }
     private string? ErrorMessage { get; set; }
@@ -374,7 +281,6 @@ else
                 var positions = await PositionAppService.GetListAsync(new PagedAndSortedResultRequestDto { MaxResultCount = 200 });
                 Positions.AddRange(positions.Items.OrderBy(x => x.Name));
             }
-            await LoadCurriculumChoicesAsync();
         }
         catch (Exception ex)
         {
@@ -392,10 +298,9 @@ else
         RouteLoaded = true; LoadedRouteId = Id; IsLoading = true;
         try
         {
-            SavedQuestion = null; RequiresReload = false; OriginalSources.Clear(); SelectedMappingIds.Clear(); PointScores.Clear(); SelectedTextbook = null;
-            SelectionIdText = ChapterIdText = string.Empty;
-            if (Id.HasValue) await SetQuestionAsync(await QuestionAppService.GetAsync(Id.Value));
-            else { FormModel = new(); IsCurriculumQuestion = !IsTeacherWorkspace; EnsureChoiceOptions(); }
+            SavedQuestion = null; OriginalSources.Clear();
+            if (Id.HasValue) SetQuestion(await QuestionAppService.GetAsync(Id.Value));
+            else { FormModel = new(); EnsureChoiceOptions(); }
             EditorContext = new EditContext(FormModel);
             Baseline = FormState();
         }
@@ -403,15 +308,13 @@ else
         finally { IsLoading = false; }
     }
 
-    private async Task SetQuestionAsync(QuestionDto question)
+    private void SetQuestion(QuestionDto question)
     {
         SavedQuestion = question;
         OriginalSources.Clear(); OriginalSources.AddRange(question.Sources);
         var answerValues = question.Answers.Select(x => x.Value).ToHashSet(StringComparer.OrdinalIgnoreCase);
         FormModel = new QuestionFormModel
         {
-            CurriculumScore = question.CurriculumScore ?? 1,
-            ScoringDefinition = CloneScoringDefinition(question.ScoringDefinition),
             CreationSource = question.CreationSource, Type = question.Type, Difficulty = question.Difficulty,
             Title = question.Title, Stem = question.Stem, ApplicablePositionIdText = question.ApplicablePositionId?.ToString(),
             SecurityLevel = question.SecurityLevel, Tags = question.Tags, Analysis = question.Analysis,
@@ -422,61 +325,13 @@ else
             Options = question.Options.OrderBy(x => x.DisplayOrder).Select(x => new OptionEditorRow { Content = x.Content, IsCorrect = answerValues.Contains(x.OptionKey) }).ToList()
         };
         EnsureChoiceOptions();
-        IsCurriculumQuestion = question.Curriculum != null;
-        SelectedMappingIds.Clear(); PointScores.Clear();
-        if (question.Curriculum is { } snapshot)
-        {
-            SelectionIdText = snapshot.TeacherTextbookSelectionId.ToString();
-            foreach (var mapping in snapshot.Mappings)
-            {
-                SelectedMappingIds.Add(mapping.MappingId);
-                PointScores.Add(new PointScoreRow { MappingId = mapping.MappingId, Label = MappingLabel(mapping), Score = question.CurriculumPointWeights.FirstOrDefault(x => x.TextbookKnowledgePointMappingId == mapping.MappingId)?.Score ?? 0 });
-            }
-            await LoadTextbookAsync(preserveMappings: true);
-        }
-        SynchronizeRulePointScores();
-    }
-
-    protected override async Task OnAfterRenderAsync(bool firstRender)
-    {
-        if (!firstRender) return;
-        try
-        {
-            var value = await JSRuntime.InvokeAsync<string?>("sessionStorage.getItem", OperationStorageKey);
-            if (!string.IsNullOrWhiteSpace(value))
-            {
-                var receipt = JsonSerializer.Deserialize<CreateOperationReceipt>(value);
-                if (receipt is { Id: var operationId } && operationId != Guid.Empty) CreateOperation = receipt;
-                StateHasChanged();
-            }
-        }
-        catch (Exception) { StorageNotice = L["EducationGeneration:StorageUnavailable"]; StateHasChanged(); }
-    }
-
-    private string OperationStorageKey => $"knowpulse.education.manual-question.{CurrentTenantContext.Id}.{CurrentAccount.Id}";
-    private async Task PersistCreateOperationAsync()
-    {
-        try { await JSRuntime.InvokeVoidAsync("sessionStorage.setItem", OperationStorageKey, JsonSerializer.Serialize(CreateOperation)); }
-        catch (Exception) { StorageNotice = L["EducationGeneration:StorageUnavailable"]; }
     }
 
     private async Task SaveAsync()
     {
-        await SaveCoreAsync(confirmCurriculum: false);
-    }
-
-    private async Task SaveAndConfirmAsync()
-    {
-        if (EditorContext?.Validate() != true || !IsCurriculumQuestion) return;
-        await SaveCoreAsync(confirmCurriculum: true);
-    }
-
-    private async Task SaveCoreAsync(bool confirmCurriculum)
-    {
         if (IsBusy) return;
-        if (RequiresReload) { ErrorMessage = L["EducationQuestion:SavedContentChanged"]; return; }
-        SynchronizeRulePointScores();
-        var validationMessage = ValidateDefinition() ?? (IsCurriculumQuestion ? ValidateCurriculum(confirmCurriculum) : null);
+        if (SavedQuestion?.Curriculum != null) { ErrorMessage = "历史学校课程题目已停止编辑。"; return; }
+        var validationMessage = ValidateDefinition();
         if (validationMessage != null)
         {
             ErrorMessage = validationMessage;
@@ -486,13 +341,11 @@ else
         try
         {
             ErrorMessage = null;
-            SuccessMessage = null;
             IsBusy = true;
             var input = BuildInput();
             var editorId = EditorQuestionId;
-            var creating = !editorId.HasValue;
             QuestionDto saved;
-            if (IsTeacherWorkspace && !IsCurriculumQuestion)
+            if (IsTeacherWorkspace)
             {
                 saved = editorId.HasValue
                     ? await QuestionWorkflow.SaveDraftAsync(editorId.Value, input)
@@ -506,34 +359,14 @@ else
             }
             else
             {
-                if (IsCurriculumQuestion)
-                {
-                    var signature = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(input))));
-                    if (CreateOperation == null || CreateOperation.Signature != signature) CreateOperation = new CreateOperationReceipt { Id = Guid.NewGuid(), Signature = signature };
-                    input.OperationId = CreateOperation.Id;
-                    await PersistCreateOperationAsync();
-                }
+
                 saved = await QuestionAppService.CreateAsync(input);
             }
             // A confirmation failure must keep the known saved identity, including a just-created draft.
             SavedQuestion = saved;
             OriginalSources.Clear(); OriginalSources.AddRange(saved.Sources);
-            if (confirmCurriculum)
-            {
-                if (creating && !CreatedContentMatches(input, saved))
-                {
-                    RequiresReload = true;
-                    throw new InvalidOperationException(L["EducationQuestion:SavedContentChanged"]);
-                }
-                SavedQuestion = await QuestionAppService.ConfirmCurriculumAsync(saved.Id, new ConfirmQuestionCurriculumDto
-                {
-                    Scope = ScopeOf(saved.Curriculum!), ConcurrencyStamp = saved.ConcurrencyStamp,
-                    Score = FormModel.CurriculumScore, PointWeights = BuildPointWeights()
-                });
-                SuccessMessage = L["EducationQuestion:Confirmed"];
-                Baseline = FormState();
-            }
-            else { AllowNavigation = true; Navigation.NavigateTo(IsTeacherWorkspace ? "/teacher/questions" : "/question-bank/drafts"); }
+            AllowNavigation = true;
+            Navigation.NavigateTo(IsTeacherWorkspace ? "/teacher/questions" : "/question-bank/drafts");
         }
         catch (Exception ex)
         {
@@ -558,13 +391,11 @@ else
             SecurityLevel = FormModel.SecurityLevel,
             Tags = FormModel.Tags,
             Analysis = FormModel.Analysis,
-            ScoringDefinition = IsCurriculumQuestion ? CloneScoringDefinition(FormModel.ScoringDefinition) : SavedQuestion?.ScoringDefinition,
+            ScoringDefinition = SavedQuestion?.ScoringDefinition,
             Options = BuildOptions(),
             Answers = BuildAnswers(),
             KnowledgePointNames = SplitValues(FormModel.KnowledgePointText),
             Sources = BuildSources(),
-            CurriculumScope = IsCurriculumQuestion && !EditorQuestionId.HasValue ? BuildScope() : null,
-            CurriculumScore = FormModel.CurriculumScore,
             ConcurrencyStamp = SavedQuestion?.ConcurrencyStamp
         };
     }
@@ -589,7 +420,6 @@ else
 
     private List<CreateUpdateQuestionAnswerDto> BuildAnswers()
     {
-        if (FormModel.Type == QuestionType.Subjective || IsCurriculumQuestion && FormModel.Type == QuestionType.FillBlank && FormModel.ScoringDefinition != null) return [];
         IEnumerable<string> values = FormModel.Type switch
         {
             QuestionType.SingleChoice or QuestionType.MultipleChoice => FormModel.Options
@@ -646,7 +476,7 @@ else
 
     private string? ValidateDefinition()
     {
-        if (!IsCurriculumQuestion && FormModel.Type == QuestionType.Subjective) return L["EducationScoring:CurriculumRequired"];
+        if (FormModel.Type == QuestionType.Subjective) return "当前不支持主观题编辑。";
         if (IsChoiceQuestion)
         {
             var populated = FormModel.Options.Where(x => !string.IsNullOrWhiteSpace(x.Content)).ToList();
@@ -666,7 +496,7 @@ else
                 return "多选题需要选择至少两个正确答案。";
             }
         }
-        else if (!IsCurriculumQuestion && FormModel.Type == QuestionType.FillBlank && SplitValues(FormModel.AnswerLines).Count == 0)
+        else if (FormModel.Type == QuestionType.FillBlank && SplitValues(FormModel.AnswerLines).Count == 0)
         {
             return "请填写至少一个标准答案。";
         }
@@ -674,114 +504,17 @@ else
         return null;
     }
 
-    private string? ValidateCurriculum(bool confirming)
-    {
-        if (FormModel.CurriculumScore <= 0 || FormModel.CurriculumScore > 1000 || decimal.Round(FormModel.CurriculumScore, 2) != FormModel.CurriculumScore)
-            return L["EducationGeneration:ScorePrecision"];
-        if ((!EditorQuestionId.HasValue || confirming) && !HasCurrentCurriculumScope) return L["EducationQuestion:CurrentSelectionRequired"];
-        try { FormModel.ScoringDefinition?.ValidateDraft(); }
-        catch (Volo.Abp.BusinessException) { return L["EducationScoring:InvalidDraft"]; }
-        if (!confirming) return null;
-        if (PointScores.Any(x => x.Score < 0 || decimal.Round(x.Score, 2) != x.Score) || PointScores.All(x => x.Score == 0) || PointScores.Sum(x => x.Score) != FormModel.CurriculumScore)
-            return L["EducationQuestion:InvalidAllocation"];
-        if (FormModel.Type is QuestionType.MultipleChoice or QuestionType.FillBlank or QuestionType.Subjective)
-        {
-            if (FormModel.ScoringDefinition == null) return L["EducationScoring:ConfirmationRequired"];
-            try { FormModel.ScoringDefinition.ValidateForConfirmation(FormModel.Type, FormModel.Stem, FormModel.CurriculumScore, SelectedMappingIds.ToList(), BuildPointWeights()); }
-            catch (Volo.Abp.BusinessException) { return L["EducationScoring:ConfirmationRequired"]; }
-        }
-        return null;
-    }
-
-    private List<QuestionCurriculumPointWeight> BuildPointWeights()
-    {
-        var rows = PointScores.Where(x => x.Score > 0).ToList();
-        var result = new List<QuestionCurriculumPointWeight>();
-        var allocatedWeight = 0m;
-        for (var index = 0; index < rows.Count; index++)
-        {
-            var weight = index == rows.Count - 1 ? 1m - allocatedWeight : rows[index].Score / FormModel.CurriculumScore;
-            allocatedWeight += weight;
-            result.Add(new QuestionCurriculumPointWeight { TextbookKnowledgePointMappingId = rows[index].MappingId, Score = rows[index].Score, Weight = weight });
-        }
-        return result;
-    }
-
-    private EducationCurriculumScopeDto BuildScope() => new()
-    { TeacherTextbookSelectionId = SelectedChoice!.Selection.Id, TextbookKnowledgePointMappingIds = SelectedMappingIds.OrderBy(x => x).ToList() };
-    private static EducationCurriculumScopeDto ScopeOf(EducationCurriculumSnapshot snapshot) => new()
-    { TeacherTextbookSelectionId = snapshot.TeacherTextbookSelectionId, TextbookKnowledgePointMappingIds = snapshot.Mappings.Select(x => x.MappingId).ToList() };
-
-    private async Task LoadCurriculumChoicesAsync()
-    {
-        CurriculumChoices.Clear(); CurriculumError = null;
-        try
-        {
-            var schools = await SchoolAppService.GetMySchoolsAsync();
-            foreach (var school in schools.Items.Where(x => x.Roles.Contains(SchoolMemberRole.Teacher)))
-            {
-                try
-                {
-                    var context = await CurriculumAppService.GetContextAsync(school.Id);
-                    var selections = await CurriculumAppService.GetMySelectionsAsync(school.Id);
-                    foreach (var selection in selections.Items.Where(x => x.EndedAtUtc == null && x.TextbookStatus == TextbookVersionStatus.Published))
-                        if (context.TeachingContexts.FirstOrDefault(x => x.Id == selection.TeachingAssignmentId) is { } assignment)
-                            CurriculumChoices.Add(new CurriculumChoice(school, assignment, selection));
-                }
-                catch (Exception exception) { CurriculumError = GetUserFriendlyErrorMessage(exception); }
-            }
-        }
-        catch (Exception exception) { CurriculumChoices.Clear(); CurriculumError = GetUserFriendlyErrorMessage(exception); }
-    }
-    private async Task LoadTextbookAsync(bool preserveMappings)
-    {
-        SelectedTextbook = null; ChapterIdText = string.Empty;
-        if (!preserveMappings) { SelectedMappingIds.Clear(); PointScores.Clear(); }
-        if (SelectedChoice is not { } choice) return;
-        try
-        {
-            var book = await CurriculumAppService.GetTextbookAsync(choice.Selection.TextbookVersionId);
-            if (book.Status != TextbookVersionStatus.Published || book.SchoolId != choice.School.Id || book.Grade != choice.Assignment.Grade || book.EducationSubjectId != choice.Assignment.EducationSubjectId)
-                throw new InvalidOperationException(L["EducationGeneration:InvalidSelection"]);
-            SelectedTextbook = book;
-        }
-        catch (Exception exception) { CurriculumError = GetUserFriendlyErrorMessage(exception); }
-    }
-    private async Task SelectionChangedAsync() => await RunBusyAsync(() => LoadTextbookAsync(preserveMappings: false));
-    private async Task RefreshCurriculumAsync() => await RunBusyAsync(async () => { await LoadCurriculumChoicesAsync(); await LoadTextbookAsync(preserveMappings: true); });
-    private void ToggleMapping(Guid id, ChangeEventArgs args)
-    {
-        if (EditorQuestionId.HasValue) return;
-        if (args.Value is true)
-        {
-            SelectedMappingIds.Add(id);
-            var mapping = SelectedTextbook?.Mappings.FirstOrDefault(x => x.Id == id);
-            if (mapping != null && PointScores.All(x => x.MappingId != id)) PointScores.Add(new PointScoreRow { MappingId = id, Label = TextbookMappingLabel(mapping) });
-        }
-        else { SelectedMappingIds.Remove(id); PointScores.RemoveAll(x => x.MappingId == id); }
-    }
-    private async Task RecoverCreateAsync() => await RunBusyAsync(async () =>
-    {
-        if (CreateOperation == null || HasUnsavedChanges && !await JSRuntime.InvokeAsync<bool>("confirm", L["EducationQuestion:ConfirmRecovery"].Value)) return;
-        var saved = await QuestionAppService.GetAsync(CreateOperation.Id);
-        await SetQuestionAsync(saved);
-        RequiresReload = false;
-        EditorContext = new EditContext(FormModel);
-        Baseline = FormState();
-        SuccessMessage = L["EducationQuestion:Recovered"];
-    });
     private async Task ReloadSavedAsync() => await RunBusyAsync(async () =>
     {
         if (EditorQuestionId is not { } id || HasUnsavedChanges && !await JSRuntime.InvokeAsync<bool>("confirm", L["EducationQuestion:ConfirmRecovery"].Value)) return;
-        await SetQuestionAsync(await QuestionAppService.GetAsync(id));
-        RequiresReload = false;
+        SetQuestion(await QuestionAppService.GetAsync(id));
         EditorContext = new EditContext(FormModel);
         Baseline = FormState();
     });
     private async Task RunBusyAsync(Func<Task> action)
     {
         if (IsBusy) return;
-        IsBusy = true; ErrorMessage = null; SuccessMessage = null;
+        IsBusy = true; ErrorMessage = null;
         try { await action(); }
         catch (Exception exception) { ErrorMessage = GetUserFriendlyErrorMessage(exception); }
         finally { IsBusy = false; }
@@ -795,56 +528,10 @@ else
         }
         else if (!await JSRuntime.InvokeAsync<bool>("confirm", L["EducationGeneration:ConfirmLeave"].Value)) context.PreventNavigation();
     }
-    private string FormState() => JsonSerializer.Serialize(new { FormModel, IsCurriculumQuestion, SelectionIdText, Mappings = SelectedMappingIds.OrderBy(x => x).ToList(), Scores = PointScores.Select(x => new { x.MappingId, x.Score }).ToList() });
-    private string SelectionLabel(CurriculumChoice choice) => $"{choice.School.Name} · {choice.Assignment.TermName} · {choice.Assignment.ClassName} · {choice.Assignment.SubjectName} · {choice.Selection.TextbookTitle} · {L["EducationCurriculum:RevisionNumber", choice.Selection.CatalogRevision]}";
-    private string BookLabel(TextbookVersionDto book) => $"{book.Title} · {book.Publisher} · {book.Edition} · {book.Volume} · {L["EducationCurriculum:GradeNumber", book.Grade]} · {L["EducationCurriculum:RevisionNumber", book.CatalogRevision]}";
-    private string SnapshotLabel(EducationCurriculumSnapshot snapshot) => $"{snapshot.SubjectName} · {snapshot.TextbookTitle} · {snapshot.Publisher} · {snapshot.Edition} · {snapshot.Volume} · {L["EducationCurriculum:GradeNumber", snapshot.Grade]} · {L["EducationCurriculum:RevisionNumber", snapshot.CatalogRevision]}";
-    private string TextbookMappingLabel(TextbookKnowledgePointMappingDto mapping) => $"{SelectedTextbook?.Chapters.FirstOrDefault(x => x.Id == mapping.ChapterId)?.Title} · {mapping.KnowledgePointCode} · {mapping.KnowledgePointName} · {L["EducationCurriculum:RevisionNumber", mapping.RevisionNumber]}";
-    private string MappingLabel(EducationCurriculumMappingSnapshot mapping) => $"{mapping.ChapterCode} · {mapping.ChapterTitle} · {mapping.KnowledgePointCode} · {mapping.KnowledgePointName} · {L["EducationCurriculum:RevisionNumber", mapping.RevisionNumber]}";
-    private static bool CreatedContentMatches(SaveQuestionDraftDto input, QuestionDto saved)
-    {
-        // A replay returns the current draft. An edit in another window must not be confirmed
-        // using a returned stamp while this window still displays the original submitted content.
-        var scope = saved.Curriculum;
-        if (scope == null || input.CurriculumScope == null || saved.Status != QuestionStatus.Draft || saved.CurriculumConfirmed ||
-            saved.CurriculumPointWeights.Count > 0 || saved.CurriculumScore != input.CurriculumScore ||
-            scope.TeacherTextbookSelectionId != input.CurriculumScope.TeacherTextbookSelectionId ||
-            !scope.Mappings.Select(x => x.MappingId).ToHashSet().SetEquals(input.CurriculumScope.TextbookKnowledgePointMappingIds) ||
-            saved.Type != input.Type || saved.Difficulty != input.Difficulty || saved.Title != input.Title || saved.Stem != input.Stem ||
-            saved.ApplicablePositionId != input.ApplicablePositionId || saved.SecurityLevel != input.SecurityLevel ||
-            saved.Tags != NormalizeTags(input.Tags) || saved.Analysis != TrimOptional(input.Analysis)) return false;
-        if (saved.ScoringDefinition?.ToCanonicalJson() != input.ScoringDefinition?.ToCanonicalJson()) return false;
-        return input.Options.OrderBy(x => x.DisplayOrder).Select(x => (x.OptionKey, x.Content, x.DisplayOrder))
-                .SequenceEqual(saved.Options.OrderBy(x => x.DisplayOrder).Select(x => (x.OptionKey, x.Content, x.DisplayOrder))) &&
-            input.Answers.OrderBy(x => x.DisplayOrder).Select(x => (x.Value, x.DisplayOrder))
-                .SequenceEqual(saved.Answers.OrderBy(x => x.DisplayOrder).Select(x => (x.Value, x.DisplayOrder))) &&
-            input.KnowledgePointNames.ToHashSet(StringComparer.OrdinalIgnoreCase).SetEquals(saved.KnowledgePoints.Select(x => x.Name)) &&
-            input.Sources.Select(x => (x.KnowledgeItemId, x.KnowledgeVersionId, x.ChunkId, TrimOptional(x.SourceTitle), TrimOptional(x.SourceExcerpt), TrimOptional(x.SourceHash), TrimOptional(x.ManualSourceDescription)))
-                .SequenceEqual(saved.Sources.Select(x => (x.KnowledgeItemId, x.KnowledgeVersionId, x.ChunkId, x.SourceTitle, x.SourceExcerpt, x.SourceHash, x.ManualSourceDescription)));
-    }
-    private static string? TrimOptional(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
-    private static string? NormalizeTags(string? tags) => string.IsNullOrWhiteSpace(tags) ? null : string.Join(", ", tags.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Distinct(StringComparer.OrdinalIgnoreCase));
-    private sealed record CurriculumChoice(MySchoolDto School, MyTeachingContextDto Assignment, TeacherTextbookSelectionDto Selection);
-    private sealed class PointScoreRow { public Guid MappingId { get; set; } public string Label { get; set; } = string.Empty; public decimal Score { get; set; } }
-    private sealed class CreateOperationReceipt { public CreateOperationReceipt() { } public Guid Id { get; set; } public string Signature { get; set; } = string.Empty; }
-    private IReadOnlyDictionary<Guid, string> RuleMappingLabels => PointScores.ToDictionary(x => x.MappingId, x => x.Label);
-    private bool UsesComponentAllocation => IsCurriculumQuestion && FormModel.Type is QuestionType.FillBlank or QuestionType.Subjective;
-    private void ScoringChanged(QuestionScoringDefinition? definition) { FormModel.ScoringDefinition = definition; SynchronizeRulePointScores(); }
-    private void SynchronizeRulePointScores()
-    {
-        if (!UsesComponentAllocation) return;
-        var allocations = FormModel.Type == QuestionType.FillBlank
-            ? (FormModel.ScoringDefinition?.Blanks ?? []).Select(x => (MappingId: x.TextbookKnowledgePointMappingId, x.Score))
-            : (FormModel.ScoringDefinition?.ScoringPoints ?? []).Select(x => (MappingId: x.TextbookKnowledgePointMappingId, x.Score));
-        var totals = allocations.Where(x => x.MappingId.HasValue).GroupBy(x => x.MappingId!.Value).ToDictionary(x => x.Key, x => x.Sum(row => row.Score));
-        foreach (var point in PointScores) point.Score = totals.GetValueOrDefault(point.MappingId);
-    }
-    private static QuestionScoringDefinition? CloneScoringDefinition(QuestionScoringDefinition? definition) => definition == null ? null : JsonSerializer.Deserialize<QuestionScoringDefinition>(JsonSerializer.Serialize(definition));
+    private string FormState() => JsonSerializer.Serialize(FormModel);
 
     private void OnQuestionTypeChanged()
     {
-        FormModel.ScoringDefinition = null;
-        SynchronizeRulePointScores();
         if (IsChoiceQuestion)
         {
             EnsureChoiceOptions();
@@ -919,7 +606,6 @@ else
 
     private class QuestionFormModel
     {
-        [Range(typeof(decimal), "0.01", "1000")] public decimal CurriculumScore { get; set; } = 1;
         public QuestionCreationSource CreationSource { get; set; } = QuestionCreationSource.Manual;
         public QuestionType Type { get; set; } = QuestionType.SingleChoice;
         public QuestionDifficulty Difficulty { get; set; } = QuestionDifficulty.Normal;
@@ -940,7 +626,6 @@ else
         public List<OptionEditorRow> Options { get; set; } = new();
         public string TrueFalseAnswer { get; set; } = "true";
         public string? AnswerLines { get; set; }
-        public QuestionScoringDefinition? ScoringDefinition { get; set; }
         public string? Analysis { get; set; }
         public string? KnowledgePointText { get; set; }
         public string? SourceTitle { get; set; }

@@ -22,8 +22,6 @@ public interface IQuestionAppService : IApplicationService
     [Authorize(KnowPulsePermissions.QuestionBank.Questions)]
     Task<QuestionReviewOperationDto?> GetReviewOperationAsync(Guid questionId, Guid operationId);
 
-    [Authorize(KnowPulsePermissions.QuestionBank.Questions)]
-    Task<QuestionDto> ConfirmCurriculumAsync(Guid id, ConfirmQuestionCurriculumDto input);
     /// <summary>
     /// 分页查询题库题目。
     /// 支持按题型、状态、难度、创建来源、适用岗位、知识点和关键字组合筛选。

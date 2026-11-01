@@ -1,5 +1,7 @@
 # KnowPulse 教师端产品规划
 
+> **历史文档／已退役（2026-11-01）**：本文记录早期学校教育方案或当时的实现与验证，学校管理、学校身份核验和旧 `/education/*` 工作区已退出当前产品。文中的“已确认”“当前”及验收结果仅指原记录时点，不作为现行需求或可用功能承诺。当前方向以[教师出题与学生答题业务需求](../business-requirements.md)及[项目改造计划](../project-refactoring-plan.md)为准：教师使用 `/teacher/*`，学生使用平级独立 `KnowPulse.MiniProgram`。
+
 日期：2026-10-06。状态：产品方案提案，尚未实现；与[总规划](../education-product-plan.md)、[教师小程序规划](education-teacher-miniapp-experience.md)、[学生端规划](education-student-experience.md)配套阅读。
 
 已确认方向：初中、多学科、教师知识库默认私有且可主动共享到学校，教师和学生均有微信小程序入口。教师小程序承担简单工作、学情查看和学生评语。下文中的页面、状态、操作规则与验收方式为拟议产品设计；首批学科、教材版本、试点规模和排期仍待确定。

@@ -1,7 +1,6 @@
 using System;
 using System.Linq;
 using System.Threading.Tasks;
-using KnowPulse.Education;
 using KnowPulse.Permissions;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Options;
@@ -172,15 +171,12 @@ public class KnowledgeLibraryAppService : KnowPulseAppService, IKnowledgeLibrary
             x.LibraryId == library.Id && x.OwnerUserId == library.OwnerUserId);
         var subjects = await AsyncExecuter.ToListAsync(own.Where(x => x.SubjectName != null).Select(x => x.SubjectName!)
             .Distinct().OrderBy(x => x).Take(100));
-        var educationSubjects = await LazyServiceProvider.LazyGetRequiredService<IRepository<EducationSubject, Guid>>().GetQueryableAsync();
-        var names = await AsyncExecuter.ToListAsync(educationSubjects.Where(x => !x.IsDeleted && x.TenantId == library.TenantId)
-            .Select(x => x.Name).Distinct().OrderBy(x => x).Take(100));
         var tagTexts = await AsyncExecuter.ToListAsync(own.Where(x => x.PersonalTags != null).Select(x => x.PersonalTags!)
             .Distinct().OrderBy(x => x).Take(200));
         // 建议项有界；自由填写仍支持本人全部合法学科和标签，不变成权限或全局标签表。
         return new PersonalKnowledgeOrganizationOptionsDto
         {
-            Subjects = subjects.Concat(names).Distinct(StringComparer.Ordinal).OrderBy(x => x).Take(100).ToList(),
+            Subjects = subjects,
             Tags = tagTexts.SelectMany(x => x.Split('\n', StringSplitOptions.RemoveEmptyEntries)).Distinct(StringComparer.Ordinal)
                 .OrderBy(x => x).Take(100).ToList()
         };

@@ -1,0 +1,180 @@
+@page
+@using System.Globalization
+@using System.Linq
+@using KnowPulse.AccountSupport
+@using Microsoft.Extensions.Configuration
+@using Microsoft.AspNetCore.Mvc.Localization
+@using Volo.Abp.Account.Localization
+@using Volo.Abp.Account.Settings
+@using Volo.Abp.AspNetCore.Mvc.UI.Alerts
+@using Volo.Abp.Identity
+@using Volo.Abp.Settings
+@addTagHelper *, Microsoft.AspNetCore.Mvc.TagHelpers
+@model KnowPulse.Pages.Account.BrandLoginModel
+@inject IHtmlLocalizer<AccountResource> L
+@inject ISettingProvider SettingProvider
+@inject IAlertManager AlertManager
+@inject IConfiguration Configuration
+@{
+    Layout = null;
+    var helpUrl = AccountAssistanceLinks.GetAccountAssistanceUrl(Configuration["App:ClientUrl"]);
+    var hasFeedback = AlertManager.Alerts.Any() || Model.ShowRequireMigrateSeedMessage;
+}
+<!DOCTYPE html>
+<html lang="@CultureInfo.CurrentUICulture.Name">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>登录知脉空间 · KnowPulse</title>
+    <link rel="stylesheet" href="~/css/brand-login.css" asp-append-version="true" />
+    <script src="~/js/brand-login.js" asp-append-version="true" defer></script>
+</head>
+<body class="brand-page">
+    <a class="brand-skip" href="#login-title">跳至登录</a>
+    <main class="brand-main">
+        <div class="brand-hero">
+            <section class="brand-intro" aria-labelledby="brand-title">
+                <div class="brand-identity">
+                    <div class="brand-lockup">
+                        <img src="~/images/brand-login/brand-mark.svg" width="36" height="36" alt="" />
+                        <span>知脉空间</span>
+                    </div>
+                    <span class="brand-badge brand-eyebrow">备课 · 练习 · 反馈</span>
+                    @if (helpUrl != null)
+                    {
+                        <a class="brand-mobile-help brand-small-link" href="@helpUrl">帮助</a>
+                    }
+                </div>
+                <div class="brand-heading">
+                    <h1 id="brand-title">
+                        <span class="brand-desktop-copy">从一份好资料，<br /><span class="brand-accent">到一次有反馈的练习。</span></span>
+                        <span class="brand-compact-copy">让每一次练习，都有反馈。</span>
+                        <span class="brand-mobile-copy">让每一次练习，<br />都有反馈。</span>
+                    </h1>
+                    <p class="brand-description">
+                        <span class="brand-desktop-copy">整理你的知识，准备每一堂课。<br />让每一次练习，都连着下一步反馈。</span>
+                        <span class="brand-compact-copy">从资料整理到定向练习，把备课与学习连接起来。</span>
+                        <span class="brand-mobile-copy">从资料整理到定向练习，<br />把备课与学习连接起来。</span>
+                    </p>
+                </div>
+            </section>
+
+            <section class="brand-auth" aria-labelledby="login-title">
+                <div class="brand-login-card">
+                    <header class="brand-welcome">
+                        <h2 id="login-title" tabindex="-1">登录知脉空间</h2>
+                        <p>
+                            <span class="brand-desktop-copy">教师与学生使用同一账号入口，<br />登录后进入对应工作区。</span>
+                            <span class="brand-compact-copy">教师与学生使用同一账号入口，<br />登录后进入对应工作区。</span>
+                            <span class="brand-mobile-copy">使用已有账号，继续你的教与学。</span>
+                        </p>
+                    </header>
+                    @if (Model.EnableLocalLogin)
+                    {
+                        <form id="kp-login-form" method="post" asp-page="./Login" asp-route-returnUrl="@Model.ReturnUrl" asp-route-returnUrlHash="@Model.ReturnUrlHash">
+                            <input type="hidden" asp-for="ReturnUrl" />
+                            <input type="hidden" asp-for="ReturnUrlHash" />
+                            <div class="brand-fields">
+                                <div class="brand-field">
+                                    <label for="LoginInput_UserNameOrEmailAddress">用户名或邮箱</label>
+                                    <input asp-for="LoginInput.UserNameOrEmailAddress" class="brand-input" placeholder="请输入用户名或邮箱" autocomplete="username" autocapitalize="none" spellcheck="false" aria-describedby="kp-username-error" required />
+                                    <span id="kp-username-error" asp-validation-for="LoginInput.UserNameOrEmailAddress" data-field-error data-field-error-for="LoginInput.UserNameOrEmailAddress"></span>
+                                </div>
+                                <div class="brand-field">
+                                    <label for="LoginInput_Password">密码</label>
+                                    <div class="brand-password">
+                                        <input asp-for="LoginInput.Password" type="password" class="brand-input" placeholder="请输入密码" autocomplete="current-password" maxlength="@IdentityUserConsts.MaxPasswordLength" aria-describedby="kp-password-error" required />
+                                        <button type="button" class="brand-password-toggle" data-password-toggle aria-label="显示密码" aria-pressed="false">显示</button>
+                                    </div>
+                                    <span id="kp-password-error" asp-validation-for="LoginInput.Password" data-field-error data-field-error-for="LoginInput.Password"></span>
+                                </div>
+                            </div>
+                            <div id="kp-login-feedback" class="brand-feedback" role="alert" tabindex="-1" hidden="@(!hasFeedback)">
+                                @if (Model.ShowRequireMigrateSeedMessage)
+                                {
+                                    <p>@L["RequireMigrateSeedTitle"]</p>
+                                    <p>@L["RequireMigrateSeedMessage"]</p>
+                                }
+                                @foreach (var alert in AlertManager.Alerts)
+                                {
+                                    <p>@alert.Text</p>
+                                }
+                            </div>
+                            <div class="brand-login-options">
+                                <label class="brand-remember"><input asp-for="LoginInput.RememberMe" />记住我</label>
+                                <a class="brand-small-link" href="@Url.Page("./ForgotPassword", new { returnUrl = Model.ReturnUrl, returnUrlHash = Model.ReturnUrlHash })">忘记密码？</a>
+                            </div>
+                            <div class="brand-submit-slot"><button class="brand-submit" type="submit" name="Action" value="Login" data-login-submit>登录并进入空间</button></div>
+                            @if (Model.ShowCancelButton)
+                            {
+                                <button class="brand-secondary" type="submit" name="Action" value="Cancel" formnovalidate>@L["Cancel"]</button>
+                            }
+                        </form>
+                    }
+                    else if (hasFeedback)
+                    {
+                        <div class="brand-feedback" role="alert">
+                            @if (Model.ShowRequireMigrateSeedMessage)
+                            {
+                                <p>@L["RequireMigrateSeedTitle"]</p><p>@L["RequireMigrateSeedMessage"]</p>
+                            }
+                            @foreach (var alert in AlertManager.Alerts)
+                            {
+                                <p>@alert.Text</p>
+                            }
+                        </div>
+                    }
+                    @if (Model.VisibleExternalProviders.Any())
+                    {
+                        <div class="brand-external">
+                            <h3>@L["OrLoginWith"]</h3>
+                            <form asp-page="./Login" asp-page-handler="ExternalLogin" asp-route-returnUrl="@Model.ReturnUrl" asp-route-returnUrlHash="@Model.ReturnUrlHash" method="post">
+                                @foreach (var provider in Model.VisibleExternalProviders)
+                                {
+                                    <button class="brand-secondary" type="submit" name="provider" value="@provider.AuthenticationScheme" title="@L["LogInUsingYourProviderAccount", provider.DisplayName]">@provider.DisplayName</button>
+                                }
+                            </form>
+                        </div>
+                    }
+                    @if (!Model.EnableLocalLogin && !Model.VisibleExternalProviders.Any())
+                    {
+                        <p class="brand-feedback" role="alert">@L["InvalidLoginRequest"] @L["ThereAreNoLoginSchemesConfiguredForThisClient"]</p>
+                    }
+                    @if (await SettingProvider.IsTrueAsync(AccountSettingNames.IsSelfRegistrationEnabled))
+                    {
+                        <p class="brand-register">还没有账号？ <a href="@Url.Page("./Register", new { returnUrl = Model.ReturnUrl, returnUrlHash = Model.ReturnUrlHash })">注册账号</a></p>
+                    }
+                    @if (helpUrl != null)
+                    {
+                        <a class="brand-help brand-small-link" href="@helpUrl">账号与微信绑定帮助</a>
+                    }
+                </div>
+            </section>
+
+            <section class="brand-preview" aria-label="产品流程示意">
+                <div class="brand-demo-card">
+                    <div class="brand-document">
+                        <span class="brand-document-icon"><img src="~/images/brand-login/book.svg" width="24" height="24" alt="" /></span>
+                        <div><h2>分数的意义与比较</h2><p>个人资料 · 仅自己可见</p></div>
+                        <span class="brand-badge">可用于出题</span>
+                    </div>
+                    <ol class="brand-flow">
+                        <li><span>01</span><h3>整理资料</h3><p>把好讲义留给下一次备课</p></li>
+                        <li><span>02</span><h3>检查题目</h3><p>AI 辅助起草，由教师确认</p></li>
+                        <li><span>03</span><h3>定向练习</h3><p>发布给指定学生，回看反馈</p></li>
+                    </ol>
+                </div>
+                <p class="brand-privacy">你的资料默认私有，共享由你决定。</p>
+            </section>
+        </div>
+        <p class="brand-mobile-role-note">教师与学生共用账号入口，登录后进入已有权限对应的工作区。</p>
+        <section class="brand-features" aria-label="产品能力">
+            <article><span class="brand-feature-icon"><img src="~/images/brand-login/book.svg" width="24" height="24" alt="" /></span><h2>资料有归属</h2><p>个人资料默认私有，按明确授权共享。</p></article>
+            <article><span class="brand-feature-icon"><img src="~/images/brand-login/ai.svg" width="24" height="24" alt="" /></span><h2>备课有依据</h2><p>基于可访问资料辅助出题，由教师检查确认。</p></article>
+            <article><span class="brand-feature-icon"><img src="~/images/brand-login/exam.svg" width="24" height="24" alt="" /></span><h2>练习有反馈</h2><p>面向指定学生发布任务，跟踪作答与反馈。</p></article>
+        </section>
+        <p class="brand-mobile-privacy">你的资料默认私有，共享由你决定。</p>
+    </main>
+    <footer class="brand-footer"><span>© @DateTime.UtcNow.Year 知脉空间<span class="brand-footer-suffix"> · KnowPulse</span></span><span class="brand-footer-tagline">把知识的积累，连接到每一次成长。</span></footer>
+</body>
+</html>

@@ -42,6 +42,8 @@ public class RagController : KnowPulseController, IKnowledgeRetriever, IRagAnswe
         [FromBody] RagSearchRequest request,
         CancellationToken cancellationToken = default)
     {
+        if (request.CurriculumScope != null || request.SchoolId.HasValue || request.Scope == KnowledgeSearchScope.SchoolShared)
+            throw new Volo.Abp.BusinessException("KnowPulse:Education:SchoolWorkflowRetired");
         // HTTP 层只负责稳定 API 路由和权限标记；真正的身份匹配、Qdrant 粗过滤和 PostgreSQL 二次校验在应用服务中完成。
         return _knowledgeRetriever.SearchAsync(request, cancellationToken);
     }

@@ -232,7 +232,7 @@ public class Mvp1KnowledgeIndexingAppServiceTests : KnowPulseEntityFrameworkCore
         (await GetChunksAsync(next.Id)).ShouldAllBe(x => x.IsActive);
 
         var pendingBeforeRevoke = await _indexJobAppService.ReindexVersionAsync(version.Id);
-        await GetRequiredService<IKnowledgeSchoolSharingAppService>().RevokeAsync(share.Id);
+        await RevokeHistoricalSchoolShareAsync(share.Id);
         var embeddingCalls = _embeddingClient.CallCount;
         await _jobProcessor.ProcessAsync(pendingBeforeRevoke.Id);
         (await _indexJobAppService.GetAsync(pendingBeforeRevoke.Id)).Status.ShouldBe(KnowledgeIndexJobStatus.Outdated);
@@ -808,9 +808,9 @@ public class Mvp1KnowledgeIndexingAppServiceTests : KnowPulseEntityFrameworkCore
     }
 
     /// <summary>
-    /// 用真实发布、索引及学校授权流程准备共享版本。
+    /// 用真实发布与索引流程准备版本，并播种历史学校共享记录。
     /// </summary>
-    private async Task<(KnowledgeItemDto Item, KnowledgeVersionDto Version, SchoolKnowledgeShareDto Share)>
+    private async Task<(KnowledgeItemDto Item, KnowledgeVersionDto Version, SchoolKnowledgeShare Share)>
         CreateSharedPersonalVersionAsync()
     {
         var ownerId = GetRequiredService<ICurrentUser>().Id!.Value;
@@ -823,14 +823,13 @@ public class Mvp1KnowledgeIndexingAppServiceTests : KnowPulseEntityFrameworkCore
                     $"index-owner-{ownerId:N}@example.invalid"), autoSave: true);
             }
         });
-        var schoolService = GetRequiredService<IEducationSchoolAppService>();
-        var school = await schoolService.CreateSchoolAsync(new CreateSchoolDto
+        var school = new School(Guid.NewGuid(), null, $"IDX-{Guid.NewGuid():N}", "历史索引测试学校");
+        await WithUnitOfWorkAsync(async () =>
         {
-            Code = $"IDX-{Guid.NewGuid():N}", Name = "索引测试初中"
-        });
-        await schoolService.AddMembershipAsync(school.Id, new AddSchoolMembershipDto
-        {
-            UserId = ownerId, Role = SchoolMemberRole.Teacher, EffectiveFromUtc = DateTime.UtcNow.AddMinutes(-1)
+            await GetRequiredService<IRepository<School, Guid>>().InsertAsync(school, autoSave: true);
+            await GetRequiredService<IRepository<SchoolMembership, Guid>>().InsertAsync(new SchoolMembership(
+                Guid.NewGuid(), null, school.Id, ownerId, SchoolMemberRole.Teacher,
+                DateTime.UtcNow.AddMinutes(-1)), autoSave: true);
         });
         var item = await GetRequiredService<IKnowledgeLibraryAppService>().CreateItemAsync(new CreateKnowledgeItemDto
         {
@@ -844,11 +843,8 @@ public class Mvp1KnowledgeIndexingAppServiceTests : KnowPulseEntityFrameworkCore
         var job = await GetSingleJobAsync(version.Id, KnowledgeIndexJobTriggerType.Publish);
         await _jobProcessor.ProcessAsync(job.Id);
         (await _indexJobAppService.GetAsync(job.Id)).Status.ShouldBe(KnowledgeIndexJobStatus.Indexed);
-        var share = await GetRequiredService<IKnowledgeSchoolSharingAppService>().ShareVersionAsync(new CreateSchoolKnowledgeShareDto
-        {
-            IdempotencyKey = Guid.NewGuid(), KnowledgeItemId = item.Id, KnowledgeVersionId = version.Id,
-            SchoolId = school.Id, Uses = SchoolKnowledgeShareUses.Read | SchoolKnowledgeShareUses.Retrieve
-        });
+        var share = await SeedHistoricalSchoolShareAsync(item.Id, version.Id, school.Id,
+            SchoolKnowledgeShareUses.Read | SchoolKnowledgeShareUses.Retrieve);
         return (item, version, share);
     }
 

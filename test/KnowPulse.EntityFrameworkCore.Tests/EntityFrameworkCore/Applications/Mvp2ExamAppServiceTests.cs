@@ -1,6 +1,7 @@
 using System;
 using System.Linq;
 using System.Threading.Tasks;
+using KnowPulse.Education;
 using KnowPulse.Exam;
 using KnowPulse.QuestionBank;
 using KnowPulse.Teaching;
@@ -30,6 +31,24 @@ public class Mvp2ExamAppServiceTests : KnowPulseEntityFrameworkCoreTestBase
         _scoreRepository = GetRequiredService<IRepository<ExamScore, Guid>>();
         _wrongQuestionRepository = GetRequiredService<IRepository<WrongQuestionRecord, Guid>>();
         _attemptRepository = GetRequiredService<IRepository<ExamAttempt, Guid>>();
+    }
+
+    [Fact]
+    public async Task New_Papers_Should_Reject_Retired_Curriculum_Scopes()
+    {
+        var input = new GenerateExamPaperDto
+        {
+            OperationId = Guid.NewGuid(), Title = "旧课程试卷", BuildMode = ExamPaperBuildMode.Fixed,
+            FixedQuestionIds = [Guid.NewGuid()],
+            CurriculumScope = new EducationCurriculumScopeDto
+            {
+                TeacherTextbookSelectionId = Guid.NewGuid(), TextbookKnowledgePointMappingIds = [Guid.NewGuid()]
+            }
+        };
+        (await Should.ThrowAsync<BusinessException>(() => _examAppService.PreviewPaperAsync(input)))
+            .Code.ShouldBe("KnowPulse:Education:SchoolWorkflowRetired");
+        (await Should.ThrowAsync<BusinessException>(() => _examAppService.SavePaperAsync(input)))
+            .Code.ShouldBe("KnowPulse:Education:SchoolWorkflowRetired");
     }
 
     [Fact]

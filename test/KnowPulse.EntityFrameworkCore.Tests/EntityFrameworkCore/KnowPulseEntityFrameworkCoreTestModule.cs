@@ -18,7 +18,6 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using KnowPulse.KnowledgeBase;
-using KnowPulse.Education;
 using KnowPulse.WeChat;
 using KnowPulse.RagAI;
 using Volo.Abp.BlobStoring;
@@ -99,30 +98,6 @@ public class KnowPulseEntityFrameworkCoreTestModule : AbpModule
         Configure<AbpBlobStoringOptions>(options =>
         {
             options.Containers.Configure<KnowledgeAttachmentBlobContainer>(container =>
-            {
-                container.UseFileSystem(fileSystem =>
-                {
-                    fileSystem.BasePath = _blobBasePath;
-                    fileSystem.AppendContainerNameToBasePath = true;
-                });
-            });
-            options.Containers.Configure<EducationAssessmentImageBlobContainer>(container =>
-            {
-                container.UseFileSystem(fileSystem =>
-                {
-                    fileSystem.BasePath = _blobBasePath;
-                    fileSystem.AppendContainerNameToBasePath = true;
-                });
-            });
-            options.Containers.Configure<EducationCorrectionImageBlobContainer>(container =>
-            {
-                container.UseFileSystem(fileSystem =>
-                {
-                    fileSystem.BasePath = _blobBasePath;
-                    fileSystem.AppendContainerNameToBasePath = true;
-                });
-            });
-            options.Containers.Configure<EducationPracticeImageBlobContainer>(container =>
             {
                 container.UseFileSystem(fileSystem =>
                 {

@@ -1,46 +1,51 @@
 @page "/"
+@attribute [Authorize]
 @inherits KnowPulseComponentBase
+@inject IPermissionChecker PermissionChecker
+@inject NavigationManager Navigation
 
-<PageTitle>知脉空间 · 教师工作区</PageTitle>
-<p><a href="/account/assistance">@L["AccountHelp:Title"]</a></p>
-
-<MudStack Class="kp-page" Spacing="3">
-    <KpPageHeader Title="知脉空间"
-                  Description="从一份好资料，到一次有反馈的练习。"
-                  Eyebrow="教师备课与学生练习">
-        <Actions>
-            <AuthorizeView Policy="@KnowPulsePermissions.KnowledgeBase.Items"><Authorized><MudButton Href="/teacher/materials" Variant="Variant.Filled" Color="Color.Primary">进入我的资料</MudButton></Authorized></AuthorizeView>
-        </Actions>
-    </KpPageHeader>
-
-    <MudGrid Spacing="3">
-        @foreach (var area in WorkAreas)
-        {
-            <AuthorizeView Policy="@area.Permission"><Authorized>
-            <MudItem xs="12" md="6" xl="3">
-                <MudPaper Class="kp-feature-card" Elevation="0">
-                    <MudAvatar Color="Color.Primary" Variant="Variant.Filled" Size="Size.Medium">
-                        <MudIcon Icon="@area.Icon" />
-                    </MudAvatar>
-                    <MudStack Spacing="1">
-                        <MudText Typo="Typo.overline" Color="Color.Secondary">@area.Title</MudText>
-                        <MudText Typo="Typo.h6">@area.Description</MudText>
-                        <MudButton Href="@area.Url" Color="Color.Primary">打开</MudButton>
-                    </MudStack>
-                </MudPaper>
-            </MudItem>
-            </Authorized></AuthorizeView>
-        }
-    </MudGrid>
-</MudStack>
+<PageTitle>正在进入工作区 · 知脉空间</PageTitle>
+<section class="kp-page" aria-busy="@_busy.ToString().ToLowerInvariant()">
+    @if (_error is null)
+    {
+        <div role="status"><KpStatePanel Kind="KpStateKind.Loading" Title="正在进入工作区" Description="正在读取当前账号的可用功能。" /></div>
+    }
+    else
+    {
+        <div role="alert">
+            <KpStatePanel Kind="KpStateKind.Error" Title="暂时无法进入工作区" Description="@_error">
+                <Actions><MudButton OnClick="OpenWorkspaceAsync" Disabled="_busy" Color="Color.Primary" Variant="Variant.Filled">重试</MudButton></Actions>
+            </KpStatePanel>
+        </div>
+    }
+</section>
 
 @code {
-    private static readonly (string Title, string Description, string Icon, string Url, string Permission)[] WorkAreas =
-    [
-        ("我的资料", "整理个人与共享出题资料", Icons.Material.Filled.MenuBook, "/teacher/materials", KnowPulsePermissions.KnowledgeBase.Items),
-        ("资料问答", "根据可访问的资料提问", Icons.Material.Filled.QuestionAnswer, "/teacher/answer", KnowPulsePermissions.Rag.Answer),
-        ("出题与题库", "生成、编辑并本人确认", Icons.Material.Filled.AutoAwesome, "/teacher/questions", KnowPulsePermissions.QuestionBank.Questions),
-        ("我的学生", "邀请并确认学生加入", Icons.Material.Filled.People, "/teacher/students", KnowPulsePermissions.Exam.Manage),
-        ("答题任务", "定向发布与结果回看", Icons.Material.Filled.FactCheck, "/teacher/tasks", KnowPulsePermissions.Exam.Manage)
-    ];
+    private bool _busy = true;
+    private string? _error;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender) await OpenWorkspaceAsync();
+    }
+
+    private async Task OpenWorkspaceAsync()
+    {
+        _busy = true;
+        _error = null;
+        try
+        {
+            var destination = await TeacherNavigation.GetHomeUrlAsync(PermissionChecker);
+            Navigation.NavigateTo(destination, replace: true);
+        }
+        catch (Exception)
+        {
+            _error = "未能读取当前账号的可用功能，请重试。";
+        }
+        finally
+        {
+            _busy = false;
+            StateHasChanged();
+        }
+    }
 }

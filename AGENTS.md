@@ -2,7 +2,7 @@
 
 ## 项目与文档
 
-KnowPulse 是企业知识、学习与考试系统，采用 ABP 分层单体。当前已包含组织权限、知识发布与索引、权限感知 RAG、AI 模型管理、题库审核与 AI 出题、考试、学习路径及知识反馈。
+KnowPulse 采用 ABP 分层单体，当前产品为教师出题后台与学生答题小程序。业务基线见 `docs/business-requirements.md`；不建设学校管理或教师资格认证。学校教育公开入口已按 ADR 0055 退出，保留的数据模型、冻结快照和内部授权守卫仅供历史兼容，不要把旧学校方案当作当前需求恢复。
 
 - 先读根目录 `CONTEXT.md` 和 `docs/adr/`；领域术语沿用词汇表。与 ADR 冲突的改动应明确指出并更新决策，不能静默覆盖。
 - 开发环境见 [docs/development-environment.md](docs/development-environment.md)，RAG 边界见 [docs/rag-ai-boundary.md](docs/rag-ai-boundary.md)，操作流程见 [docs/user-operation-guide.md](docs/user-operation-guide.md)。

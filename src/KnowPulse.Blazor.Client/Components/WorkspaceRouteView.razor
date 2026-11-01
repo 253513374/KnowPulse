@@ -2,7 +2,7 @@
 @using Volo.Abp.AspNetCore.Components.WebAssembly.MudBlazorLeptonXLiteTheme.Themes.MudBlazorLeptonXLite
 @using Volo.Abp.AspNetCore.Components.WebAssembly.WebApp
 
-<AuthorizeRouteView RouteData="RouteData" DefaultLayout="@(IsManagementRoute ? typeof(AdminLayout) : typeof(MainLayout))">
+<AuthorizeRouteView RouteData="RouteData" DefaultLayout="@(IsManagementRoute ? typeof(AdminLayout) : TeacherNavigation.IsTeacherPath(NavigationPath) ? typeof(TeacherLayout) : typeof(MainLayout))">
     <NotAuthorized Context="authenticationState">
         @if (authenticationState.User.Identity?.IsAuthenticated == true)
         {
@@ -25,6 +25,8 @@
 </AuthorizeRouteView>
 
 @code {
+    [Inject] private NavigationManager Navigation { get; set; } = default!;
+    private string NavigationPath => Navigation.ToBaseRelativePath(Navigation.Uri);
     [Parameter, EditorRequired] public RouteData RouteData { get; set; } = default!;
     [Parameter] public bool IsManagementRoute { get; set; }
 }

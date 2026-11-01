@@ -84,28 +84,6 @@ public class EducationCurriculumAccessGuard : KnowPulseAppService
         await ValidateAsync(snapshot, ct);
     }
 
-    public virtual async Task<EducationCurriculumSnapshot> GetMappingAsync(Guid mappingId, CancellationToken ct = default, bool forUpdate = false)
-    {
-        var account = await CurrentAccountAsync(ct);
-        var accountBaseline = forUpdate ? await Repo<IdentityUser>().FindAsync(account.Id, cancellationToken: ct) : null;
-        var mapping = await FindAsync<TextbookKnowledgePointMapping>(EducationRules.RequireId(mappingId), ct);
-        if (mapping == null || mapping.TenantId != CurrentTenant.Id) throw new AbpAuthorizationException();
-        var book = await PublishedBookAsync(mapping.TextbookVersionId, ct);
-        if (forUpdate)
-        {
-            var school = await Repo<School>().FindAsync(book.SchoolId, cancellationToken: ct);
-            if (school == null || school.TenantId != CurrentTenant.Id) throw new AbpAuthorizationException();
-            await SchoolAsync(book.SchoolId, account.Id, teacherOnly: false, ct);
-            await Repo<School>().UpdateManyAsync([school], autoSave: true, cancellationToken: ct);
-            if (accountBaseline == null || !accountBaseline.IsActive || accountBaseline.TenantId != CurrentTenant.Id) throw new AbpAuthorizationException();
-            await Repo<IdentityUser>().UpdateManyAsync([accountBaseline], autoSave: true, cancellationToken: ct);
-            await CurrentAccountAsync(ct);
-            book = await PublishedBookAsync(book.Id, ct);
-        }
-        await SchoolAsync(book.SchoolId, account.Id, teacherOnly: false, ct);
-        return await SnapshotAsync(book, [mapping.Id], account.Id, ct);
-    }
-
     private async Task<IdentityUser> CurrentAccountAsync(CancellationToken ct)
     {
         if (!CurrentUser.IsAuthenticated || !CurrentUser.Id.HasValue) throw new AbpAuthorizationException();

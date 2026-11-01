@@ -1,9 +1,0 @@
-<view class="page">
-  <view class="hero"><text class="title">站内消息</text><text class="muted">当前学校的测评、评语和教学方案消息。消息已读与正文阅读、学习完成、考试开始分别记录。微信未配置，未投递。</text></view>
-  <view wx:if="{{error}}" class="error" aria-role="alert">{{error}}</view><view wx:if="{{notice}}" class="notice">{{notice}}</view>
-  <picker wx:if="{{sources.length}}" range="{{sources}}" range-key="label" value="{{index}}" bindchange="choose" disabled="{{busy}}"><view class="field">{{sources[index].label}}</view></picker>
-  <view wx:for="{{items}}" wx:key="id" class="card"><text class="heading">{{item.message}}</text><text>站内开放 {{item.at}} · {{item.read}}</text><text wx:if="{{!item.canOpen}}" class="notice">来源已撤回或变化，只标记消息已读，不自动换入其他版本。</text><button bindtap="open" data-id="{{item.id}}" disabled="{{busy}}">{{item.canOpen ? '打开消息并查看对应内容' : '仅标记这条消息已读'}}</button></view>
-  <text wx:if="{{!busy &amp;&amp; total === 0}}" class="notice">这个来源暂无当前获准消息。</text>
-  <view class="pager"><button data-direction="-1" bindtap="paginate" disabled="{{busy || offset === 0}}">上一页</button><text>当前来源 {{total}} 条</text><button data-direction="1" bindtap="paginate" disabled="{{busy || offset + 20 >= total}}">下一页</button></view>
-  <button bindtap="load" disabled="{{busy}}">刷新当前来源</button><button bindtap="resetSource" disabled="{{busy}}">重新选择可用来源</button><button wx:if="{{error}}" bindtap="login">返回登录核对身份</button>
-</view>

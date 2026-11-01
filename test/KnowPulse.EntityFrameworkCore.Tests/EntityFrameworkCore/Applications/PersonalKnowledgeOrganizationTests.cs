@@ -120,7 +120,7 @@ public class PersonalKnowledgeOrganizationTests : KnowPulseEntityFrameworkCoreTe
     }
 
     [Fact]
-    public async Task Subject_And_Tag_Suggestions_Should_Not_Expose_Other_Users_Or_Grant_Teaching_Relationships()
+    public async Task Subject_And_Tag_Suggestions_Should_Only_Include_The_Owners_Personal_Material()
     {
         var ownerId = await CreateUserAsync();
         var otherId = await CreateUserAsync();
@@ -139,8 +139,7 @@ public class PersonalKnowledgeOrganizationTests : KnowPulseEntityFrameworkCoreTe
             Title = "未入校随记", Organization = Organization(PersonalMaterialType.Note, 2020, "自定学科", "本人标签")
         });
         var suggestions = await _library.GetOrganizationOptionsAsync();
-        suggestions.Subjects.ShouldContain("数学");
-        suggestions.Subjects.ShouldContain("自定学科");
+        suggestions.Subjects.ShouldBe(new[] { "自定学科" });
         suggestions.Subjects.ShouldNotContain("PRIVATE-SUBJECT");
         suggestions.Subjects.ShouldNotContain("FOREIGN-TENANT-SUBJECT");
         suggestions.Tags.ShouldBe(new[] { "本人标签" });
@@ -215,11 +214,8 @@ public class PersonalKnowledgeOrganizationTests : KnowPulseEntityFrameworkCoreTe
             var item = await _library.CreateItemAsync(new CreateKnowledgeItemDto { Title = "原资料", Summary = "本人摘要" });
             var version = await _items.CreateVersionAsync(item.Id, new CreateKnowledgeVersionDto { Title = "原版本标题", ContentText = "原正文" });
             await _items.PublishVersionAsync(item.Id, version.Id);
-            shareId = (await GetRequiredService<IKnowledgeSchoolSharingAppService>().ShareVersionAsync(new CreateSchoolKnowledgeShareDto
-            {
-                IdempotencyKey = Guid.NewGuid(), KnowledgeItemId = item.Id, KnowledgeVersionId = version.Id,
-                SchoolId = schoolId, Uses = SchoolKnowledgeShareUses.Read, SharedSummary = "确认共享摘要"
-            })).Id;
+            shareId = (await SeedHistoricalSchoolShareAsync(item.Id, version.Id, schoolId,
+                SchoolKnowledgeShareUses.Read, "确认共享摘要")).Id;
             var workflow = GetRequiredService<IQuestionWorkflowAppService>();
             var question = await workflow.CreateManualDraftAsync(new SaveQuestionDraftDto
             {
@@ -255,12 +251,12 @@ public class PersonalKnowledgeOrganizationTests : KnowPulseEntityFrameworkCoreTe
         }
         using (ChangeUser(readerId))
         {
-            var detail = await GetRequiredService<IKnowledgeSchoolSharingAppService>().GetDetailAsync(shareId);
-            detail.Share.Title.ShouldBe("原版本标题");
-            detail.Share.Summary.ShouldBe("确认共享摘要");
-            detail.ContentText.ShouldBe("原正文");
-            JsonSerializer.Serialize(detail).ShouldNotContain("PRIVATE-UPDATED");
+            var share = await WithUnitOfWorkAsync(() => Repo<SchoolKnowledgeShare>().GetAsync(shareId));
+            share.Title.ShouldBe("原版本标题");
+            share.Summary.ShouldBe("确认共享摘要");
+            JsonSerializer.Serialize(share).ShouldNotContain("PRIVATE-UPDATED");
             (await _library.GetOrganizationOptionsAsync()).Tags.ShouldNotContain("PRIVATE-UPDATED-TAG");
+            (await _library.GetOrganizationOptionsAsync()).Subjects.ShouldNotContain("PRIVATE-UPDATED-SUBJECT");
         }
     }
 

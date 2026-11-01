@@ -48,7 +48,7 @@ public class EducationMaterialScope : KnowPulseAppService
         var shares = new Dictionary<Guid, SchoolKnowledgeShare>();
         if (schoolKnowledgeShareId.HasValue)
         {
-            var query = await LazyServiceProvider.LazyGetRequiredService<KnowledgeSchoolSharingAppService>()
+            var query = await LazyServiceProvider.LazyGetRequiredService<SchoolKnowledgeSourceAccessGuard>()
                 .GetAvailableSharesQueryAsync(SchoolKnowledgeShareUses.Read | SchoolKnowledgeShareUses.Retrieve | SchoolKnowledgeShareUses.GenerateQuestions, snapshot.SchoolId);
             var share = await AsyncExecuter.FirstOrDefaultAsync(query.Where(x => x.Id == schoolKnowledgeShareId &&
                 x.KnowledgeItemId == knowledgeItemId && x.KnowledgeVersionId == knowledgeVersionId), cancellationToken);
@@ -63,28 +63,6 @@ public class EducationMaterialScope : KnowPulseAppService
         if (curriculumBindingIds.Any(id => !original.ContainsKey(id)) ||
             !textbookKnowledgePointMappingIds.ToHashSet().SetEquals(curriculumBindingIds.Select(id => original[id])))
             throw new AbpAuthorizationException("The original curriculum binding and mapping pair is no longer available.");
-    }
-
-    internal async Task<Guid[]> GetShareBindingIdsAsync(KnowledgeItem item, KnowledgeVersion version, Guid schoolId)
-    {
-        var bindings = await Repo<KnowledgeMaterialCurriculumBinding>().GetQueryableAsync();
-        var mappings = await Repo<TextbookKnowledgePointMapping>().GetQueryableAsync();
-        var books = await Repo<TextbookVersion>().GetQueryableAsync();
-        var ids = await AsyncExecuter.ToListAsync((
-            from binding in bindings
-            join mapping in mappings on binding.TextbookKnowledgePointMappingId equals mapping.Id
-            join book in books on mapping.TextbookVersionId equals book.Id
-            // Ended passage confirmations remain negative evidence: a new share must not reopen
-            // that passage through an older whole-material confirmation. They do not authorize hits.
-            where !binding.IsDeleted && (!binding.EndedAtUtc.HasValue || binding.KnowledgeChunkId.HasValue) && binding.TenantId == item.TenantId &&
-                binding.OwnerUserId == item.OwnerUserId && binding.LibraryId == item.LibraryId && binding.KnowledgeItemId == item.Id && binding.KnowledgeVersionId == version.Id &&
-                binding.TextbookVersionId == book.Id &&
-                !mapping.IsDeleted && mapping.TenantId == item.TenantId && !book.IsDeleted && book.TenantId == item.TenantId &&
-                book.SchoolId == schoolId && book.Status == TextbookVersionStatus.Published
-            orderby binding.Id
-            select binding.Id).Take(SchoolKnowledgeShare.MaxCurriculumBindings + 1));
-        if (ids.Count > SchoolKnowledgeShare.MaxCurriculumBindings) throw new BusinessException(EducationCurriculumErrorCodes.CapacityExceeded);
-        return ids.ToArray();
     }
 
     internal async Task<Dictionary<Guid, CurriculumChunkMatch>> GetMatchesAsync(EducationCurriculumSnapshot curriculum,

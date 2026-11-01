@@ -18,7 +18,6 @@
         }
         else if (Worklist == QuestionWorklistKind.Formal)
         {
-            <a class="kp-button kp-button--primary-outline kp-button--sm" href="/education/papers">@L["EducationPaper:Title"]</a>
             <a class="kp-button kp-button--primary kp-button--sm" href="/exam/management"><i class="fa-solid fa-file-circle-plus kp-me-1"></i>前往考试组卷</a>
         }
         <button class="kp-button kp-button--secondary kp-button--sm" type="button" @onclick="LoadAsync" disabled="@IsBusy">刷新</button>
@@ -159,8 +158,8 @@
                                 {
                                     <div class="kp-flex kp-justify-end kp-flex-wrap kp-gap-2">
                                         <a class="kp-button kp-button--secondary kp-button--sm" href="@($"/question-bank/questions/{question.Id}/edit")">编辑</a>
-                                        <button class="kp-button kp-button--primary kp-button--sm" type="button" @onclick="() => SubmitAsync(question)" disabled="@(IsBusy || question.Curriculum != null && !question.CurriculumConfirmed)">@(question.Status == QuestionStatus.Draft ? "提交审核" : "修改后重提")</button>
-                                        @if (question.Curriculum != null && !question.CurriculumConfirmed) { <span class="kp-text-small kp-text-warning">@L["EducationQuestion:ConfirmBeforeReview"]</span> }
+                                        <button class="kp-button kp-button--primary kp-button--sm" type="button" @onclick="() => SubmitAsync(question)" disabled="@(IsBusy || question.Curriculum != null)">@(question.Status == QuestionStatus.Draft ? "提交审核" : "修改后重提")</button>
+                                        @if (question.Curriculum != null) { <span class="kp-text-small kp-text-warning">@L["EducationQuestion:ConfirmBeforeReview"]</span> }
                                     </div>
                                 }
                                 else if (Worklist == QuestionWorklistKind.ReviewQueue)
@@ -170,7 +169,7 @@
                                 else
                                 {
                                     <div class="kp-flex kp-justify-end kp-flex-wrap kp-gap-2">
-                                        <a class="kp-button kp-button--primary-outline kp-button--sm" href="@(question.Curriculum != null ? "/education/papers" : "/exam/management")">用于组卷</a>
+                                        @if (question.Curriculum == null) { <a class="kp-button kp-button--primary-outline kp-button--sm" href="/exam/management">用于组卷</a> }
                                         <button class="kp-button kp-button--danger-outline kp-button--sm" type="button" @onclick="() => DisableAsync(question)" disabled="@IsBusy">停用</button>
                                     </div>
                                 }

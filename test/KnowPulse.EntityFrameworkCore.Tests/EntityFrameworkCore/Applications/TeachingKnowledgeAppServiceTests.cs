@@ -52,6 +52,26 @@ public class TeachingKnowledgeAppServiceTests : KnowPulseEntityFrameworkCoreTest
     }
 
     [Fact]
+    public async Task Should_Reject_New_Questions_With_A_Retired_Curriculum_Scope()
+    {
+        using var teacher = As(Guid.NewGuid());
+        var scope = new EducationCurriculumScopeDto
+        {
+            TeacherTextbookSelectionId = Guid.NewGuid(), TextbookKnowledgePointMappingIds = [Guid.NewGuid()]
+        };
+        (await Should.ThrowAsync<BusinessException>(() => _workflow.CreateManualDraftAsync(new SaveQuestionDraftDto
+        {
+            Title = "课程题", Stem = "旧学校课程题", Type = QuestionType.TrueFalse,
+            Answers = [new() { Value = "true" }], CurriculumScope = scope
+        }))).Code.ShouldBe("KnowPulse:Education:SchoolWorkflowRetired");
+        (await Should.ThrowAsync<BusinessException>(() => _questions.CreateAsync(new CreateQuestionDto
+        {
+            Title = "课程题", Stem = "旧学校课程题", Type = QuestionType.TrueFalse,
+            Answers = [new() { Value = "true" }], CurriculumScope = scope
+        }))).Code.ShouldBe("KnowPulse:Education:SchoolWorkflowRetired");
+    }
+
+    [Fact]
     public async Task Should_Share_Only_Current_Published_Version_And_Revoke_Future_Access()
     {
         var owner = Guid.NewGuid();
@@ -166,7 +186,7 @@ public class TeachingKnowledgeAppServiceTests : KnowPulseEntityFrameworkCoreTest
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task Should_Require_Advanced_Review_For_Structured_Questions(bool withCurriculum)
+    public async Task Should_Reject_Simple_Confirmation_Of_Structured_Questions(bool withCurriculum)
     {
         var teacher = Guid.NewGuid();
         using (As(teacher))
@@ -188,8 +208,12 @@ public class TeachingKnowledgeAppServiceTests : KnowPulseEntityFrameworkCoreTest
                 await repository.UpdateAsync(question, autoSave: true);
             });
 
-            var error = await Should.ThrowAsync<UserFriendlyException>(() => _workflow.ConfirmAsync(draft.Id));
-            error.Message.ShouldContain("高级题库");
+            if (withCurriculum)
+                (await Should.ThrowAsync<BusinessException>(() => _workflow.ConfirmAsync(draft.Id)))
+                    .Code.ShouldBe("KnowPulse:Education:SchoolWorkflowRetired");
+            else
+                (await Should.ThrowAsync<UserFriendlyException>(() => _workflow.ConfirmAsync(draft.Id)))
+                    .Message.ShouldContain("高级题库");
             await WithUnitOfWorkAsync(async () =>
             {
                 var question = await repository.GetAsync(draft.Id);

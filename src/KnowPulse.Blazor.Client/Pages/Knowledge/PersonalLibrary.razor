@@ -8,24 +8,18 @@
 @inject IJSRuntime JSRuntime
 @inject NavigationManager NavigationManager
 
-<PageTitle>@L[NotebookMode ? "EducationNotebook:Title" : "Menu:PersonalKnowledgeLibrary"]</PageTitle>
+<PageTitle>@L["Menu:PersonalKnowledgeLibrary"]</PageTitle>
 
 <div class="kp-flex kp-flex-wrap kp-align-center kp-justify-between kp-gap-3 kp-mb-3">
     <div>
-        <h1 class="kp-heading-3 kp-mb-1">@L[NotebookMode ? "EducationNotebook:Title" : "Menu:PersonalKnowledgeLibrary"]</h1>
-        <p class="kp-text-muted kp-mb-0">@L[NotebookMode ? "EducationNotebook:PrivateDescription" : "PersonalKnowledge:PrivateDescription"]</p>
+        <h1 class="kp-heading-3 kp-mb-1">@L["Menu:PersonalKnowledgeLibrary"]</h1>
+        <p class="kp-text-muted kp-mb-0">@L["PersonalKnowledge:PrivateDescription"]</p>
     </div>
     <div class="kp-flex kp-gap-2">
-        <button class="kp-button kp-button--primary" @onclick="StartCreateAsync" disabled="@IsBusy">@L[NotebookMode ? "EducationNotebook:NewNote" : "PersonalKnowledge:NewItem"]</button>
+        <button class="kp-button kp-button--primary" @onclick="StartCreateAsync" disabled="@IsBusy">@L["PersonalKnowledge:NewItem"]</button>
         <button class="kp-button kp-button--secondary" @onclick="RefreshAsync" disabled="@IsBusy">@L["PersonalKnowledge:Refresh"]</button>
     </div>
 </div>
-
-@if (NotebookMode)
-{
-    <p class="kp-alert kp-alert--info">@L["EducationNotebook:SaveHint"]</p>
-    <p class="kp-text-small kp-text-muted">@L["EducationNotebook:SourceHint"]</p>
-}
 
 @if (!string.IsNullOrEmpty(ErrorMessage))
 {
@@ -284,17 +278,13 @@
                         <div class="kp-border kp-rounded kp-p-3 kp-mb-3">
                             <div class="kp-flex kp-flex-wrap kp-align-center kp-justify-between kp-gap-2">
                                 <h3 class="kp-heading-6 kp-mb-0">@L["PersonalKnowledge:VersionNumber", version.VersionNumber] · @version.Title</h3>
-                                @if (!NotebookMode && version.Status == KnowledgeVersionStatus.Draft)
+                                @if (version.Status == KnowledgeVersionStatus.Draft)
                                 {
                                     <button class="kp-button kp-button--sm kp-button--primary-outline" @onclick="() => PrepareAsync(version)" disabled="@(IsBusy || PendingFiles.ContainsKey(version.Id))">@L["PersonalKnowledge:Prepare"]</button>
                                 }
                                 @if (version.IsCurrentPublished)
                                 {
                                     <span class="kp-badge kp-bg-primary">@L["PersonalKnowledge:Current"]</span>
-                                }
-                                @if (version.Status == KnowledgeVersionStatus.Published)
-                                {
-                                    <button class="kp-button kp-button--sm kp-button--secondary" @onclick="() => ShareVersionAsync(version)" disabled="@IsBusy">@L["SchoolKnowledge:ShareVersion"]</button>
                                 }
                                 @if (version.Status != KnowledgeVersionStatus.Archived)
                                 {
@@ -307,12 +297,6 @@
                                 <p class="kp-text-small kp-text-muted">@L["PersonalKnowledge:ArchivedDescription", version.ArchivedTime?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") ?? string.Empty]</p>
                             }
                             <pre class="kp-mb-0" style="white-space: pre-wrap; overflow-wrap: anywhere; font-family: inherit;">@version.ContentText</pre>
-                            @if (NotebookMode)
-                            {
-                                <EducationNotebookSources @key="(SelectedItem.Id, version.Id, NotebookSourceKind, NotebookRecipientId, NotebookComponentId)"
-                                    NoteItemId="SelectedItem.Id" NoteVersionId="version.Id" SourceKind="@NotebookSourceKind"
-                                    RecipientId="NotebookRecipientId" ComponentId="NotebookComponentId" Changed="NotebookSourcesChangedAsync" Disabled="IsBusy" />
-                            }
                             <div class="border-top kp-mt-3 kp-pt-3">
                                 <h4 class="kp-heading-6">@L["PersonalKnowledge:Attachments"]</h4>
                                 <p class="kp-text-small kp-text-muted">@L["PersonalKnowledge:AttachmentDescription"]</p>
@@ -408,22 +392,8 @@
     private bool IsCreating;
     private bool IsBusy;
 
-    [Parameter] public bool NotebookMode { get; set; }
-    [Parameter] public string? NotebookSourceKind { get; set; }
-    [Parameter] public Guid? NotebookRecipientId { get; set; }
-    [Parameter] public Guid? NotebookComponentId { get; set; }
-
-    private async Task NotebookSourcesChangedAsync()
-    {
-        if (SelectedItem == null) return;
-        var previous = SelectedItem; var dirty = IsOrganizationDirty;
-        SelectedItem = await ItemAppService.GetAsync(previous.Id);
-        SetOrganizationAfterOwnWrite(previous, dirty);
-    }
-
     protected override Task OnInitializedAsync()
     {
-        if (NotebookMode) TypeFilter = PersonalMaterialType.Note;
         return RefreshAsync();
     }
 
@@ -544,7 +514,7 @@
         if (IsBusy || !await ConfirmLeaveAsync()) return;
         IsCreating = true;
         CreateForm = new();
-        CreateOrganization = new() { MaterialType = NotebookMode ? PersonalMaterialType.Note : PersonalMaterialType.Unspecified };
+        CreateOrganization = new() { MaterialType = PersonalMaterialType.Unspecified };
         CreateTagsText = null;
         PendingFiles.Clear();
         ErrorMessage = null;
@@ -691,12 +661,6 @@
         await LoadVersionsAsync();
         SuccessMessage = L["PersonalKnowledge:PreparationQueued"];
     });
-
-    private async Task ShareVersionAsync(KnowledgeVersionDto version)
-    {
-        if (IsBusy || SelectedItem == null || !await ConfirmLeaveAsync()) return;
-        NavigationManager.NavigateTo($"/school-knowledge?itemId={SelectedItem.Id}&versionId={version.Id}");
-    }
 
     private async Task ArchiveVersionAsync(KnowledgeVersionDto version)
     {

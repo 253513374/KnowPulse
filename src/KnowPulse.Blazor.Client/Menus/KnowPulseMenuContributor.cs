@@ -4,7 +4,6 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using KnowPulse.Blazor.Client.Components;
 using KnowPulse.Localization;
-using KnowPulse.Education;
 using KnowPulse.MultiTenancy;
 using KnowPulse.Permissions;
 using Volo.Abp.Account.Localization;
@@ -63,97 +62,15 @@ public class KnowPulseMenuContributor : IMenuContributor
         }
         context.Menu.Items.Remove(context.Menu.GetAdministration());
 
-        context.Menu.AddItem(new ApplicationMenuItem(KnowPulseMenus.EducationWorkspace,
-            l["EducationWorkspace:Title"], "/education/workspace", icon: "fas fa-school").RequireAuthenticated());
         context.Menu.AddItem(new ApplicationMenuItem(KnowPulseMenus.WeChatBindings,
             l["WeChat:Title"], "/account/wechat-bindings", icon: "fas fa-link").RequireAuthenticated());
-        context.Menu.AddItem(new ApplicationMenuItem(KnowPulseMenus.EducationAssessmentResults,
-            l["EducationGrading:MyResults"], "/education/assessment-results", icon: "fas fa-poll")
-            .RequirePermissions(EducationPermissions.AssessmentParticipate));
-        context.Menu.AddItem(new ApplicationMenuItem(KnowPulseMenus.EducationStudentGrowth,
-            l["EducationGrowth:Title"], "/education/growth", icon: "fas fa-chart-line")
-            .RequirePermissions(EducationPermissions.AssessmentParticipate));
-        context.Menu.AddItem(new ApplicationMenuItem(KnowPulseMenus.EducationTeachingPlans,
-            l["EducationPlan:Title"], "/education/teaching-plans", icon: "fas fa-list-check")
-            .RequirePermissions(EducationPermissions.TeachingPlanManage, EducationPermissions.AnalysisManage));
-        context.Menu.AddItem(new ApplicationMenuItem(KnowPulseMenus.EducationMyTeachingPlans,
-            l["EducationPlan:MyTitle"], "/education/teaching-plans/my", icon: "fas fa-tasks")
-            .RequirePermissions(EducationPermissions.TeachingPlanView));
-        context.Menu.AddItem(new ApplicationMenuItem(KnowPulseMenus.EducationStudyTasks,
-            l["EducationStudy:Title"], "/education/study-tasks", icon: "fas fa-book-reader")
-            .RequirePermissions(EducationPermissions.LearningManage));
-        context.Menu.AddItem(new ApplicationMenuItem(KnowPulseMenus.EducationMyStudyTasks,
-            l["EducationStudy:MyTitle"], "/education/study-tasks/my", icon: "fas fa-book-open")
-            .RequirePermissions(EducationPermissions.LearningParticipate));
-        context.Menu.AddItem(new ApplicationMenuItem(KnowPulseMenus.EducationCorrections,
-            l["EducationCorrection:Title"], "/education/corrections", icon: "fas fa-pen")
-            .RequirePermissions(EducationPermissions.AssessmentManage, EducationPermissions.LearningManage));
-        context.Menu.AddItem(new ApplicationMenuItem(KnowPulseMenus.EducationMyCorrections,
-            l["EducationCorrection:MyTitle"], "/education/corrections/my", icon: "fas fa-edit")
-            .RequirePermissions(EducationPermissions.AssessmentParticipate, EducationPermissions.LearningParticipate));
-        context.Menu.AddItem(new ApplicationMenuItem(KnowPulseMenus.EducationLearningWorkload,
-            l["EducationWorkload:Title"], "/education/workload", icon: "fas fa-calendar-alt")
-            .RequirePermissions(EducationPermissions.LearningParticipate));
-        context.Menu.AddItem(new ApplicationMenuItem(KnowPulseMenus.EducationNotebook,
-            l["EducationNotebook:Title"], "/education/notebook", icon: "fas fa-book")
-            .RequirePermissions(KnowPulsePermissions.KnowledgeBase.PersonalLibrary));
-        context.Menu.AddItem(new ApplicationMenuItem(KnowPulseMenus.EducationPractice,
-            l["EducationPractice:Title"], "/education/practice", icon: "fas fa-redo")
-            .RequirePermissions(EducationPermissions.AssessmentParticipate, EducationPermissions.LearningParticipate));
-        context.Menu.AddItem(new ApplicationMenuItem(KnowPulseMenus.EducationFeedback,
-            l["EducationFeedback:Title"], "/education/feedback", icon: "fas fa-comment-medical")
-            .RequirePermissions(EducationPermissions.FeedbackManage));
-        context.Menu.AddItem(new ApplicationMenuItem(KnowPulseMenus.EducationLearningReports,
-            l["EducationReport:Title"], "/education/learning-reports", icon: "fas fa-chart-bar")
-            .RequirePermissions(EducationPermissions.AnalysisManage));
-        context.Menu.AddItem(new ApplicationMenuItem(KnowPulseMenus.EducationAnalysisRules,
-            l["EducationReport:RulesTitle"], "/education/analysis-rules", icon: "fas fa-sliders-h")
-            .RequirePermissions(EducationPermissions.SchoolManage));
-        context.Menu.AddItem(new ApplicationMenuItem(KnowPulseMenus.EducationMyFeedback,
-            l["EducationFeedback:MyFeedback"], "/education/feedback/my", icon: "fas fa-comment-dots")
-            .RequirePermissions(EducationPermissions.FeedbackView));
         context.Menu.AddItem(new ApplicationMenuItem(
             KnowPulseMenus.PersonalKnowledgeLibrary,
             l["Menu:PersonalKnowledgeLibrary"],
             "/my-knowledge",
             icon: "fas fa-book-reader"
         ).RequirePermissions(KnowPulsePermissions.KnowledgeBase.PersonalLibrary));
-        context.Menu.AddItem(new ApplicationMenuItem(
-            KnowPulseMenus.SchoolKnowledge,
-            l["Menu:SchoolKnowledge"],
-            "/school-knowledge",
-            icon: "fas fa-book-open"
-        ).RequirePermissions(KnowPulsePermissions.KnowledgeBase.PersonalLibrary));
-        context.Menu.AddItem(new ApplicationMenuItem(
-            KnowPulseMenus.EducationSchools,
-            l["Menu:EducationSchools"],
-            "/education/schools",
-            icon: "fas fa-school"
-        ));
-        context.Menu.AddItem(new ApplicationMenuItem(
-            KnowPulseMenus.EducationCurriculum,
-            l["Menu:EducationCurriculum"],
-            "/education/curriculum",
-            icon: "fas fa-book"
-        ));
-        context.Menu.AddItem(new ApplicationMenuItem(
-            KnowPulseMenus.EducationPreparations,
-            l["Menu:EducationPreparations"],
-            "/education/preparations",
-            icon: "fas fa-clipboard"
-        ).RequirePermissions(KnowPulsePermissions.KnowledgeBase.PersonalLibrary));
-        context.Menu.AddItem(new ApplicationMenuItem(
-            KnowPulseMenus.EducationPapers,
-            l["Menu:EducationPapers"],
-            "/education/papers",
-            icon: "fas fa-file-alt"
-        ).RequirePermissions(KnowPulsePermissions.Exam.Manage));
-        context.Menu.AddItem(new ApplicationMenuItem(
-            KnowPulseMenus.EducationAssessmentTasks,
-            l["Menu:EducationAssessmentTasks"],
-            "/education/assessment-tasks",
-            icon: "fas fa-tasks"
-        ).RequirePermissions(EducationPermissions.AssessmentManage));
+
     }
 
     /// <summary>

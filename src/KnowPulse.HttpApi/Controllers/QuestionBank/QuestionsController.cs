@@ -123,12 +123,6 @@ public class QuestionsController : KnowPulseController
         return _questionWorkflowAppService.SaveDraftAsync(id, input);
     }
 
-    [HttpPost("{id:guid}/curriculum-confirmation")]
-    public Task<QuestionDto> ConfirmCurriculumAsync(Guid id, [FromBody] ConfirmQuestionCurriculumDto input)
-    {
-        return _questionAppService.ConfirmCurriculumAsync(id, input);
-    }
-
     /// <summary>
     /// 删除题目。
     /// </summary>

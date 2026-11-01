@@ -1,16 +1,12 @@
 # KnowPulse
 
-KnowPulse is an enterprise knowledge, learning, and exam system built on ABP Framework, ASP.NET Core, Blazor, PostgreSQL, MinIO, Qdrant, and LiteLLM.
+KnowPulse 是教师工作后台与学生答题工具，基于 ABP Framework、ASP.NET Core、Blazor、PostgreSQL、MinIO、Qdrant 和 LiteLLM。
 
-The current application includes organization and permission management, knowledge lifecycle and ingestion, permission-aware RAG, AI model management, question review, AI-assisted question generation, exams, learning paths, and knowledge feedback.
+当前产品主线是：教师整理个人资料或选择获授权共享资料，生成并确认题目，从自己的学生名单选择接收人发布答题任务；学生在微信小程序作答，教师查看本人任务的结果。教师通过 `/teacher/materials`、`/teacher/shared`、`/teacher/questions`、`/teacher/students` 和 `/teacher/tasks` 完成日常操作。
 
-The education student inbox now covers assessment, feedback and teaching plan notices in Web and the shared-AppID student workspace. It preserves exact source versions, separate message reads and current-school permissions; real WeChat delivery remains unconfigured. See [the operation guide](docs/user-operation-guide.md#83-教学方案执行变化与困难处理站内消息) and [ADR 0050](docs/adr/0050-public-plan-and-difficulty-handling-inbox-notices.md).
+学校管理、学校成员身份、任教／在班核验及旧 `/education/*` 工作区已退出产品流程。师生关系采用邀请码申请和教师确认，不要求学校、班级或教师资质认证；登录、租户隔离、资料归属和任务权限继续独立校验。历史学校教育文档仅供追溯，当前范围以[业务需求](docs/business-requirements.md)为准。
 
-School managers can also issue account-bound teacher/student invitations for explicit confirmation in Web or the same mini program. Acceptance preserves personal ownership and requires separate teaching/enrollment verification. See [ADR 0051](docs/adr/0051-account-bound-school-invitations-and-explicit-membership-confirmation.md) and operation guide §84; account recovery and school support policies remain in progress.
-
-Teachers can review their own relations and request school correction in Web and the mini program. Authorized managers resolve the request with atomic relation changes and preserved history. See [ADR 0052](docs/adr/0052-teacher-relation-correction-requests-and-atomic-school-resolution.md) and operation guide §85.
-
-The public account-assistance entry connects existing original-account recovery, normal OIDC login and owner WeChat binding management; native login/workspaces can copy its fixed URL. The user confirmed owner self-service with platform manual review for exceptions; that exceptional workflow and real email delivery remain unfinished. See [ADR 0053](docs/adr/0053-original-account-self-service-assistance-entry.md) and operation guide §86.
+学生端使用平级独立仓库 [KnowPulse.MiniProgram](../KnowPulse.MiniProgram/README.md)，只保留答题与本人教师关联流程。本仓库原内嵌 `miniprogram/` 学校小程序已退役并删除。
 
 ## KnowPulse docs
 
@@ -20,13 +16,13 @@ The public account-assistance entry connects existing original-account recovery,
 * [项目全景导读：目录、架构、业务流程、数据权限与代码审计](docs/project-guide/README.md)
 
 * [全仓库技术架构、12 张架构图与审计报告（2026-10-18 文件快照）](docs/architecture-review/README.md)
-* [初中教育完整产品 PRD](docs/education-prd.md)
+* [历史学校教育 PRD（已退役）](docs/education-prd.md)
 
 * [详细使用操作手册](docs/user-operation-guide.md)
-* [初中教育完整产品规划](docs/education-product-plan.md)
-* [教师微信小程序体验规划](docs/product/education-teacher-miniapp-experience.md)
-* [原生微信登录工程与接入说明](miniprogram/README.md)
-* [初中教师个人知识库与个性化教学需求草案](docs/education-personal-knowledge-requirements.md)
+* [历史学校教育产品规划（已退役）](docs/education-product-plan.md)
+* [历史教师小程序体验规划（已退役）](docs/product/education-teacher-miniapp-experience.md)
+* [学生微信小程序与接入说明](../KnowPulse.MiniProgram/README.md)
+* [历史教师个人知识库与个性化教学草案（已退役）](docs/education-personal-knowledge-requirements.md)
 * [Development environment](docs/development-environment.md)
 * [MVP-0 task breakdown](docs/mvp-0-task-breakdown.md)
 * [Module boundaries](docs/module-boundaries.md)

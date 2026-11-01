@@ -46,7 +46,6 @@ public class ExamAppService : KnowPulseAppService, IExamAppService
     private readonly IRepository<IdentityUser, Guid> _users;
     private readonly IRepository<UserOrganizationAssignment, Guid> _userOrganizationAssignmentRepository;
     private readonly KnowledgeSourceAccessGuard _sourceAccessGuard;
-    private QuestionCurriculumAccessGuard QuestionCurriculum => LazyServiceProvider.LazyGetRequiredService<QuestionCurriculumAccessGuard>();
     private IUnitOfWorkManager Uow => LazyServiceProvider.LazyGetRequiredService<IUnitOfWorkManager>();
 
     public ExamAppService(
@@ -568,10 +567,11 @@ public class ExamAppService : KnowPulseAppService, IExamAppService
 
     private async Task<PaperBuildResult> BuildPaperAsync(GenerateExamPaperDto input, bool forUpdate = false, Guid? operationId = null)
     {
-        var curriculum = input.CurriculumScope == null ? null : await LazyServiceProvider.LazyGetRequiredService<EducationCurriculumAccessGuard>().ResolveAsync(input.CurriculumScope);
+        if (input.CurriculumScope != null)
+            throw new BusinessException("KnowPulse:Education:SchoolWorkflowRetired");
         var selected = input.BuildMode == ExamPaperBuildMode.Fixed
             ? await SelectFixedQuestionsAsync(input)
-            : await SelectByRulesAsync(input, curriculum);
+            : await SelectByRulesAsync(input);
 
         if (selected.Count == 0)
         {
@@ -585,8 +585,8 @@ public class ExamAppService : KnowPulseAppService, IExamAppService
         for (var i = 0; i < selected.Count; i++)
         {
             var selectedQuestion = selected[i];
-            if (!MatchesCurriculum(selectedQuestion.Question, curriculum))
-                throw new BusinessException(EducationCurriculumErrorCodes.ReferenceMismatch);
+            if (selectedQuestion.Question.CurriculumSnapshotJson != null)
+                throw new BusinessException("KnowPulse:Education:SchoolWorkflowRetired");
             var (snapshot, isPersonal) = await CreatePaperQuestionSnapshotAsync(
                 paperId, selectedQuestion.Question, selectedQuestion.Score, selectedQuestion.MultipleChoiceScoringMode, i + 1, forUpdate);
             questions.Add(snapshot);
@@ -603,23 +603,6 @@ public class ExamAppService : KnowPulseAppService, IExamAppService
             selected.Count,
             totalScore,
             hasPersonalContent || operationId.HasValue ? GetCurrentUserId() : null);
-
-        if (selected.Any(x => x.Question.CurriculumSnapshotJson != null) && curriculum == null)
-            throw new BusinessException("KnowPulse:Education:CurriculumConfirmationRequired");
-        if (curriculum != null)
-        {
-            var requestedMappings = curriculum.Mappings.Select(x => x.MappingId).ToHashSet();
-            foreach (var row in selected)
-            {
-                if (row.Question.CurriculumSnapshotJson == null) throw new BusinessException("KnowPulse:Education:CurriculumConfirmationRequired");
-                var questionScope = JsonSerializer.Deserialize<EducationCurriculumSnapshot>(row.Question.CurriculumSnapshotJson, JsonOptions)!;
-                var weights = JsonSerializer.Deserialize<List<QuestionCurriculumPointWeight>>(row.Question.CurriculumPointWeightsJson, JsonOptions) ?? [];
-                if (questionScope.TextbookVersionId != curriculum.TextbookVersionId || questionScope.SchoolId != curriculum.SchoolId ||
-                    questionScope.TeacherTextbookSelectionId != curriculum.TeacherTextbookSelectionId || weights.Any(x => !requestedMappings.Contains(x.TextbookKnowledgePointMappingId)))
-                    throw new BusinessException(EducationCurriculumErrorCodes.ReferenceMismatch);
-            }
-            paper.FreezeCurriculum(JsonSerializer.Serialize(curriculum, JsonOptions));
-        }
 
         return new PaperBuildResult(paper, questions);
     }
@@ -642,11 +625,10 @@ public class ExamAppService : KnowPulseAppService, IExamAppService
         foreach (var question in questions)
             await _sourceAccessGuard.EnsureQuestionAsync(question, requireUsableSources: true);
         return selected.Select(item => new SelectedQuestion(questions.Single(x => x.Id == item.QuestionId),
-            input.CurriculumScope != null ? questions.Single(x => x.Id == item.QuestionId).CurriculumScore ??
-                throw new BusinessException("KnowPulse:Education:CurriculumConfirmationRequired") : item.Score, item.MultipleChoiceScoringMode)).ToList();
+            item.Score, item.MultipleChoiceScoringMode)).ToList();
     }
 
-    private async Task<List<SelectedQuestion>> SelectByRulesAsync(GenerateExamPaperDto input, EducationCurriculumSnapshot? curriculum)
+    private async Task<List<SelectedQuestion>> SelectByRulesAsync(GenerateExamPaperDto input)
     {
         if (input.Rules.Count == 0)
         {
@@ -657,7 +639,7 @@ public class ExamAppService : KnowPulseAppService, IExamAppService
         var usedIds = new HashSet<Guid>();
         foreach (var rule in input.Rules)
         {
-            var candidates = await GetCandidatesForRuleAsync(input, rule, usedIds, curriculum);
+            var candidates = await GetCandidatesForRuleAsync(input, rule, usedIds);
             if (candidates.Count < rule.Count)
             {
                 throw new BusinessException(KnowPulseDomainErrorCodes.ExamPaperQuestionInsufficient);
@@ -681,7 +663,7 @@ public class ExamAppService : KnowPulseAppService, IExamAppService
     private async Task<List<Question>> GetCandidatesForRuleAsync(
         GenerateExamPaperDto input,
         ExamPaperRuleDto rule,
-        HashSet<Guid> usedIds, EducationCurriculumSnapshot? curriculum)
+        HashSet<Guid> usedIds)
     {
         var queryable = FilterQuestionOwnership(await _questionRepository.GetQueryableAsync());
         queryable = queryable.Where(x => x.Status == QuestionStatus.Approved && !usedIds.Contains(x.Id) &&
@@ -718,11 +700,10 @@ public class ExamAppService : KnowPulseAppService, IExamAppService
         var usableCandidates = new List<Question>();
         foreach (var candidate in candidates)
         {
-            if (!MatchesCurriculum(candidate, curriculum) || (candidate.CurriculumSnapshotJson != null && candidate.CurriculumScore != rule.ScorePerQuestion)) continue;
+            if (candidate.CurriculumSnapshotJson != null) continue;
             try
             {
                 await _sourceAccessGuard.EnsureQuestionAsync(candidate, requireUsableSources: true);
-                await QuestionCurriculum.EnsureAsync(candidate);
                 usableCandidates.Add(candidate);
             }
             catch (Exception error) when (error is AbpAuthorizationException || error is BusinessException && candidate.CurriculumSnapshotJson != null)
@@ -734,9 +715,6 @@ public class ExamAppService : KnowPulseAppService, IExamAppService
         return usableCandidates;
     }
 
-    private static bool MatchesCurriculum(Question question, EducationCurriculumSnapshot? scope)
-        => QuestionCurriculumAccessGuard.MatchesScope(question, scope);
-
     private async Task<(ExamPaperQuestion Snapshot, bool IsPersonal)> CreatePaperQuestionSnapshotAsync(
         Guid paperId,
         Question question,
@@ -746,7 +724,7 @@ public class ExamAppService : KnowPulseAppService, IExamAppService
     {
         // The preliminary rule selection stays read-only. Only selected questions contend with
         // content/source edits, in the same transaction that freezes the paper.
-        if (question.CurriculumSnapshotJson != null) await QuestionCurriculum.EnsureAsync(question, forUpdate: forUpdate);
+        if (question.CurriculumSnapshotJson != null) throw new BusinessException("KnowPulse:Education:SchoolWorkflowRetired");
         await _sourceAccessGuard.EnsureQuestionAsync(question, requireUsableSources: true, forUpdate: forUpdate);
         var options = await GetQuestionOptionsAsync(question.Id);
         var answers = await GetQuestionAnswersAsync(question.Id);
@@ -760,11 +738,10 @@ public class ExamAppService : KnowPulseAppService, IExamAppService
             // Older questions may not carry an owner yet; use the same validated sources included in this snapshot.
             var metadata = await _sourceAccessGuard.EnsureSourceMetadataAsync(
                 source.KnowledgeItemId, source.KnowledgeVersionId, source.ChunkId, requireUsable: true, schoolKnowledgeShareId: source.SchoolKnowledgeShareId);
+            if (metadata.IsShared) throw new BusinessException("KnowPulse:Education:SchoolWorkflowRetired");
             var item = metadata.Item;
             isPersonal |= item?.OwnerUserId.HasValue == true;
-            var title = metadata.IsShared && !(question.CurriculumSnapshotJson != null && source.SchoolKnowledgeShareId.HasValue)
-                ? metadata.Title
-                : source.SourceTitle;
+            var title = source.SourceTitle;
             var label = TrimToNull(title) ?? TrimToNull(source.ManualSourceDescription) ??
                 TrimToNull(source.SourceHash) ?? source.KnowledgeItemId?.ToString() ??
                 source.KnowledgeVersionId?.ToString() ?? source.ChunkId?.ToString();
@@ -794,8 +771,7 @@ public class ExamAppService : KnowPulseAppService, IExamAppService
             score,
             scoringMode,
             displayOrder);
-        if (question.CurriculumSnapshotJson != null) snapshot.FreezeCurriculum(question);
-        if (question.CurriculumSnapshotJson != null || question.ScoringDefinitionJson != null || question.ApprovedDefinitionRevisionId.HasValue)
+        if (question.ScoringDefinitionJson != null || question.ApprovedDefinitionRevisionId.HasValue)
         {
             await LazyServiceProvider.LazyGetRequiredService<QuestionAppService>().EnsureApprovedDefinitionAsync(question);
             snapshot.FreezeDefinition(question);
